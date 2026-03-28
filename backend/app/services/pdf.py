@@ -33,18 +33,29 @@ def generate_practice_set_pdf(
     """
     if output_dir is None:
         # PDF输出到 uploads/images/practice_sets，与静态文件服务一致
-        output_dir = os.path.join(settings.UPLOAD_DIR, "practice_sets")
+        upload_dir_abs = os.path.abspath(settings.UPLOAD_DIR)
+        output_dir = os.path.join(upload_dir_abs, "practice_sets")
 
     # 确保目录存在
     os.makedirs(output_dir, exist_ok=True)
+    print(f"[PDF DEBUG] output_dir: {output_dir}")
+    print(f"[PDF DEBUG] dir exists: {os.path.exists(output_dir)}")
+    print(f"[PDF DEBUG] is dir: {os.path.isdir(output_dir)}")
 
     # 生成文件名
     filename = f"{uuid.uuid4().hex[:8]}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
     output_path = os.path.join(output_dir, filename)
+    print(f"[PDF DEBUG] output_path: {output_path}")
 
     # 创建PDF
     pdf = PracticeSetPDF(practice_set_name, questions)
     pdf.generate(output_path)
+
+    # 验证文件是否生成
+    if os.path.exists(output_path):
+        print(f"[PDF DEBUG] PDF生成成功: {output_path}, 大小: {os.path.getsize(output_path)}")
+    else:
+        print(f"[PDF DEBUG] PDF生成失败，文件不存在: {output_path}")
 
     # 返回相对路径（始终使用正斜杠以兼容URL）
     return f"practice_sets/{filename}"

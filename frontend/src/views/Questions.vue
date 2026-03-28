@@ -16,11 +16,28 @@
         <el-select v-model="filters.subject_id" placeholder="选择学科" clearable @change="fetchQuestions" style="width: 130px">
           <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-select v-model="filters.difficulty" placeholder="难度" clearable @change="fetchQuestions" style="width: 100px">
+        <el-select v-model="filters.difficulty" placeholder="难度" multiple clearable @change="fetchQuestions" style="width: 180px">
           <el-option v-for="i in 5" :key="i" :label="`难度 ${i}`" :value="i" />
         </el-select>
+        <el-select v-model="filters.tag_ids" placeholder="标签" multiple clearable @change="fetchQuestions" style="width: 200px">
+          <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+        <el-input
+          v-model="filters.knowledge_point"
+          placeholder="搜索知识点"
+          clearable
+          @change="fetchQuestions"
+          style="width: 130px"
+        />
         <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchQuestions" style="width: 100px">
           <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
+        </el-select>
+        <el-select v-model="filters.error_type" placeholder="错误类型" multiple clearable @change="fetchQuestions" style="width: 180px">
+          <el-option label="计算错误" value="计算" />
+          <el-option label="概念错误" value="概念" />
+          <el-option label="审题错误" value="审题" />
+          <el-option label="粗心错误" value="粗心" />
+          <el-option label="其他错误" value="其他" />
         </el-select>
         <el-select v-model="filters.semester" placeholder="学期" clearable @change="fetchQuestions" style="width: 90px">
           <el-option label="上学期" :value="1" />
@@ -187,10 +204,11 @@
           <el-rate v-model="editForm.difficulty" :max="5" />
         </el-form-item>
         <el-form-item label="错误类型">
-          <el-select v-model="editForm.error_type" placeholder="选择错误类型">
+          <el-select v-model="editForm.error_type" multiple placeholder="选择错误类型">
             <el-option label="计算错误" value="计算" />
             <el-option label="概念错误" value="概念" />
             <el-option label="审题错误" value="审题" />
+            <el-option label="粗心错误" value="粗心" />
             <el-option label="其他错误" value="其他" />
           </el-select>
         </el-form-item>
@@ -270,6 +288,9 @@ const allTags = ref([])
 const filters = reactive({
   subject_id: null,
   difficulty: null,
+  tag_ids: null,
+  knowledge_point: '',
+  error_type: null,
   keyword: '',
   grade: null,
   semester: null,
@@ -297,7 +318,7 @@ const editForm = reactive({
   answer: '',
   analysis: '',
   difficulty: 3,
-  error_type: '',
+  error_type: [],
   knowledge_point: '',
   grade: null,
   semester: null,
@@ -306,11 +327,21 @@ const editForm = reactive({
 
 const fetchQuestions = async () => {
   try {
-    const { data } = await questionApi.list({
+    // 构建查询参数，多选值用逗号分隔
+    const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit,
-      ...filters,
-    })
+    }
+    if (filters.subject_id) params.subject_id = filters.subject_id
+    if (filters.difficulty && filters.difficulty.length) params.difficulty = filters.difficulty.join(',')
+    if (filters.tag_ids && filters.tag_ids.length) params.tag_ids = filters.tag_ids.join(',')
+    if (filters.knowledge_point) params.knowledge_point = filters.knowledge_point
+    if (filters.keyword) params.keyword = filters.keyword
+    if (filters.grade) params.grade = filters.grade
+    if (filters.semester) params.semester = filters.semester
+    if (filters.error_type && filters.error_type.length) params.error_type = filters.error_type.join(',')
+
+    const { data } = await questionApi.list(params)
     questions.value = data
   } catch (error) {
     ElMessage.error('获取错题列表失败')
@@ -358,7 +389,7 @@ const editQuestion = (row) => {
   editForm.answer = row.answer || ''
   editForm.analysis = row.analysis || ''
   editForm.difficulty = row.difficulty || 3
-  editForm.error_type = row.error_type || ''
+  editForm.error_type = row.error_type ? (Array.isArray(row.error_type) ? row.error_type : row.error_type.split(',').map(e => e.trim()).filter(e => e)) : []
   editForm.knowledge_point = row.knowledge_point || ''
   editForm.grade = row.grade || null
   editForm.semester = row.semester || null
@@ -369,7 +400,12 @@ const editQuestion = (row) => {
 const saveEdit = async () => {
   editLoading.value = true
   try {
-    await questionApi.update(currentQuestion.value.id, editForm)
+    // 处理 error_type 数组转为逗号分隔字符串
+    const submitData = {
+      ...editForm,
+      error_type: Array.isArray(editForm.error_type) ? editForm.error_type.join(',') : editForm.error_type,
+    }
+    await questionApi.update(currentQuestion.value.id, submitData)
     ElMessage.success('更新成功')
     editVisible.value = false
     fetchQuestions()
@@ -468,14 +504,14 @@ const createPracticeSet = async () => {
     })
 
     // 自动生成PDF
-    await questionApi.generatePracticeSetPdf(data.id)
+    const pdfRes = await questionApi.generatePracticeSetPdf(data.id)
 
     ElMessage.success('练习集已创建，PDF已生成')
     printDialogVisible.value = false
     clearSelection()
 
     // 打开PDF下载
-    window.open(`/uploads/practice_sets/${data.id}.pdf`, '_blank')
+    window.open(pdfRes.data.pdf_url, '_blank')
   } catch (error) {
     ElMessage.error('创建练习集失败')
   } finally {

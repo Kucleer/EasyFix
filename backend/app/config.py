@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     DB_PATH: str = "easyfix.db"  # SQLite database file path
 
     # Upload
-    UPLOAD_DIR: str = "uploads/images"
+    UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads", "images")
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
 
     # LLM
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # Server
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    PORT: int = 8000  # 后端API端口
 
     @property
     def DATABASE_URL(self) -> str:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 import json
 from app.database import get_db
-from app.models import Question, Tag
+from app.models import Question, Tag, QuestionTag
 from app.models.operation_log import OperationType
 from app.schemas import QuestionCreate, QuestionUpdate, QuestionResponse, QuestionListResponse, QuestionBatchCreate, BatchCreateResponse
 from app.services.logger import logger_service
@@ -17,11 +17,13 @@ def list_questions(
     limit: int = Query(20, ge=1, le=100),
     error_book_id: Optional[int] = None,
     subject_id: Optional[int] = None,
-    difficulty: Optional[int] = Query(None, ge=1, le=5),
+    difficulty: Optional[str] = Query(None, description="难度，多个用逗号分隔"),
     error_type: Optional[str] = None,
     keyword: Optional[str] = None,
     grade: Optional[int] = Query(None, ge=1, le=12),
     semester: Optional[int] = Query(None, ge=1, le=2),
+    tag_ids: Optional[str] = Query(None, description="标签ID，多个用逗号分隔"),
+    knowledge_point: Optional[str] = Query(None, description="知识点搜索"),
     db: Session = Depends(get_db),
 ):
     # 过滤已删除的记录
@@ -31,20 +33,34 @@ def list_questions(
         query = query.filter(Question.error_book_id == error_book_id)
     if subject_id:
         query = query.filter(Question.subject_id == subject_id)
+    # 难度多选
     if difficulty:
-        query = query.filter(Question.difficulty == difficulty)
+        diff_list = [int(d.strip()) for d in difficulty.split(',') if d.strip().isdigit()]
+        if diff_list:
+            query = query.filter(Question.difficulty.in_(diff_list))
     if error_type:
-        query = query.filter(Question.error_type == error_type)
+        # 错误类型多选
+        error_type_list = [e.strip() for e in error_type.split(',') if e.strip()]
+        if error_type_list:
+            query = query.filter(Question.error_type.in_(error_type_list))
     if grade:
         query = query.filter(Question.grade == grade)
     if semester:
         query = query.filter(Question.semester == semester)
+    # 知识点搜索
+    if knowledge_point:
+        query = query.filter(Question.knowledge_point.contains(knowledge_point))
     if keyword:
         query = query.filter(
             (Question.original_text.contains(keyword))
             | (Question.parsed_question.contains(keyword))
             | (Question.knowledge_point.contains(keyword))
         )
+    # 标签多选（通过关联表过滤）
+    if tag_ids:
+        tag_list = [int(t.strip()) for t in tag_ids.split(',') if t.strip().isdigit()]
+        if tag_list:
+            query = query.join(QuestionTag).filter(QuestionTag.c.tag_id.in_(tag_list))
 
     total = query.count()
     items = query.order_by(Question.created_at.desc()).offset(skip).limit(limit).all()

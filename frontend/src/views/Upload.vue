@@ -189,10 +189,11 @@
             <el-rate v-model="form.difficulty" :max="5" show-text :texts="['很简单', '简单', '一般', '较难', '很难']" />
           </el-form-item>
           <el-form-item label="错误类型">
-            <el-select v-model="form.error_type" placeholder="选择错误类型" style="width: 100%">
+            <el-select v-model="form.error_type" multiple placeholder="选择错误类型" style="width: 100%">
               <el-option label="计算错误" value="计算" />
               <el-option label="概念错误" value="概念" />
               <el-option label="审题错误" value="审题" />
+              <el-option label="粗心错误" value="粗心" />
               <el-option label="其他错误" value="其他" />
             </el-select>
           </el-form-item>
@@ -288,7 +289,7 @@ const form = reactive({
   answer: '',
   analysis: '',
   difficulty: 3,
-  error_type: '',
+  error_type: [],
   knowledge_point: '',
   grade: null,
   semester: null,
@@ -394,11 +395,14 @@ const submitQuestion = async () => {
 
   submitting.value = true
   try {
-    const { data } = await questionApi.create({
+    // 处理 error_type 数组转为逗号分隔字符串
+    const submitData = {
       ...form,
+      error_type: Array.isArray(form.error_type) ? form.error_type.join(',') : form.error_type,
       original_images: uploadImagePaths.value,
       original_image: uploadImagePaths.value[0] || null,
-    })
+    }
+    const { data } = await questionApi.create(submitData)
     ElMessage.success('错题保存成功')
     submittedQuestion.value = data
     // Reset form for next entry but stay on page
@@ -416,7 +420,7 @@ const submitQuestion = async () => {
     form.answer = ''
     form.analysis = ''
     form.difficulty = 3
-    form.error_type = ''
+    form.error_type = []
     form.knowledge_point = ''
     form.grade = null
     form.semester = null
