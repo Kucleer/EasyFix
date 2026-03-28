@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip --version)",
+      "Bash(mysql --version)",
+      "Bash(net start:*)",
+      "Bash(sc query:*)",
+      "Bash(pip install:*)",
+      "Bash(npm install:*)",
+      "Bash(python -c \"import pymysql; print\\(''pymysql ok''\\)\")",
+      "Bash(pip -V)",
+      "Bash(/c/Python314/python.exe -m pip install pymysql sqlalchemy -q)",
+      "Bash(/c/Python314/python.exe -c \"import pymysql; print\\(''pymysql ok''\\)\")",
+      "Bash(/c/Python314/python.exe:*)",
+      "Bash(curl -s http://localhost:8000/api/stats/summary)",
+      "Bash(curl -s http://localhost:8000/api/questions)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -X POST http://localhost:8000/api/config/ocr -H \"Content-Type: application/json\" -d '{\"\"provider\"\":\"\"baidu\"\",\"\"baidu_api_key\"\":\"\"test_key\"\",\"\"baidu_secret_key\"\":\"\"test_secret\"\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/upload/image -F \"file=@C:/Users/Administrator/Pictures/test.jpg\" -v)",
+      "Bash(curl -s -X POST http://localhost:8000/api/upload/image -F \"file=@C:/Users/Administrator/Pictures/test.jpg\" --max-time 30 -v)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s -X POST http://localhost:8000/api/upload/image -F \"file=@C:/Users/Administrator/Pictures/微信截图_20230609015357.png;filename=test.png\" --max-time 60)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''image_path:'''', d.get\\(''''image_path''''\\)\\)\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/upload/image -F \"file=@C:/Users/Administrator/Pictures/微信截图_20230609015357.png;filename=test.png\" --max-time 60)",
+      "Bash(curl -s -X POST http://localhost:8000/api/questions -H \"Content-Type: application/json\" -d '{:*)",
+      "Bash(curl -s -X POST http://localhost:8000/api/questions -H \"Content-Type: application/json\" -d '{\"\"error_book_id\"\":1,\"\"subject_id\"\":1,\"\"original_text\"\":\"\"test\"\",\"\"answer\"\":\"\"answer\"\",\"\"difficulty\"\":3}')",
+      "Read(//e/Kucleer_code/EasyFix/backend/**)"
+    ]
+  }
+}

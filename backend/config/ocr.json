@@ -1,0 +1,15 @@
+{
+  "provider": "multimodal",
+  "baidu_api_key": "test_key",
+  "baidu_secret_key": "test_secret",
+  "tencent_app_id": "",
+  "tencent_secret_id": "",
+  "tencent_secret_key": "",
+  "tencent_bucket": "",
+  "multimodal_provider": "qwen",
+  "openai_vision_model": "gpt-4o",
+  "anthropic_api_key": "",
+  "claude_vision_model": "claude-3-sonnet-20240229",
+  "qwen_api_key": "sk-e4ed8e9287e04ca9820824061173bff5",
+  "qwen_vision_model": "qwen-vl-max"
+}

@@ -1,0 +1,31 @@
+# FastAPI
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# Database
+sqlalchemy==2.0.25
+pymysql==1.1.0
+cryptography==42.0.2
+
+# Pydantic
+pydantic==2.6.1
+pydantic-settings==2.1.0
+
+# OCR - Local (选择其一安装)
+# 方案1: PaddleOCR (推荐，中文识别好)
+paddleocr==2.7.3
+paddlepaddle==2.6.1
+
+# 方案2: Tesseract (需单独安装Tesseract引擎)
+# pytesseract==0.3.10
+
+# OCR - Cloud APIs
+requests==2.31.0
+
+# LLM
+openai==1.12.0
+
+# Utils
+python-dotenv==1.0.1
+aiofiles==23.2.1

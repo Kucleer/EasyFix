@@ -1,0 +1,6 @@
+{
+  "provider": "custom",
+  "api_key": "sk-cp-W2f4iZDa9Ua5L61L0Rih6yMuf7UMv9YBDHy1M4PfBWw1nG2OWiBCvOV0Tecb64AQTtgqZcYrgSQPPJio01xhU726WidHbOacasEO9nAgIN7nzb40c3RtzGE",
+  "base_url": "https://api.minimaxi.com/anthropic",
+  "model": "MiniMax-M2.7"
+}
