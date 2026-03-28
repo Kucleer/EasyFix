@@ -13,13 +13,13 @@
 
       <!-- 筛选条件 -->
       <div class="filters">
-        <el-select v-model="filters.subject_id" placeholder="选择学科" clearable @change="fetchQuestions" style="width: 130px">
+        <el-select v-model="filters.subject_id" placeholder="选择学科" clearable @change="fetchQuestions" style="width: 195px">
           <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-select v-model="filters.difficulty" placeholder="难度" multiple clearable @change="fetchQuestions" style="width: 180px">
+        <el-select v-model="filters.difficulty" placeholder="难度" multiple clearable @change="fetchQuestions" style="width: 300px">
           <el-option v-for="i in 5" :key="i" :label="`难度 ${i}`" :value="i" />
         </el-select>
-        <el-select v-model="filters.tag_ids" placeholder="标签" multiple clearable @change="fetchQuestions" style="width: 200px">
+        <el-select v-model="filters.tag_ids" placeholder="标签" multiple clearable @change="fetchQuestions" style="width: 300px">
           <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
         <el-input
@@ -27,19 +27,19 @@
           placeholder="搜索知识点"
           clearable
           @change="fetchQuestions"
-          style="width: 130px"
+          style="width: 195px"
         />
-        <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchQuestions" style="width: 100px">
+        <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchQuestions" style="width: 150px">
           <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
         </el-select>
-        <el-select v-model="filters.error_type" placeholder="错误类型" multiple clearable @change="fetchQuestions" style="width: 180px">
+        <el-select v-model="filters.error_type" placeholder="错误类型" multiple clearable @change="fetchQuestions" style="width: 330px">
           <el-option label="计算错误" value="计算" />
           <el-option label="概念错误" value="概念" />
           <el-option label="审题错误" value="审题" />
           <el-option label="粗心错误" value="粗心" />
           <el-option label="其他错误" value="其他" />
         </el-select>
-        <el-select v-model="filters.semester" placeholder="学期" clearable @change="fetchQuestions" style="width: 90px">
+        <el-select v-model="filters.semester" placeholder="学期" clearable @change="fetchQuestions" style="width: 135px">
           <el-option label="上学期" :value="1" />
           <el-option label="下学期" :value="2" />
         </el-select>
@@ -48,8 +48,35 @@
           placeholder="搜索关键词"
           clearable
           @change="fetchQuestions"
-          style="width: 150px"
+          style="width: 225px"
         />
+      </div>
+
+      <!-- 已选筛选条件展示 -->
+      <div v-if="hasActiveFilters" class="selected-filters">
+        <span class="filter-label">已选条件：</span>
+        <el-tag v-if="filters.difficulty?.length" v-for="d in filters.difficulty" :key="d" :type="getDifficultyType(d)" size="small" closable @close="removeFilter('difficulty', d)">
+          难度{{ d }}
+        </el-tag>
+        <el-tag v-if="filters.error_type?.length" v-for="et in filters.error_type" :key="et" :type="getErrorTypeType(et)" size="small" closable @close="removeFilter('error_type', et)">
+          {{ et }}
+        </el-tag>
+        <el-tag v-if="filters.tag_ids?.length" v-for="tagId in filters.tag_ids" :key="tagId" size="small" closable @close="removeFilter('tag_ids', tagId)" :style="getTagStyle(tagId)">
+          {{ getTagName(tagId) }}
+        </el-tag>
+        <el-tag v-if="filters.knowledge_point" size="small" type="info" closable @close="removeFilter('knowledge_point')">
+          知识点: {{ filters.knowledge_point }}
+        </el-tag>
+        <el-tag v-if="filters.subject_id" size="small" closable @close="removeFilter('subject_id')">
+          {{ subjects.find(s => s.id === filters.subject_id)?.name }}
+        </el-tag>
+        <el-tag v-if="filters.grade" size="small" closable @close="removeFilter('grade')">
+          {{ getGradeLabel(filters.grade) }}
+        </el-tag>
+        <el-tag v-if="filters.semester" size="small" closable @close="removeFilter('semester')">
+          {{ filters.semester === 1 ? '上学期' : '下学期' }}
+        </el-tag>
+        <el-button link type="primary" size="small" @click="clearAllFilters">清空</el-button>
       </div>
 
       <!-- 错题列表 -->
@@ -74,8 +101,30 @@
             <el-tag :type="getDifficultyType(row.difficulty)">{{ row.difficulty }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="error_type" label="错误类型" width="100" />
-        <el-table-column prop="knowledge_point" label="知识点" width="120" />
+        <el-table-column prop="error_type" label="错误类型" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.error_type" :type="getErrorTypeType(row.error_type)" size="small">{{ row.error_type }}</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="知识点" width="140">
+          <template #default="{ row }">
+            <el-tag v-if="row.knowledge_point" size="small" type="info">{{ row.knowledge_point }}</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="标签" width="160">
+          <template #default="{ row }">
+            <el-tag
+              v-for="tag in (row.tags || []).slice(0, 2)"
+              :key="tag.id"
+              size="small"
+              :style="{ marginRight: '4px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff' }"
+            >{{ tag.name }}</el-tag>
+            <el-tag v-if="(row.tags || []).length > 2" size="small">+{{ row.tags.length - 2 }}</el-tag>
+            <span v-if="!row.tags?.length">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="160">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
@@ -160,18 +209,27 @@
         <div class="detail-row">
           <div class="detail-item half">
             <label>错误类型：</label>
-            <span>{{ currentQuestion.error_type || '暂无' }}</span>
+            <el-tag v-if="currentQuestion.error_type" :type="getErrorTypeType(currentQuestion.error_type)" size="small">
+              {{ currentQuestion.error_type }}
+            </el-tag>
+            <span v-else>暂无</span>
           </div>
           <div class="detail-item half">
             <label>知识点：</label>
-            <span>{{ currentQuestion.knowledge_point || '暂无' }}</span>
+            <el-tag v-if="currentQuestion.knowledge_point" size="small" type="info">
+              {{ currentQuestion.knowledge_point }}
+            </el-tag>
+            <span v-else>暂无</span>
           </div>
         </div>
         <div class="detail-item">
           <label>标签：</label>
-          <el-tag v-for="tag in currentQuestion.tags" :key="tag.id" size="small" style="margin-right: 5px">
-            {{ tag.name }}
-          </el-tag>
+          <el-tag
+            v-for="tag in currentQuestion.tags"
+            :key="tag.id"
+            size="small"
+            :style="{ marginRight: '5px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff' }"
+          >{{ tag.name }}</el-tag>
           <span v-if="!currentQuestion.tags?.length">暂无</span>
         </div>
         <!-- 相似题 -->
@@ -451,8 +509,100 @@ const deleteQuestion = async (row) => {
 }
 
 const getDifficultyType = (difficulty) => {
-  const types = ['', 'success', 'warning', 'warning', 'danger', 'danger']
+  const types = ['', 'success', 'success', 'warning', 'warning', 'danger']
   return types[difficulty] || 'info'
+}
+
+const getErrorTypeType = (errorType) => {
+  const typeMap = {
+    '计算': 'danger',
+    '概念': 'warning',
+    '审题': 'info',
+    '粗心': 'success',
+    '其他': '',
+  }
+  return typeMap[errorType] || ''
+}
+
+const hasActiveFilters = computed(() => {
+  return filters.difficulty?.length ||
+    filters.error_type?.length ||
+    filters.tag_ids?.length ||
+    filters.knowledge_point ||
+    filters.subject_id ||
+    filters.grade ||
+    filters.semester
+})
+
+const removeFilter = (key, val) => {
+  if (key === 'difficulty') {
+    filters.difficulty = (filters.difficulty || []).filter(d => d !== val)
+  } else if (key === 'error_type') {
+    filters.error_type = (filters.error_type || []).filter(e => e !== val)
+  } else if (key === 'tag_ids') {
+    filters.tag_ids = (filters.tag_ids || []).filter(id => id !== val)
+  } else {
+    filters[key] = typeof filters[key] === 'number' ? null : (Array.isArray(filters[key]) ? [] : '')
+  }
+  fetchQuestions()
+}
+
+const clearAllFilters = () => {
+  filters.difficulty = null
+  filters.error_type = null
+  filters.tag_ids = null
+  filters.knowledge_point = ''
+  filters.subject_id = null
+  filters.grade = null
+  filters.semester = null
+  fetchQuestions()
+}
+
+const removeDifficulty = (d) => {
+  filters.difficulty = filters.difficulty.filter(i => i !== d)
+  fetchQuestions()
+}
+
+const removeTag = (tagId) => {
+  filters.tag_ids = filters.tag_ids.filter(id => id !== tagId)
+  fetchQuestions()
+}
+
+const removeErrorType = (et) => {
+  filters.error_type = filters.error_type.filter(e => e !== et)
+  fetchQuestions()
+}
+
+const getTagColor = (tagId) => {
+  const tag = allTags.value.find(t => t.id === tagId)
+  return tag?.color || '#409eff'
+}
+
+// 获取标签的样式（背景色和文字色）
+const getTagStyle = (tagId) => {
+  const bgColor = getTagColor(tagId)
+  // 根据背景色亮度计算文字颜色
+  const textColor = getContrastColor(bgColor)
+  return { backgroundColor: bgColor, borderColor: bgColor, color: textColor }
+}
+
+// 根据背景色返回对比色文字
+const getContrastColor = (hexColor) => {
+  if (!hexColor) return '#ffffff'
+  // 移除 # 号
+  const color = hexColor.replace('#', '')
+  // 解析RGB
+  const r = parseInt(color.substr(0, 2), 16)
+  const g = parseInt(color.substr(2, 2), 16)
+  const b = parseInt(color.substr(4, 2), 16)
+  // 计算亮度
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000
+  return brightness > 128 ? '#000000' : '#ffffff'
+}
+
+const getTagName = (tagId) => {
+  const tag = allTags.value.find(t => t.id === tagId)
+  return tag?.name || ''
 }
 
 const getGradeLabel = (grade) => {
@@ -565,8 +715,38 @@ onMounted(() => {
 
 .filters {
   display: flex;
-  gap: 10px;
+  gap: 15px;
   flex-wrap: wrap;
+  font-size: 16px;
+}
+
+.filters :deep(.el-input__wrapper),
+.filters :deep(.el-select__wrapper) {
+  min-height: 40px !important;
+  font-size: 16px !important;
+}
+
+.filters :deep(.el-input__inner) {
+  font-size: 16px !important;
+  height: 40px !important;
+}
+
+.filters :deep(.el-select__tags) {
+  font-size: 16px !important;
+}
+
+.selected-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px 0;
+  font-size: 16px;
+}
+
+.filter-label {
+  font-size: 16px;
+  color: #909399;
 }
 
 .question-cell {

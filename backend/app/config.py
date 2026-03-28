@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     DB_NAME: str = "easyfix"
     DB_PATH: str = "easyfix.db"  # SQLite database file path
 
-    # Upload
-    UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads", "images")
+    # Upload - 图片存储在 backend/uploads/images
+    UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads", "images")
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
 
     # LLM
