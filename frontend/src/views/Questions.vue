@@ -82,7 +82,7 @@
       <!-- 错题列表 -->
       <el-table v-model:selection="selectedQuestions" :data="questions.items" stripe style="width: 100%; margin-top: 20px" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="50" />
-        <el-table-column label="题目" min-width="200">
+        <el-table-column label="题目" min-width="300">
           <template #default="{ row }">
             <div class="question-cell">
               <el-image
@@ -92,7 +92,7 @@
                 fit="contain"
                 style="width: 50px; height: 50px; margin-right: 8px"
               />
-              <div class="text-preview">{{ row.parsed_question || row.original_text || '无文本' }}</div>
+              <div class="text-preview" v-html="decodeHTML(row.parsed_question || row.original_text || '无文本')"></div>
             </div>
           </template>
         </el-table-column>
@@ -186,15 +186,15 @@
         <el-divider />
         <div class="detail-item">
           <label>题目：</label>
-          <div class="question-text">{{ currentQuestion.parsed_question || currentQuestion.original_text || '暂无' }}</div>
+          <div class="question-text" v-html="decodeHTML(currentQuestion.parsed_question || currentQuestion.original_text || '暂无')"></div>
         </div>
         <div class="detail-item">
           <label>答案：</label>
-          <div class="question-text">{{ currentQuestion.answer || '暂无' }}</div>
+          <div class="question-text" v-html="decodeHTML(currentQuestion.answer || '暂无')"></div>
         </div>
         <div class="detail-item">
           <label>解析：</label>
-          <div class="question-text">{{ currentQuestion.analysis || '暂无' }}</div>
+          <div class="question-text" v-html="decodeHTML(currentQuestion.analysis || '暂无')"></div>
         </div>
         <div class="detail-row">
           <div class="detail-item half">
@@ -237,8 +237,8 @@
           <label>相似题：</label>
           <div class="similar-list">
             <div v-for="sq in currentQuestion.similar_questions" :key="sq.id" class="similar-item">
-              <p><strong>题目：</strong>{{ sq.similar_text }}</p>
-              <p><strong>答案：</strong>{{ sq.similar_answer }}</p>
+              <p><strong>题目：</strong><span v-html="decodeHTML(sq.similar_text)"></span></p>
+              <p><strong>答案：</strong><span v-html="decodeHTML(sq.similar_answer)"></span></p>
               <el-divider />
             </div>
           </div>
@@ -339,6 +339,14 @@ const gradeOptions = [
   { label: '高二', value: 11 },
   { label: '高三', value: 12 },
 ]
+
+// 解码HTML实体（将 &times; 转为 × 等）
+const decodeHTML = (html) => {
+  if (!html) return ''
+  const textarea = document.createElement('textarea')
+  textarea.innerHTML = html
+  return textarea.value
+}
 
 const questions = ref({ total: 0, items: [] })
 const subjects = ref([])
@@ -757,8 +765,9 @@ onMounted(() => {
 .text-preview {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 300px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .pagination {

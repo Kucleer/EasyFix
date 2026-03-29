@@ -1,11 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 import os
 
 from app.database import engine, Base
-from app.routers import question_router, upload_router, stats_router, similar_router, config_router, error_book_router, subject_router, tag_router, knowledge_point_router, practice_set_router
+from app.routers import question_router, upload_router, stats_router, similar_router, config_router, error_book_router, subject_router, tag_router, knowledge_point_router, practice_set_router, word_router
 from app.config import get_settings
+from app.access_config import ACCESS_PASSWORD
 
 settings = get_settings()
 
@@ -43,6 +45,7 @@ app.include_router(subject_router)
 app.include_router(tag_router)
 app.include_router(knowledge_point_router)
 app.include_router(practice_set_router)
+app.include_router(word_router)
 
 
 @app.get("/")
@@ -53,6 +56,18 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+class PasswordVerifyRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/verify-password")
+def verify_password(data: PasswordVerifyRequest):
+    """验证访问密码"""
+    if data.password == ACCESS_PASSWORD:
+        return {"success": True}
+    raise HTTPException(status_code=401, detail="密码错误")
 
 
 if __name__ == "__main__":

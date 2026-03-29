@@ -13,6 +13,7 @@ class Tag(Base):
 
     # Relationships
     questions = relationship("Question", secondary="question_tag", back_populates="tags")
+    words = relationship("Word", secondary="word_tag", back_populates="tags")
 
 
 # 关联表

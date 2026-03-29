@@ -1,0 +1,2 @@
+# 访问密码配置
+ACCESS_PASSWORD = "32167"

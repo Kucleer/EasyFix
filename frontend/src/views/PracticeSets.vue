@@ -18,11 +18,40 @@
         </el-select>
       </div>
 
+      <!-- 批量操作栏 -->
+      <div class="batch-actions">
+        <el-checkbox v-model="checkAll" :indeterminate="isIndeterminate" @change="handleCheckAllChange">
+          全选
+        </el-checkbox>
+        <span class="selected-count">已选择 {{ selectedIds.length }} 项</span>
+        <el-button
+          type="primary"
+          size="small"
+          :disabled="selectedIds.length === 0"
+          @click="batchDownloadPdf"
+        >
+          批量下载PDF
+        </el-button>
+        <el-button
+          type="danger"
+          size="small"
+          :disabled="selectedIds.length === 0"
+          @click="batchDelete"
+        >
+          批量删除
+        </el-button>
+      </div>
+
       <!-- 练习集列表 -->
       <div v-if="practiceSets.length" class="practice-set-grid">
         <el-card v-for="ps in practiceSets" :key="ps.id" class="practice-set-card" shadow="hover">
           <template #header>
             <div class="card-header-inner">
+              <el-checkbox
+                :model-value="selectedIds.includes(ps.id)"
+                @change="(val) => toggleSelect(ps.id, val)"
+                style="margin-right: 8px"
+              />
               <span class="ps-name">{{ ps.name }}</span>
               <el-tag :type="ps.question_type === 'original' ? 'primary' : 'success'" size="small">
                 {{ ps.question_type === 'original' ? '原题' : '相似题' }}
@@ -62,7 +91,7 @@
         <el-pagination
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.limit"
-          :page-sizes="[10, 20, 50]"
+          :page-sizes="[20, 50, 100, 500]"
           :total="total"
           layout="total, sizes, prev, pager, next"
           @change="fetchPracticeSets"
@@ -73,20 +102,38 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi } from '@/api/question'
 
 const practiceSets = ref([])
 const subjects = ref([])
 const total = ref(0)
+const selectedIds = ref([])
 const filters = reactive({
   subject_id: null,
   reviewed: null,
 })
 const pagination = reactive({
   page: 1,
-  limit: 20,
+  limit: 1000,
+})
+
+// 全选状态
+const checkAll = computed({
+  get: () => practiceSets.value.length > 0 && selectedIds.value.length === practiceSets.value.length,
+  set: (val) => {
+    if (val) {
+      selectedIds.value = practiceSets.value.map(ps => ps.id)
+    } else {
+      selectedIds.value = []
+    }
+  }
+})
+
+// 是否半选
+const isIndeterminate = computed(() => {
+  return selectedIds.value.length > 0 && selectedIds.value.length < practiceSets.value.length
 })
 
 const fetchPracticeSets = async () => {
@@ -109,6 +156,24 @@ const fetchSubjects = async () => {
     subjects.value = data
   } catch (error) {
     console.error('获取学科失败:', error)
+  }
+}
+
+const toggleSelect = (id, checked) => {
+  if (checked) {
+    if (!selectedIds.value.includes(id)) {
+      selectedIds.value.push(id)
+    }
+  } else {
+    selectedIds.value = selectedIds.value.filter(i => i !== id)
+  }
+}
+
+const handleCheckAllChange = (val) => {
+  if (val) {
+    selectedIds.value = practiceSets.value.map(ps => ps.id)
+  } else {
+    selectedIds.value = []
   }
 }
 
@@ -152,6 +217,61 @@ const deletePracticeSet = async (ps) => {
   }
 }
 
+// 批量下载PDF
+const batchDownloadPdf = async () => {
+  if (selectedIds.value.length === 0) {
+    ElMessage.warning('请先选择要下载的练习集')
+    return
+  }
+  try {
+    const { data } = await questionApi.batchDownloadPracticeSetsPdf(selectedIds.value)
+    const results = data.results || []
+    const successCount = results.filter(r => r.pdf_url).length
+
+    if (successCount === 0) {
+      ElMessage.warning('所选练习集都没有可下载的PDF')
+      return
+    }
+
+    // 逐个打开PDF链接
+    for (const result of results) {
+      if (result.pdf_url) {
+        window.open(result.pdf_url, '_blank')
+      }
+    }
+    ElMessage.success(`已开始下载 ${successCount} 个PDF文件`)
+  } catch (error) {
+    ElMessage.error('批量下载失败')
+  }
+}
+
+// 批量删除
+const batchDelete = async () => {
+  if (selectedIds.value.length === 0) {
+    ElMessage.warning('请先选择要删除的练习集')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedIds.value.length} 个练习集吗？此操作不可恢复。`,
+      '批量删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    await questionApi.batchDeletePracticeSets(selectedIds.value)
+    ElMessage.success('批量删除成功')
+    selectedIds.value = []
+    fetchPracticeSets()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('批量删除失败')
+    }
+  }
+}
+
 const formatDate = (dateStr) => {
   if (!dateStr) return ''
   return new Date(dateStr).toLocaleString('zh-CN')
@@ -172,8 +292,12 @@ onMounted(() => {
 
 .card-header-inner {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+}
+
+.card-header-inner .ps-name {
+  flex: 1;
+  margin-right: 8px;
 }
 
 .ps-name {
@@ -186,6 +310,22 @@ onMounted(() => {
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 20px;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 12px 15px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.selected-count {
+  color: #606266;
+  font-size: 13px;
+  margin-right: auto;
 }
 
 .practice-set-grid {

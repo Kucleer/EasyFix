@@ -36,6 +36,11 @@ const routes = [
     name: 'PracticeSets',
     component: () => import('@/views/PracticeSets.vue'),
   },
+  {
+    path: '/words',
+    name: 'Words',
+    component: () => import('@/views/Words.vue'),
+  },
 ]
 
 const router = createRouter({

@@ -12,7 +12,7 @@ from app.schemas.error_book import (
     ErrorBookResponse,
     ErrorBookListResponse,
 )
-from app.schemas.stats import StatsResponse, SubjectStats, GradeStats, SemesterStats
+from app.schemas.stats import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint
 
 __all__ = [
     "QuestionCreate",
@@ -29,4 +29,6 @@ __all__ = [
     "SubjectStats",
     "GradeStats",
     "SemesterStats",
+    "WordStats",
+    "AccuracyCurvePoint",
 ]

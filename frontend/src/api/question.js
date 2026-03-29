@@ -127,6 +127,14 @@ export const questionApi = {
   deletePracticeSet(id) {
     return api.delete(`/practice-sets/${id}`)
   },
+  // 批量删除练习集
+  batchDeletePracticeSets(ids) {
+    return api.post('/practice-sets/batch-delete', { ids })
+  },
+  // 批量下载练习集PDF
+  batchDownloadPracticeSetsPdf(ids) {
+    return api.post('/practice-sets/batch-download-pdf', { ids })
+  },
 }
 
 // 图片上传API

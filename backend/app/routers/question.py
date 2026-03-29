@@ -7,6 +7,7 @@ from app.models import Question, Tag, QuestionTag
 from app.models.operation_log import OperationType
 from app.schemas import QuestionCreate, QuestionUpdate, QuestionResponse, QuestionListResponse, QuestionBatchCreate, BatchCreateResponse
 from app.services.logger import logger_service
+from app.utils.html import decode_html
 
 router = APIRouter(prefix="/api/questions", tags=["错题"])
 
@@ -136,11 +137,11 @@ def create_question(data: QuestionCreate, db: Session = Depends(get_db)):
             original_image=data.original_image,
             original_images=original_images_json,
             original_text=data.original_text,
-            parsed_question=data.parsed_question,
+            parsed_question=decode_html(data.parsed_question) if data.parsed_question else None,
             grade=data.grade,
             semester=data.semester,
-            answer=data.answer,
-            analysis=data.analysis,
+            answer=decode_html(data.answer) if data.answer else None,
+            analysis=decode_html(data.analysis) if data.analysis else None,
             difficulty=data.difficulty,
             error_type=data.error_type,
             knowledge_point=data.knowledge_point,
@@ -213,6 +214,11 @@ def update_question(
 
         update_data = data.model_dump(exclude_unset=True)
         tag_ids = update_data.pop("tag_ids", None)
+
+        # 解码HTML实体
+        for key in ["parsed_question", "answer", "analysis"]:
+            if key in update_data and update_data[key]:
+                update_data[key] = decode_html(update_data[key])
 
         for key, value in update_data.items():
             setattr(question, key, value)
@@ -319,11 +325,11 @@ def create_questions_batch(data: QuestionBatchCreate, db: Session = Depends(get_
                 original_images=json.dumps(data.images, ensure_ascii=False),
                 original_image=data.images[0] if data.images else None,
                 original_text=q_data.original_text,
-                parsed_question=q_data.parsed_question,
+                parsed_question=decode_html(q_data.parsed_question) if q_data.parsed_question else None,
                 grade=data.grade,
                 semester=data.semester,
-                answer=q_data.answer,
-                analysis=q_data.analysis,
+                answer=decode_html(q_data.answer) if q_data.answer else None,
+                analysis=decode_html(q_data.analysis) if q_data.analysis else None,
                 difficulty=q_data.difficulty,
                 error_type=q_data.error_type,
                 knowledge_point=q_data.knowledge_point,

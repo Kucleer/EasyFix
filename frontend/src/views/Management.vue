@@ -1,6 +1,18 @@
 <template>
   <div class="management">
-    <el-card>
+    <!-- 访问密码验证 -->
+    <el-dialog v-model="showPasswordDialog" title="请输入访问密码" width="400px" :close-on-click-modal="false" :show-close="false">
+      <el-form>
+        <el-form-item label="访问密码">
+          <el-input v-model="password" type="password" placeholder="请输入访问密码" @keyup.enter="verifyPassword" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button type="primary" @click="verifyPassword" :loading="verifying">验证</el-button>
+      </template>
+    </el-dialog>
+
+    <el-card v-if="isVerified">
       <template #header>
         <div class="card-header">
           <span>管理中心</span>
@@ -244,8 +256,13 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi } from '@/api/question'
+import axios from 'axios'
 
 const activeTab = ref('subjects')
+const showPasswordDialog = ref(true)
+const isVerified = ref(false)
+const password = ref('')
+const verifying = ref(false)
 
 // 年级选项
 const gradeOptions = [
@@ -520,12 +537,35 @@ const deleteErrorBook = async (row) => {
   }
 }
 
-onMounted(() => {
+const verifyPassword = async () => {
+  if (!password.value) {
+    ElMessage.warning('请输入密码')
+    return
+  }
+  verifying.value = true
+  try {
+    await axios.post('/api/auth/verify-password', { password: password.value })
+    isVerified.value = true
+    showPasswordDialog.value = false
+    fetchAll()
+  } catch (error) {
+    ElMessage.error('密码错误')
+    password.value = ''
+  } finally {
+    verifying.value = false
+  }
+}
+
+const fetchAll = () => {
   fetchSubjects()
   fetchTags()
   fetchErrorTypes()
   fetchKnowledgePoints()
   fetchErrorBooks()
+}
+
+onMounted(() => {
+  // 先显示密码对话框
 })
 </script>
 

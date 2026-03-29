@@ -4,6 +4,7 @@ from app.database import get_db
 from app.models import Question, SimilarQuestion, Subject
 from app.services.llm import llm_service
 from app.services.logger import logger_service
+from app.utils.html import decode_html
 from pydantic import BaseModel
 from typing import List
 
@@ -67,11 +68,11 @@ def generate_similar_question(question_id: int, db: Session = Depends(get_db)):
         )
         raise HTTPException(status_code=500, detail=error_msg)
 
-    # 保存结果
+    # 保存结果（解码HTML实体）
     similar = SimilarQuestion(
         source_question_id=question_id,
-        similar_text=result.get("similar_question", ""),
-        similar_answer=result.get("similar_answer", ""),
+        similar_text=decode_html(result.get("similar_question", "")),
+        similar_answer=decode_html(result.get("similar_answer", "")),
         similarity_score=0.85,
     )
     db.add(similar)
@@ -185,12 +186,12 @@ def batch_generate_similar(request: BatchSimilarRequest, db: Session = Depends(g
             failed_count += 1
             continue
 
-        # 保存结果
+        # 保存结果（解码HTML实体）
         try:
             similar = SimilarQuestion(
                 source_question_id=question_id,
-                similar_text=result.get("similar_question", ""),
-                similar_answer=result.get("similar_answer", ""),
+                similar_text=decode_html(result.get("similar_question", "")),
+                similar_answer=decode_html(result.get("similar_answer", "")),
                 similarity_score=0.85,
             )
             db.add(similar)

@@ -6,6 +6,7 @@ from app.models.similar_question import SimilarQuestion
 from app.models.operation_log import OperationLog, OperationType, OperationStatus
 from app.models.knowledge_point import KnowledgePoint
 from app.models.practice_set import PracticeSet, PracticeSetQuestion
+from app.models.word import Word, WordReviewLog, WordReview
 
 __all__ = [
     "Subject",
@@ -20,4 +21,7 @@ __all__ = [
     "KnowledgePoint",
     "PracticeSet",
     "PracticeSetQuestion",
+    "Word",
+    "WordReviewLog",
+    "WordReview",
 ]

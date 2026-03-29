@@ -4,8 +4,8 @@
 
 | 项目名称 | EasyFix 错题整理系统 |
 |---------|---------------------|
-| 当前版本 | v1.0.3 |
-| 文档更新 | 2026-03-28 |
+| 当前版本 | v1.0.4 |
+| 文档更新 | 2026-03-29 |
 | 文档状态 | 进行中 |
 
 ---
@@ -260,6 +260,60 @@ EasyFix/
 | user_agent | VARCHAR(500) | 用户代理 |
 | created_at | DATETIME | 操作时间 |
 
+#### 3.2.9 单词表 (word)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| english | VARCHAR(200) | NOT NULL | 英文单词 |
+| chinese | VARCHAR(500) | NOT NULL | 中文释义 |
+| phonetic | VARCHAR(200) | | 音标 |
+| grade | INTEGER | CHECK(1-12) | 年级 |
+| semester | INTEGER | CHECK(1-2) | 学期 |
+| review_count | INTEGER | DEFAULT 0 | 复习次数 |
+| correct_count | INTEGER | DEFAULT 0 | 正确次数 |
+| last_reviewed_at | DATETIME | | 最后复习时间 |
+| next_review_at | DATETIME | | 下次复习时间 |
+| interval | INTEGER | DEFAULT 1 | 复习间隔（天） |
+| deleted | BOOLEAN | DEFAULT FALSE | 软删除标记 |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
+| updated_at | DATETIME | | 更新时间 |
+
+**索引**:
+- `idx_word_grade` ON `grade`
+- `idx_word_deleted` ON `deleted`
+
+#### 3.2.10 单词-标签关联表 (word_tag)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| word_id | INTEGER | PK, FK → word.id | 单词ID |
+| tag_id | INTEGER | PK, FK → tag.id | 标签ID |
+
+#### 3.2.11 单词复习记录表 (word_review_log)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| word_id | INTEGER | FK → word.id | 单词ID |
+| is_correct | BOOLEAN | | 是否正确 |
+| user_answer | VARCHAR(200) | | 用户答案 |
+| review_type | INTEGER | | 复习题型：1=默写，2=选择 |
+| reviewed_at | DATETIME | | 复习时间 |
+
+**索引**: `idx_review_log_word` ON `word_id`
+
+#### 3.2.12 单词复习场次表 (word_review)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| total_count | INTEGER | | 总单词数 |
+| correct_count | INTEGER | | 正确数 |
+| error_count | INTEGER | | 错误数 |
+| duration | INTEGER | | 用时（秒） |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
+
 ---
 
 ## 四、API接口文档
@@ -442,6 +496,216 @@ Content-Type: multipart/form-data
 ```
 
 **说明**: 图片保留在错题本中用于对比，不进行OCR识别
+
+### 4.4 单词本模块
+
+#### 4.4.1 获取单词列表
+
+```
+GET /api/words
+```
+
+**Query参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| skip | int | 否 | 跳过记录数，默认0 |
+| limit | int | 否 | 返回数量，默认20，最大100 |
+| grade | int | 否 | 年级1-12 |
+| semester | int | 否 | 学期1-2 |
+| tag_ids | string | 否 | 标签ID，多个用逗号分隔 |
+| keyword | string | 否 | 关键词搜索（英文或中文） |
+
+**响应示例**:
+```json
+{
+  "total": 100,
+  "items": [
+    {
+      "id": 1,
+      "english": "apple",
+      "chinese": "苹果",
+      "phonetic": "/ˈæpl/",
+      "grade": 3,
+      "semester": 1,
+      "review_count": 5,
+      "correct_count": 4,
+      "last_reviewed_at": "2026-03-29T10:00:00",
+      "next_review_at": "2026-04-01T10:00:00",
+      "tags": [{"id": 1, "name": "水果", "color": "#67c23a"}],
+      "created_at": "2026-03-28T10:00:00"
+    }
+  ]
+}
+```
+
+#### 4.4.2 获取单词详情
+
+```
+GET /api/words/{word_id}
+```
+
+#### 4.4.3 创建单词
+
+```
+POST /api/words
+```
+
+**请求体**:
+```json
+{
+  "english": "apple",
+  "chinese": "苹果",
+  "phonetic": "/ˈæpl/",
+  "grade": 3,
+  "semester": 1,
+  "tag_ids": [1, 2]
+}
+```
+
+#### 4.4.4 更新单词
+
+```
+PUT /api/words/{word_id}
+```
+
+**请求体**: 同创建，支持部分更新
+
+#### 4.4.5 删除单词（软删除）
+
+```
+DELETE /api/words/{word_id}
+```
+
+**响应**: 204 No Content
+
+#### 4.4.6 批量创建单词
+
+```
+POST /api/words/batch
+```
+
+**请求体**:
+```json
+{
+  "words": [
+    {"english": "apple", "chinese": "苹果", "phonetic": "/ˈæpl/"},
+    {"english": "banana", "chinese": "香蕉"}
+  ],
+  "grade": 3,
+  "semester": 1,
+  "tag_ids": [1]
+}
+```
+
+#### 4.4.7 获取单词统计
+
+```
+GET /api/words/stats/summary
+```
+
+**响应**:
+```json
+{
+  "total_words": 100,
+  "total_reviews": 500,
+  "total_correct": 400,
+  "accuracy": 80.0,
+  "mastered_words": 20,
+  "learning_words": 60,
+  "new_words": 20,
+  "grade_distribution": {"3": 50, "4": 30, "5": 20},
+  "review_today": 10,
+  "due_words": 25
+}
+```
+
+#### 4.4.8 开始复习
+
+```
+POST /api/words/review/start
+```
+
+**Query参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| count | int | 否 | 复习单词数量，默认25 |
+| grade | int | 否 | 按年级筛选 |
+| word_ids | string | 否 | 指定单词ID，多个用逗号分隔 |
+
+**响应**:
+```json
+{
+  "session_id": 1,
+  "questions": [
+    {
+      "word_id": 1,
+      "english": "apple",
+      "chinese": "苹果",
+      "word_length": 5,
+      "options": ["香蕉", "苹果", "橙子", "葡萄"]
+    }
+  ],
+  "total": 25
+}
+```
+
+#### 4.4.9 提交复习结果
+
+```
+POST /api/words/review/submit
+```
+
+**请求体**:
+```json
+{
+  "results": [
+    {
+      "word_id": 1,
+      "is_correct": true,
+      "user_answer": "apple",
+      "review_type": 1
+    }
+  ],
+  "duration": 120
+}
+```
+
+**响应**:
+```json
+{
+  "total": 25,
+  "correct": 20,
+  "error": 5,
+  "accuracy": 80.0
+}
+```
+
+#### 4.4.10 获取错词列表
+
+```
+GET /api/words/errors
+```
+
+**说明**: 返回正确率低于60%的单词
+
+#### 4.4.11 生成打印PDF
+
+```
+POST /api/words/print-pdf
+```
+
+**Query参数**:
+- `count`: 单词数量，默认25
+- `grade`: 年级筛选
+
+**响应**:
+```json
+{
+  "pdf_url": "/uploads/practice_sets/xxx.pdf"
+}
+```
 
 ### 4.4 相似题模块
 
@@ -725,6 +989,8 @@ PUT /api/config/llm
 | /stats | Stats | 统计分析 |
 | /management | Management | 管理中心 |
 | /settings | Settings | 系统设置 |
+| /words | Words | 单词本 |
+| /practice-sets | PracticeSets | 练习集 |
 
 ### 5.2 错题列表页 (Questions.vue)
 
@@ -845,6 +1111,44 @@ Upload.vue
 **功能特性**:
 - LLM API配置（API Key、Base URL、模型选择）
 - 保存配置到 `config/llm.json`
+
+### 5.7 单词本页面 (Words.vue)
+
+**功能特性**:
+- 单词列表展示（支持分页、筛选）
+- 多条件筛选：关键词、年级、学期、标签
+- 单词CRUD管理（创建、编辑、删除）
+- 多种导入方式：文本粘贴、文件上传、图片OCR识别
+- 在线复习：默写英文、选择题两种题型
+- 多选复习：支持勾选单词后进行专项复习
+- PDF打印：生成单词默写PDF
+- 复习统计：正确率、复习次数、错词记录
+
+**导入方式**:
+1. **文本粘贴**: 每行一个单词，格式：英文 中文（用空格分隔）
+2. **文件上传**: 支持 .txt 或 .csv 文件
+3. **图片识别**: 上传单词图片，自动OCR识别提取文字
+
+**复习题型**:
+| 题型 | 说明 |
+|------|------|
+| 默写英文 | 显示中文和字母提示，输入英文答案 |
+| 选择中文 | 显示英文，从4个中文选项中选择正确答案 |
+
+**复习流程**:
+1. 选择复习数量和年级筛选（可选）
+2. 系统随机抽取单词（或使用多选的单词）
+3. 逐题展示，用户作答
+4. 记录正确/错误
+5. 显示复习结果统计
+
+### 5.8 练习集页面 (PracticeSets.vue)
+
+**功能特性**:
+- 练习集CRUD管理
+- 从错题列表勾选题目加入练习集
+- 批量生成相似题
+- 生成PDF打印（支持原题/相似题）
 
 ---
 

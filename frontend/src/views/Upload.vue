@@ -34,6 +34,13 @@
           <el-button type="primary" :disabled="!selectedFiles.length" @click="startOCR" :loading="uploading">
             开始OCR识别
           </el-button>
+          <el-button type="info" @click="skipToManualEntry">跳过图片，直接手动录入</el-button>
+        </div>
+
+        <!-- 手动录入模式时的缺省图片 -->
+        <div v-if="isManualEntryMode" class="manual-entry-placeholder">
+          <el-image :src="placeholderImage" fit="contain" />
+          <p class="placeholder-tip">图片缺省页（仅展示，无交互功能）</p>
         </div>
       </div>
 
@@ -276,6 +283,8 @@ const submittedQuestion = ref(null)
 const ocrProgressStatus = ref('')
 const uploadRef = ref(null)
 const uploadImagePaths = ref([])
+const isManualEntryMode = ref(false)
+const placeholderImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjE1MCIgaGVpZ2h0PSIxNTAiIGZpbGw9IiNlOGU4ZTgiLz48dGV4dCB4PSIxMjAiIHk9IjgwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOTk5OTk5Ij7lm77niYIiIHRydW5jYXRlPW9mZnNldD0iMCIvPjwvc3ZnPg=='
 
 const errorBooks = ref([])
 const subjects = ref([])
@@ -291,8 +300,8 @@ const form = reactive({
   difficulty: 3,
   error_type: [],
   knowledge_point: '',
-  grade: null,
-  semester: null,
+  grade: localStorage.getItem('lastGrade') ? parseInt(localStorage.getItem('lastGrade')) : null,
+  semester: localStorage.getItem('lastSemester') ? parseInt(localStorage.getItem('lastSemester')) : null,
   tag_ids: [],
 })
 
@@ -384,7 +393,15 @@ const retryOCR = () => {
   ocrFailed.value = false
   ocrProgress.value = 0
   uploadImagePaths.value = []
+  isManualEntryMode.value = false
   uploadRef.value?.clearFiles()
+}
+
+// 跳过图片，直接手动录入
+const skipToManualEntry = () => {
+  isManualEntryMode.value = true
+  ocrFailed.value = true
+  currentStep.value = 1
 }
 
 const submitQuestion = async () => {
@@ -405,6 +422,9 @@ const submitQuestion = async () => {
     const { data } = await questionApi.create(submitData)
     ElMessage.success('错题保存成功')
     submittedQuestion.value = data
+    // 保存年级和学期到本地
+    if (form.grade) localStorage.setItem('lastGrade', form.grade)
+    if (form.semester) localStorage.setItem('lastSemester', form.semester)
     // Reset form for next entry but stay on page
     currentStep.value = 0
     selectedFiles.value = []
@@ -551,5 +571,30 @@ onMounted(loadMetaData)
   margin-top: 15px;
   display: flex;
   gap: 10px;
+}
+
+.manual-entry-placeholder {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border: 2px dashed #dcdfe6;
+  border-radius: 8px;
+  background: #f5f7fa;
+}
+
+.manual-entry-placeholder .el-image {
+  max-width: 300px;
+  max-height: 200px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.placeholder-tip {
+  margin-top: 10px;
+  color: #909399;
+  font-size: 12px;
 }
 </style>

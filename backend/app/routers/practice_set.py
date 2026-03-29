@@ -216,8 +216,8 @@ def list_practice_sets(
             "question_type": ps.question_type,
             "pdf_path": ps.pdf_path,
             "total_questions": ps.total_questions,
-            "reviewed": ps.reviewed,
-            "review_count": ps.review_count,
+            "reviewed": ps.reviewed or False,
+            "review_count": ps.review_count or 0,
             "created_at": ps.created_at,
             "questions": [],
         })
@@ -377,6 +377,67 @@ def mark_reviewed(practice_set_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "已标记为复习", "review_count": ps.review_count}
+
+
+class BatchDeleteRequest(BaseModel):
+    """批量删除请求"""
+    ids: List[int]
+
+
+@router.post("/batch-delete")
+def batch_delete_practice_sets(data: BatchDeleteRequest, db: Session = Depends(get_db)):
+    """批量删除练习集"""
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="ID列表为空")
+
+    deleted_count = db.query(PracticeSet).filter(
+        PracticeSet.id.in_(data.ids),
+        PracticeSet.deleted == False
+    ).update({"deleted": True}, synchronize_session=False)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "deleted_count": deleted_count,
+        "total": len(data.ids)
+    }
+
+
+@router.post("/batch-download-pdf")
+def batch_download_pdf(data: BatchDeleteRequest, db: Session = Depends(get_db)):
+    """批量下载练习集PDF（返回PDF链接列表）"""
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="ID列表为空")
+
+    results = []
+    for ps_id in data.ids:
+        ps = db.query(PracticeSet).filter(
+            PracticeSet.id == ps_id,
+            PracticeSet.deleted == False
+        ).first()
+
+        if ps and ps.pdf_path:
+            results.append({
+                "id": ps.id,
+                "name": ps.name,
+                "pdf_url": f"/uploads/{ps.pdf_path}"
+            })
+        elif ps:
+            results.append({
+                "id": ps.id,
+                "name": ps.name,
+                "pdf_url": None,
+                "error": "PDF未生成"
+            })
+        else:
+            results.append({
+                "id": ps_id,
+                "pdf_url": None,
+                "error": "练习集不存在"
+            })
+
+    return {"results": results}
 
 
 @router.delete("/{practice_set_id}", status_code=204)
