@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/practice-sets", tags=["练习集"])
 class PracticeSetCreate(BaseModel):
     name: str
     question_ids: List[int]
+    source_type: str = "question"  # question=来自错题, word=来自单词复习
     question_type: str = "original"  # original=原题, similar=相似题
 
 
@@ -42,6 +43,7 @@ class PracticeSetResponse(BaseModel):
     name: str
     subject_id: int
     subject_name: Optional[str] = None
+    source_type: str = "question"  # question=来自错题, word=来自单词复习
     question_type: str
     pdf_path: Optional[str] = None
     total_questions: int
@@ -141,6 +143,7 @@ def create_practice_set(data: PracticeSetCreate, db: Session = Depends(get_db)):
     practice_set = PracticeSet(
         name=data.name,
         subject_id=subject_id,
+        source_type=data.source_type,
         question_type=data.question_type,
         total_questions=len(data.question_ids),
     )
@@ -176,6 +179,7 @@ def create_practice_set(data: PracticeSetCreate, db: Session = Depends(get_db)):
         "name": practice_set.name,
         "subject_id": practice_set.subject_id,
         "subject_name": subject_name,
+        "source_type": practice_set.source_type or "question",
         "question_type": practice_set.question_type,
         "pdf_path": practice_set.pdf_path,
         "total_questions": practice_set.total_questions,
@@ -192,6 +196,7 @@ def list_practice_sets(
     limit: int = 20,
     subject_id: Optional[int] = None,
     reviewed: Optional[bool] = None,
+    source_type: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """获取练习集列表"""
@@ -201,6 +206,8 @@ def list_practice_sets(
         query = query.filter(PracticeSet.subject_id == subject_id)
     if reviewed is not None:
         query = query.filter(PracticeSet.reviewed == reviewed)
+    if source_type:
+        query = query.filter(PracticeSet.source_type == source_type)
 
     total = query.count()
     items = query.order_by(PracticeSet.created_at.desc()).offset(skip).limit(limit).all()
@@ -213,6 +220,7 @@ def list_practice_sets(
             "name": ps.name,
             "subject_id": ps.subject_id,
             "subject_name": subject_name,
+            "source_type": ps.source_type or "question",
             "question_type": ps.question_type,
             "pdf_path": ps.pdf_path,
             "total_questions": ps.total_questions,
@@ -272,6 +280,7 @@ def get_practice_set(practice_set_id: int, db: Session = Depends(get_db)):
         "name": ps.name,
         "subject_id": ps.subject_id,
         "subject_name": subject_name,
+        "source_type": ps.source_type or "question",
         "question_type": ps.question_type,
         "pdf_path": ps.pdf_path,
         "total_questions": ps.total_questions,

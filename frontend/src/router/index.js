@@ -41,6 +41,11 @@ const routes = [
     name: 'Words',
     component: () => import('@/views/Words.vue'),
   },
+  {
+    path: '/learning-reports',
+    name: 'LearningReports',
+    component: () => import('@/views/LearningReports.vue'),
+  },
 ]
 
 const router = createRouter({

@@ -25,7 +25,10 @@
       "Bash(curl -s -X POST http://localhost:3000/api/upload/image -F \"file=@C:/Users/Administrator/Pictures/微信截图_20230609015357.png;filename=test.png\" --max-time 60)",
       "Bash(curl -s -X POST http://localhost:8000/api/questions -H \"Content-Type: application/json\" -d '{:*)",
       "Bash(curl -s -X POST http://localhost:8000/api/questions -H \"Content-Type: application/json\" -d '{\"\"error_book_id\"\":1,\"\"subject_id\"\":1,\"\"original_text\"\":\"\"test\"\",\"\"answer\"\":\"\"answer\"\",\"\"difficulty\"\":3}')",
-      "Read(//e/Kucleer_code/EasyFix/backend/**)"
+      "Read(//e/Kucleer_code/EasyFix/backend/**)",
+      "Bash(npm search:*)",
+      "WebSearch",
+      "Bash(npm list:*)"
     ]
   }
 }

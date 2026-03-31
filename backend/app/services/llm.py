@@ -198,6 +198,183 @@ class LLMService:
             "explanation": "解析失败",
         }
 
+    def generate_learning_report(
+        self,
+        subject_name: Optional[str],
+        grade: Optional[int],
+        time_range_days: Optional[int],
+        data_summary: dict,
+    ) -> dict:
+        """
+        生成学习状态分析报告
+
+        Args:
+            subject_name: 学科名称
+            grade: 年级
+            time_range_days: 时间范围天数
+            data_summary: 数据摘要，包含错题和单词的统计数据
+
+        Returns:
+            dict: 多维度分析报告内容
+        """
+        # 重新加载配置
+        self._config = load_llm_config()
+        self._init_client()
+
+        api_key = self._get_config("api_key", settings.ANTHROPIC_API_KEY)
+        if not api_key:
+            raise Exception("LLM API Key not configured. Please set it in Settings.")
+
+        model = self._get_config("model", "claude-sonnet-4-20250514")
+        prompt = self._build_learning_report_prompt(
+            subject_name, grade, time_range_days, data_summary
+        )
+
+        try:
+            response = self._client.messages.create(
+                model=model,
+                max_tokens=4000,  # 报告较长，需要更多token
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                timeout=120,  # 报告生成可能需要更长时间
+                thinking={
+                    "type": "disabled",
+                },
+            )
+
+            # 获取文本内容
+            content = ""
+            for block in response.content:
+                if hasattr(block, 'type') and block.type == 'text' and hasattr(block, 'text'):
+                    content = block.text
+                    break
+
+            if not content:
+                raise Exception("LLM返回内容为空")
+
+            return self._parse_learning_report_response(content)
+        except Exception as e:
+            raise Exception(f"LLM调用失败: {str(e)}")
+
+    def _build_learning_report_prompt(
+        self,
+        subject_name: Optional[str],
+        grade: Optional[int],
+        time_range_days: Optional[int],
+        data_summary: dict,
+    ) -> str:
+        """构建学习报告生成的Prompt"""
+        import json
+
+        scope_info = []
+        if subject_name:
+            scope_info.append(f"学科：{subject_name}")
+        if grade:
+            scope_info.append(f"年级：{self._get_grade_name(grade)}")
+        if time_range_days:
+            scope_info.append(f"时间范围：最近{time_range_days}天")
+        if not scope_info:
+            scope_info.append("范围：全学科、全年级、所有时间")
+
+        scope_text = "，".join(scope_info)
+
+        prompt = f"""你是一位专业的学习分析师。请根据以下学习数据，生成一份详细的多维度学习状态分析报告。
+
+## 分析范围
+{scope_text}
+
+## 数据摘要
+{json.dumps(data_summary, ensure_ascii=False, indent=2)}
+
+## 报告要求
+
+请生成一份结构化的多维度学习分析报告，包含以下维度：
+
+### 1. 整体概况
+- 学习数据总量（错题数量、单词数量）
+- 整体正确率/准确率
+
+### 2. 错题分析
+- **难度分布**：各难度级别（1-5）的错题数量和占比
+- **错误类型分析**：计算错误、概念错误、审题错误、其他错误的分布
+- **知识点分布**：高频出错知识点TOP10
+- **复习效果**：错题的复习次数分布，未复习/复习1次/复习多次的比例
+
+### 3. 单词分析（如有数据）
+- 总体掌握率
+- 低准确率单词（正确率低于70%的单词）
+- 复习间隔建议
+
+### 4. 学习建议
+- 针对薄弱知识点推荐练习方向
+- 记忆类科目的复习策略建议
+- 下一阶段学习重点
+
+### 5. 总结
+- 简明扼要的核心发现（3-5条）
+- 优先改进项（最多3条）
+
+## 输出格式
+
+请以JSON格式返回报告内容：
+{{
+    "overview": {{
+        "total_questions": number,
+        "total_words": number,
+        "overall_accuracy": number
+    }},
+    "question_analysis": {{
+        "difficulty_distribution": {{"1": count, "2": count, ...}},
+        "error_type_distribution": {{"计算": count, "概念": count, ...}},
+        "top_error_knowledge_points": [{{"point": "知识点名", "count": number}}],
+        "review_effectiveness": {{"not_reviewed": count, "reviewed_1": count, "reviewed_multiple": count}}
+    }},
+    "word_analysis": {{
+        "mastery_rate": number,
+        "low_accuracy_words": [{{"word": "单词", "accuracy": number}}],
+        "recommended_review_interval": "建议"
+    }},
+    "suggestions": [
+        {{"type": "练习", "content": "建议内容"}}
+    ],
+    "summary": {{
+        "key_findings": ["发现1", "发现2", ...],
+        "priority_improvements": ["优先项1", "优先项2", ...]
+    }}
+}}
+
+请确保返回的是合法的JSON格式，不要包含markdown代码块标记。"""
+        return prompt
+
+    def _get_grade_name(self, grade: int) -> str:
+        """转换年级数字为名称"""
+        grade_map = {
+            1: "一年级", 2: "二年级", 3: "三年级", 4: "四年级",
+            5: "五年级", 6: "六年级", 7: "初一", 8: "初二",
+            9: "初三", 10: "高一", 11: "高二", 12: "高三"
+        }
+        return grade_map.get(grade, f"{grade}年级")
+
+    def _parse_learning_report_response(self, content: str) -> dict:
+        """解析LLM返回的报告内容"""
+        import json
+        import re
+
+        # 尝试提取JSON
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        # 如果解析失败，返回一个错误结构
+        raise Exception("无法解析LLM返回的报告内容，请重试")
+
 
 # 全局单例
 llm_service = LLMService()

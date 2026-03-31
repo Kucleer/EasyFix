@@ -18,10 +18,25 @@ from app.schemas.word import (
 router = APIRouter(prefix="/api/words", tags=["单词"])
 
 
-@router.get("", response_model=WordListResponse)
+def _get_accuracy_level(review_count: int, correct_count: int) -> str:
+    """计算正确率等级"""
+    if review_count == 0:
+        return "new"  # 新词
+    accuracy = (correct_count / review_count * 100) if review_count > 0 else 0
+    if accuracy == 0:
+        return "weak"  # 需加强
+    elif accuracy <= 60:
+        return "learning"  # 薄弱
+    elif accuracy <= 80:
+        return "good"  # 一般
+    else:
+        return "mastered"  # 掌握
+
+
+@router.get("")
 def list_words(
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     grade: Optional[int] = Query(None, ge=1, le=12),
     semester: Optional[int] = Query(None, ge=1, le=2),
     tag_ids: Optional[str] = Query(None, description="标签ID，多个用逗号分隔"),
@@ -30,6 +45,7 @@ def list_words(
     sort_order: Optional[str] = Query("desc", description="排序方向：asc, desc"),
     accuracy_min: Optional[float] = Query(None, description="正确率下限"),
     accuracy_max: Optional[float] = Query(None, description="正确率上限"),
+    accuracy_level: Optional[str] = Query(None, description="正确率等级：new, weak, learning, good, mastered"),
     db: Session = Depends(get_db),
 ):
     """获取单词列表"""
@@ -57,10 +73,16 @@ def list_words(
     items_with_accuracy = []
     for item in all_items:
         accuracy = (item.correct_count / item.review_count * 100) if item.review_count and item.review_count > 0 else (0 if item.review_count == 0 else None)
+        item_accuracy_level = _get_accuracy_level(item.review_count or 0, item.correct_count or 0)
         items_with_accuracy.append({
             'item': item,
-            'accuracy': accuracy
+            'accuracy': accuracy,
+            'accuracy_level': item_accuracy_level
         })
+
+    # 过滤正确率等级
+    if accuracy_level:
+        items_with_accuracy = [x for x in items_with_accuracy if x['accuracy_level'] == accuracy_level]
 
     # 过滤正确率范围
     if accuracy_min is not None:
@@ -80,7 +102,27 @@ def list_words(
 
     # 应用分页
     paginated = items_with_accuracy[skip:skip + limit]
-    items = [x['item'] for x in paginated]
+
+    # 构建返回结果，添加accuracy和accuracy_level字段
+    items = []
+    for x in paginated:
+        item = x['item']
+        items.append({
+            "id": item.id,
+            "english": item.english,
+            "chinese": item.chinese,
+            "phonetic": item.phonetic,
+            "grade": item.grade,
+            "semester": item.semester,
+            "review_count": item.review_count or 0,
+            "correct_count": item.correct_count or 0,
+            "accuracy": x['accuracy'],
+            "accuracy_level": x['accuracy_level'],
+            "last_reviewed_at": item.last_reviewed_at,
+            "next_review_at": item.next_review_at,
+            "created_at": item.created_at,
+            "tags": item.tags,
+        })
 
     return {
         "total": total,
@@ -274,10 +316,10 @@ def start_review(
     word_ids: Optional[str] = Query(None, description="指定单词ID，多个用逗号分隔"),
     db: Session = Depends(get_db)
 ):
-    """开始复习 - 随机抽取单词，或使用指定的单词ID"""
+    """开始复习 - 智能抽取单词，优先抽取未复习和低正确率的单词"""
     query = db.query(Word).filter(Word.deleted == False)
 
-    # 如果指定了单词ID，使用指定的单词
+    # 如果指定了单词ID，使用指定的单词（不走智能抽样）
     if word_ids:
         id_list = [int(t.strip()) for t in word_ids.split(',') if t.strip().isdigit()]
         if id_list:
@@ -291,11 +333,56 @@ def start_review(
     if len(all_words) == 0:
         raise HTTPException(status_code=400, detail="没有可复习的单词")
 
-    # 随机抽取（如果指定了word_ids且数量足够，直接使用；否则随机抽）
+    # 如果指定了单词ID且数量足够，直接使用；否则使用智能抽样
     if word_ids and len(all_words) <= count:
         selected_words = all_words
     else:
-        selected_words = random.sample(all_words, min(count, len(all_words)))
+        # 智能抽样算法
+        pool_a = []  # 未复习单词 (review_count=0)
+        pool_b = []  # 困难单词 (正确率<60%)
+        pool_c = []  # 普通单词 (其他)
+
+        for w in all_words:
+            accuracy = (w.correct_count / w.review_count * 100) if w.review_count and w.review_count > 0 else 0
+            if w.review_count == 0:
+                pool_a.append(w)
+            elif accuracy < 60:
+                pool_b.append(w)
+            else:
+                pool_c.append(w)
+
+        selected_words = []
+        remaining_count = min(count, len(all_words))
+
+        # 从A池抽取 min(count*20%, A中实际数量) 个
+        a_count = min(int(count * 0.2), len(pool_a), remaining_count)
+        selected_words.extend(random.sample(pool_a, a_count))
+        remaining_count -= a_count
+
+        # 从B池抽取 min(count*30%, B中实际数量) 个
+        b_count = min(int(count * 0.3), len(pool_b), remaining_count)
+        selected_words.extend(random.sample(pool_b, b_count))
+        remaining_count -= b_count
+
+        # 剩余从C池抽取
+        if remaining_count > 0:
+            c_available = [w for w in pool_c if w not in selected_words]
+            c_count = min(remaining_count, len(c_available))
+            if c_count > 0:
+                selected_words.extend(random.sample(c_available, c_count))
+
+        # 如果还不够，从B池补充（按正确率从低到高）
+        if len(selected_words) < count:
+            needed = count - len(selected_words)
+            b_remaining = [w for w in pool_b if w not in selected_words]
+            b_remaining.sort(key=lambda w: (w.correct_count / w.review_count * 100) if w.review_count and w.review_count > 0 else 0)
+            selected_words.extend(b_remaining[:needed])
+
+        # 如果还不够，从A池补充
+        if len(selected_words) < count:
+            needed = count - len(selected_words)
+            a_remaining = [w for w in pool_a if w not in selected_words]
+            selected_words.extend(a_remaining[:needed])
 
     # 创建复习场次
     review_session = WordReview(total_count=len(selected_words))
@@ -332,14 +419,20 @@ def start_review(
 @router.post("/review/submit")
 def submit_review(data: ReviewSessionSubmit, db: Session = Depends(get_db)):
     """提交复习结果"""
+    from app.models import PracticeSet, WordReviewSession, Subject
+    from app.models.tag import Tag
+
     correct_count = 0
     error_count = 0
     now = datetime.now()
 
+    # 获取复习的单词列表
+    reviewed_words = []
     for result in data.results:
         word = db.query(Word).filter(Word.id == result.word_id).first()
         if not word:
             continue
+        reviewed_words.append(word)
 
         # 记录复习日志
         log = WordReviewLog(
@@ -375,20 +468,55 @@ def submit_review(data: ReviewSessionSubmit, db: Session = Depends(get_db)):
         review_session.error_count = error_count
         review_session.duration = data.duration
 
+    # 计算正确率
+    accuracy = round(correct_count / len(data.results) * 100, 1) if data.results else 0
+
+    # 创建练习集记录（单词复习也认为是练习集）
+    if reviewed_words:
+        # 查找英语学科（单词复习归为英语学科）
+        subject = db.query(Subject).filter(Subject.name == "英语", Subject.deleted == False).first()
+        subject_id = subject.id if subject else 1  # 默认数学
+
+        # 创建练习集
+        practice_set = PracticeSet(
+            name=f"单词复习 {now.strftime('%Y-%m-%d %H:%M')}",
+            subject_id=subject_id,
+            source_type="word",  # 标记为单词来源
+            question_type="original",
+            total_questions=len(reviewed_words),
+            reviewed=True,
+            review_count=1,
+        )
+        db.add(practice_set)
+        db.commit()
+        db.refresh(practice_set)
+
+        # 创建单词复习场次关联记录
+        word_review_session = WordReviewSession(
+            practice_set_id=practice_set.id,
+            session_id=review_session.id if review_session else 0,
+            total_count=len(reviewed_words),
+            correct_count=correct_count,
+            accuracy=int(accuracy),
+            reviewed_at=now,
+        )
+        db.add(word_review_session)
+        db.commit()
+
     db.commit()
 
     return {
         "total": len(data.results),
         "correct": correct_count,
         "error": error_count,
-        "accuracy": round(correct_count / len(data.results) * 100, 1) if data.results else 0
+        "accuracy": accuracy
     }
 
 
 @router.get("/errors", response_model=WordListResponse)
 def get_error_words(
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
     """获取错词列表（正确率低于60%的单词）"""

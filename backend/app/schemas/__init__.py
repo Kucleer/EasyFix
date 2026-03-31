@@ -13,6 +13,13 @@ from app.schemas.error_book import (
     ErrorBookListResponse,
 )
 from app.schemas.stats import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint
+from app.schemas.learning_report import (
+    ReportGenerateRequest,
+    ReportGenerateResponse,
+    ReportListItem,
+    ReportDetail,
+    ReportListResponse,
+)
 
 __all__ = [
     "QuestionCreate",
@@ -31,4 +38,9 @@ __all__ = [
     "SemesterStats",
     "WordStats",
     "AccuracyCurvePoint",
+    "ReportGenerateRequest",
+    "ReportGenerateResponse",
+    "ReportListItem",
+    "ReportDetail",
+    "ReportListResponse",
 ]

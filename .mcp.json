@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "npx",
+      "args": ["-y", "@benborla29/mcp-server-mysql"],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "root",
+        "MYSQL_PASSWORD": "lingxi520",
+        "MYSQL_DATABASE": "easyfix"
+      }
+    },
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@agent-infra/mcp-server-browser"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp", "browser"]
+    }
+  }
+}

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import os
 
 from app.database import engine, Base
-from app.routers import question_router, upload_router, stats_router, similar_router, config_router, error_book_router, subject_router, tag_router, knowledge_point_router, practice_set_router, word_router
+from app.routers import question_router, upload_router, stats_router, similar_router, config_router, error_book_router, subject_router, tag_router, knowledge_point_router, practice_set_router, word_router, learning_report_router
 from app.config import get_settings
 from app.access_config import ACCESS_PASSWORD
 
@@ -46,6 +46,7 @@ app.include_router(tag_router)
 app.include_router(knowledge_point_router)
 app.include_router(practice_set_router)
 app.include_router(word_router)
+app.include_router(learning_report_router)
 
 
 @app.get("/")

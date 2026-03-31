@@ -7,11 +7,12 @@
           <el-menu mode="horizontal" :router="true" :default-active="$route.path">
             <el-menu-item index="/">首页</el-menu-item>
             <el-menu-item index="/questions">错题</el-menu-item>
-            <el-menu-item index="/stats">统计</el-menu-item>
-            <el-menu-item index="/practice-sets">练习</el-menu-item>
             <el-menu-item index="/words">单词</el-menu-item>
-            <el-menu-item index="/settings">配置</el-menu-item>
+            <el-menu-item index="/practice-sets">练习</el-menu-item>
+            <el-menu-item index="/stats">统计</el-menu-item>
+            <el-menu-item index="/learning-reports">学习分析</el-menu-item>
             <el-menu-item index="/management">管理</el-menu-item>
+            <el-menu-item index="/settings">配置</el-menu-item>
           </el-menu>
         </div>
       </el-header>
@@ -129,18 +130,24 @@
 
 .header-content .el-menu-item {
   color: white !important;
-  font-size: 14px;
-  padding: 0 12px;
+  font-size: 16px;
+  padding: 0 16px;
   height: 60px;
   line-height: 60px;
   min-width: auto;
   white-space: nowrap;
   flex-shrink: 0;
+  transition: all 0.3s ease;
 }
 
-.header-content .el-menu-item:hover,
-.header-content .el-menu-item.is-active {
+.header-content .el-menu-item:hover {
   background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.header-content .el-menu-item.is-active {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+  transform: scale(1.1);
+  font-weight: bold;
 }
 
 .el-main {

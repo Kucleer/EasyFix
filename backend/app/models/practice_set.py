@@ -10,6 +10,7 @@ class PracticeSet(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False)  # 练习集名称
     subject_id = Column(Integer, ForeignKey("subject.id"), nullable=False)  # 所属学科
+    source_type = Column(String(20), default="question")  # question=来自错题, word=来自单词复习
     question_type = Column(String(20), default="original")  # original=原题, similar=相似题
     pdf_path = Column(String(500), nullable=True)  # 生成的PDF路径
     total_questions = Column(Integer, default=0)  # 总题数
@@ -21,6 +22,7 @@ class PracticeSet(Base):
     # Relationships
     subject = relationship("Subject", back_populates="practice_sets")
     practice_set_questions = relationship("PracticeSetQuestion", back_populates="practice_set", cascade="all, delete-orphan")
+    word_review_sessions = relationship("WordReviewSession", back_populates="practice_set")
 
 
 class PracticeSetQuestion(Base):
@@ -37,3 +39,19 @@ class PracticeSetQuestion(Base):
     practice_set = relationship("PracticeSet", back_populates="practice_set_questions")
     question = relationship("Question")
     similar_question = relationship("SimilarQuestion")
+
+
+class WordReviewSession(Base):
+    """单词复习场次（关联练习集）"""
+    __tablename__ = "word_review_session"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    practice_set_id = Column(Integer, ForeignKey("practice_set.id"), nullable=True)  # 关联练习集
+    session_id = Column(Integer, nullable=False)  # WordReview的session_id
+    total_count = Column(Integer, default=0)  # 总单词数
+    correct_count = Column(Integer, default=0)  # 正确数
+    accuracy = Column(Integer, default=0)  # 正确率(%)
+    reviewed_at = Column(DateTime, server_default=func.now())  # 复习时间
+
+    # Relationships
+    practice_set = relationship("PracticeSet", back_populates="word_review_sessions")

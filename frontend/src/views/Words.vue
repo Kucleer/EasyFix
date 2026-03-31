@@ -44,9 +44,20 @@
         <el-select v-model="filters.tag_id" placeholder="标签" clearable @change="fetchWords" style="width: 150px">
           <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
-        <el-input-number v-model="filters.accuracy_min" placeholder="正确率%" clearable @change="fetchWords" style="width: 100px" :min="0" :max="100" :precision="0" />
-        <span>~</span>
-        <el-input-number v-model="filters.accuracy_max" placeholder="正确率%" clearable @change="fetchWords" style="width: 100px" :min="0" :max="100" :precision="0" />
+      </div>
+
+      <!-- 正确率等级快速筛选 -->
+      <div class="accuracy-level-filter" style="margin-top: 10px">
+        <el-tag
+          v-for="level in accuracyLevelOptions"
+          :key="level.value"
+          :type="filters.accuracy_level === level.value ? 'primary' : 'info'"
+          class="accuracy-level-tag"
+          @click="toggleAccuracyLevel(level.value)"
+          style="cursor: pointer; margin-right: 8px"
+        >
+          {{ level.label }}
+        </el-tag>
       </div>
 
       <!-- 单词列表 -->
@@ -83,9 +94,12 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="正确率" width="90" sortable prop="accuracy">
+        <el-table-column label="正确率" width="120" sortable prop="accuracy">
           <template #default="{ row }">
             <span :style="{ color: getAccuracyColor(row) }">{{ getAccuracyText(row) }}</span>
+            <el-tag v-if="row.accuracy_level" :type="getAccuracyLevelTagType(row.accuracy_level)" size="small" style="margin-left: 5px">
+              {{ getAccuracyLevelText(row.accuracy_level) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
@@ -167,6 +181,7 @@
       <div v-else-if="reviewStep === 'question'" class="review-question">
         <div class="question-header">
           <span class="progress">{{ currentIndex + 1 }} / {{ reviewQuestions.length }}</span>
+          <span class="timer">用时: {{ Math.floor(reviewElapsed / 60) }}:{{ String(reviewElapsed % 60).padStart(2, '0') }}</span>
           <el-tag :type="currentQuestion.correct === undefined ? 'info' : (currentQuestion.correct ? 'success' : 'danger')">
             {{ currentQuestion.correct === undefined ? '答题中' : (currentQuestion.correct ? '正确' : '错误') }}
           </el-tag>
@@ -175,7 +190,9 @@
         <div class="question-content">
           <div v-if="reviewConfig.type === 1" class="dictation">
             <div class="chinese">{{ currentQuestion.chinese }}</div>
-            <div class="hint">提示：{{ currentQuestion.word_length }}个字母</div>
+            <div class="hint-box">
+              <div class="hint">提示：{{ currentQuestion.word_length }}个字母</div>
+            </div>
             <el-input
               v-model="userAnswer"
               placeholder="输入英文单词"
@@ -218,6 +235,7 @@
           <div>总题数: {{ reviewResult.total }}</div>
           <div>正确: {{ reviewResult.correct }}</div>
           <div>错误: {{ reviewResult.error }}</div>
+          <div>用时: {{ Math.floor(reviewResult.duration / 60) }}:{{ String(reviewResult.duration % 60).padStart(2, '0') }}</div>
         </div>
         <el-button type="primary" @click="reviewVisible = false" style="width: 100%">完成</el-button>
       </div>
@@ -373,8 +391,7 @@ const filters = reactive({
   grade: null,
   semester: null,
   tag_id: null,
-  accuracy_min: null,
-  accuracy_max: null,
+  accuracy_level: null,
   sort_by: null,
   sort_order: 'desc',
 })
@@ -412,6 +429,27 @@ const gradeOptions = [
   { label: '高三', value: 12 },
 ]
 
+// 正确率等级选项
+const accuracyLevelOptions = ref([
+  { label: '全部', value: null },
+  { label: '新词', value: 'new' },
+  { label: '需加强', value: 'weak' },
+  { label: '薄弱', value: 'learning' },
+  { label: '一般', value: 'good' },
+  { label: '掌握', value: 'mastered' },
+])
+
+// 切换正确率等级筛选
+const toggleAccuracyLevel = (level) => {
+  if (filters.accuracy_level === level) {
+    filters.accuracy_level = null
+  } else {
+    filters.accuracy_level = level
+  }
+  pagination.page = 1
+  fetchWords()
+}
+
 // 复习相关
 const reviewVisible = ref(false)
 const reviewStep = ref('config')
@@ -430,7 +468,13 @@ const reviewResult = reactive({
   correct: 0,
   error: 0,
   accuracy: 0,
+  duration: 0,
 })
+
+// 复习计时器
+const reviewStartTime = ref(null)
+const reviewTimer = ref(null)
+const reviewElapsed = ref(0) // 秒
 
 // 打印相关
 const printDialogVisible = ref(false)
@@ -496,6 +540,30 @@ const getAccuracyColor = (row) => {
   }
 }
 
+// 获取正确率等级文字
+const getAccuracyLevelText = (level) => {
+  const map = {
+    'new': '新词',
+    'weak': '需加强',
+    'learning': '薄弱',
+    'good': '一般',
+    'mastered': '掌握',
+  }
+  return map[level] || level
+}
+
+// 获取正确率等级标签类型
+const getAccuracyLevelTagType = (level) => {
+  const map = {
+    'new': 'info',
+    'weak': 'danger',
+    'learning': 'warning',
+    'good': '',
+    'mastered': 'success',
+  }
+  return map[level] || 'info'
+}
+
 // 处理表格排序变化（使用后端排序）
 const handleSortChange = ({ prop, order }) => {
   if (!prop) {
@@ -525,8 +593,7 @@ const fetchWords = async () => {
     if (filters.grade) params.grade = filters.grade
     if (filters.semester) params.semester = filters.semester
     if (filters.tag_id) params.tag_ids = filters.tag_id
-    if (filters.accuracy_min !== null) params.accuracy_min = filters.accuracy_min
-    if (filters.accuracy_max !== null) params.accuracy_max = filters.accuracy_max
+    if (filters.accuracy_level) params.accuracy_level = filters.accuracy_level
     if (filters.sort_by) {
       params.sort_by = filters.sort_by
       params.sort_order = filters.sort_order
@@ -651,6 +718,13 @@ const startReviewGame = async () => {
     selectedOption.value = ''
     currentQuestion.value = reviewQuestions.value[0]
     reviewStep.value = 'question'
+
+    // 启动计时器
+    reviewStartTime.value = Date.now()
+    reviewElapsed.value = 0
+    reviewTimer.value = setInterval(() => {
+      reviewElapsed.value = Math.floor((Date.now() - reviewStartTime.value) / 1000)
+    }, 1000)
   } catch (error) {
     ElMessage.error('获取复习内容失败')
   }
@@ -697,6 +771,13 @@ const terminateReview = async () => {
 }
 
 const finishReview = async () => {
+  // 停止计时器
+  if (reviewTimer.value) {
+    clearInterval(reviewTimer.value)
+    reviewTimer.value = null
+  }
+  const duration = reviewElapsed.value
+
   const results = reviewQuestions.value.map(q => ({
     word_id: q.word_id,
     is_correct: q.correct,
@@ -708,12 +789,13 @@ const finishReview = async () => {
     const { data } = await wordApi.submitReview({
       session_id: currentSessionId.value,
       results,
-      duration: 0,
+      duration,
     })
     reviewResult.total = data.total
     reviewResult.correct = data.correct
     reviewResult.error = data.error
     reviewResult.accuracy = data.accuracy
+    reviewResult.duration = duration
     reviewStep.value = 'result'
   } catch (error) {
     ElMessage.error('提交结果失败')
@@ -1066,6 +1148,16 @@ onMounted(() => {
   transform-origin: center center;
 }
 
+:deep(.review-dialog .el-dialog__body) {
+  padding: 0;
+}
+
+/* 复习弹窗背景虚化 */
+:deep(.el-overlay-dialog) {
+  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.3) !important;
+}
+
 .review-config {
   padding: 40px;
   font-size: 20px;
@@ -1093,6 +1185,12 @@ onMounted(() => {
   color: #409eff;
 }
 
+.timer {
+  font-size: 24px;
+  color: #909399;
+  font-family: monospace;
+}
+
 .question-content {
   flex: 1;
   display: flex;
@@ -1109,18 +1207,22 @@ onMounted(() => {
   font-size: 72px;
   font-weight: bold;
   color: #303133;
-  margin-bottom: 24px;
+  margin-bottom: 30px;
   letter-spacing: 8px;
+}
+
+.dictation .hint-box {
+  margin-bottom: 40px;
 }
 
 .dictation .hint {
   font-size: 28px;
   color: #606266;
-  margin-bottom: 60px;
   background: #f5f7fa;
   padding: 12px 32px;
   border-radius: 8px;
   display: inline-block;
+  margin-bottom: 20px;
 }
 
 .dictation .answer-input {

@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.6] - 2026-03-31
+
+### Added
+- 单词复习计时功能
+  - 复习过程实时显示用时（分:秒）
+  - 复习结果页面显示总用时
+  - 用时数据记录到练习集
+
+### Changed
+- 单词复习背景虚化效果
+- 单词复习布局优化：提示框与输入框分行显示
+- 单词复习学科设置为"英语"（单词复习归为英语学科）
+- 单词表默认每页展示20条
+
+### Fixed
+- 历史单词复习练习集的学科错误（已批量修复为"英语"）
+- 单词复习结果duration参数未传递问题
+
+## [1.0.5] - 2026-03-30
+
+### Added
+- 学习状态分析模块（LearningReports.vue）
+  - LLM多维度学习报告生成：整体概况、错题分析、单词分析、学习建议、总结
+  - 报告可按学科、年级、时间范围筛选
+  - 每次分析报告均可保存查看
+- 单词复习纳入练习集
+  - 单词复习后自动创建练习集记录
+  - 练习集列表可按来源类型筛选（source_type: question/word）
+- 单词正确率等级快速筛选
+  - 五个等级：新词、需加强、薄弱、一般、掌握
+  - 前端显示各等级单词数量
+
+### Changed
+- 单词复习抽样算法优化：优先抽样未复习(20%)和低正确率(30%)单词
+- 单词列表返回新增 accuracy_level 字段
+
+### Database
+- practice_set 表新增 source_type 字段
+- 新增 word_review_session 表（单词复习场次关联练习集）
+
+### API Endpoints
+- POST /api/learning-reports/generate - 生成学习分析报告
+- GET /api/learning-reports/list - 获取报告列表
+- GET /api/learning-reports/{id} - 获取报告详情
+- DELETE /api/learning-reports/{id} - 删除报告
+- GET /api/practice-sets?source_type=word - 获取单词来源的练习集
+- GET /api/words?accuracy_level=new - 按正确率等级筛选单词
+
 ## [1.0.4] - 2026-03-29
 
 ### Added

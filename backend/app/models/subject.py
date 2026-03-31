@@ -16,3 +16,4 @@ class Subject(Base):
     questions = relationship("Question", back_populates="subject")
     knowledge_points = relationship("KnowledgePoint", back_populates="subject")
     practice_sets = relationship("PracticeSet", back_populates="subject")
+    learning_reports = relationship("LearningReport", back_populates="subject")
