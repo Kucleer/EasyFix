@@ -10,6 +10,7 @@ from app.models.word import Word, WordReviewLog, WordReview
 from app.models.learning_report import LearningReport
 from app.models.star import StarAction, StarBalance, StarRecord
 from app.models.achievement import Achievement, AchievementProgress
+from app.models.reward import Reward, Redemption
 
 __all__ = [
     "Subject",
@@ -34,4 +35,6 @@ __all__ = [
     "StarRecord",
     "Achievement",
     "AchievementProgress",
+    "Reward",
+    "Redemption",
 ]
