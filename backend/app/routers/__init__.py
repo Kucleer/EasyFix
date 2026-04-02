@@ -10,6 +10,7 @@ from app.routers.knowledge_point import router as knowledge_point_router
 from app.routers.practice_set import router as practice_set_router
 from app.routers.word import router as word_router
 from app.routers.learning_report import router as learning_report_router
+from app.routers.motivation import router as motivation_router
 
 __all__ = [
     "question_router",
@@ -24,4 +25,5 @@ __all__ = [
     "practice_set_router",
     "word_router",
     "learning_report_router",
+    "motivation_router",
 ]
