@@ -20,6 +20,28 @@ from app.schemas.learning_report import (
     ReportDetail,
     ReportListResponse,
 )
+from app.schemas.star import (
+    StarActionBase,
+    StarActionCreate,
+    StarActionUpdate,
+    StarActionResponse,
+    StarBalanceResponse,
+    StarRecordResponse,
+)
+from app.schemas.achievement import (
+    AchievementBase,
+    AchievementCreate,
+    AchievementUpdate,
+    AchievementResponse,
+    AchievementProgressResponse,
+)
+from app.schemas.reward import (
+    RewardBase,
+    RewardCreate,
+    RewardUpdate,
+    RewardResponse,
+    RedemptionResponse,
+)
 
 __all__ = [
     "QuestionCreate",
@@ -43,4 +65,23 @@ __all__ = [
     "ReportListItem",
     "ReportDetail",
     "ReportListResponse",
+    # Star schemas
+    "StarActionBase",
+    "StarActionCreate",
+    "StarActionUpdate",
+    "StarActionResponse",
+    "StarBalanceResponse",
+    "StarRecordResponse",
+    # Achievement schemas
+    "AchievementBase",
+    "AchievementCreate",
+    "AchievementUpdate",
+    "AchievementResponse",
+    "AchievementProgressResponse",
+    # Reward schemas
+    "RewardBase",
+    "RewardCreate",
+    "RewardUpdate",
+    "RewardResponse",
+    "RedemptionResponse",
 ]
