@@ -79,6 +79,14 @@ def generate_similar_question(question_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(similar)
 
+    # 触发积分行为
+    from app.services.motivation import MotivationService
+    try:
+        service = MotivationService(db)
+        service.trigger_action("generate_similar", reason="生成相似题")
+    except Exception:
+        pass  # 激励系统不影响主流程
+
     # 记录日志
     logger_service.log_similar(
         question_id=question_id,

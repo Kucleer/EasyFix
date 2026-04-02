@@ -468,6 +468,14 @@ def submit_review(data: ReviewSessionSubmit, db: Session = Depends(get_db)):
         review_session.error_count = error_count
         review_session.duration = data.duration
 
+    # 触发积分行为
+    from app.services.motivation import MotivationService
+    try:
+        service = MotivationService(db)
+        service.trigger_action("review_word", reason="背单词复习")
+    except Exception:
+        pass  # 激励系统不影响主流程
+
     # 计算正确率
     accuracy = round(correct_count / len(data.results) * 100, 1) if data.results else 0
 
@@ -498,6 +506,7 @@ def submit_review(data: ReviewSessionSubmit, db: Session = Depends(get_db)):
             total_count=len(reviewed_words),
             correct_count=correct_count,
             accuracy=int(accuracy),
+            duration=data.duration or 0,
             reviewed_at=now,
         )
         db.add(word_review_session)

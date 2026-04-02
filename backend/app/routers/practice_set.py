@@ -1,7 +1,7 @@
 """
 练习集路由 - 管理练习集的创建、打印、复习等功能
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
@@ -9,7 +9,8 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import PracticeSet, PracticeSetQuestion, Question, SimilarQuestion, Subject
+from app.models import PracticeSet, PracticeSetQuestion, Question, SimilarQuestion, Subject, WordReviewSession
+from app.models.word import WordReview, WordReviewLog, Word
 from app.services.pdf import generate_practice_set_pdf
 from app.services.logger import logger_service
 
@@ -32,7 +33,11 @@ class PracticeSetQuestionResponse(BaseModel):
     display_order: int
     question_text: Optional[str] = None
     answer: Optional[str] = None
+    phonetic: Optional[str] = None
     difficulty: Optional[int] = None
+    is_correct: Optional[bool] = None
+    user_answer: Optional[str] = None
+    tags: Optional[List[dict]] = None
 
     class Config:
         from_attributes = True
@@ -41,6 +46,7 @@ class PracticeSetQuestionResponse(BaseModel):
 class PracticeSetResponse(BaseModel):
     id: int
     name: str
+    notes: Optional[str] = None
     subject_id: int
     subject_name: Optional[str] = None
     source_type: str = "question"  # question=来自错题, word=来自单词复习
@@ -49,8 +55,11 @@ class PracticeSetResponse(BaseModel):
     total_questions: int
     reviewed: bool
     review_count: int
+    last_reviewed_at: Optional[datetime] = None
+    review_images: Optional[List[str]] = None  # 复习图片列表
     created_at: datetime
     questions: List[PracticeSetQuestionResponse] = []
+    word_review_stats: Optional[dict] = None  # 单词复习统计
 
     class Config:
         from_attributes = True
@@ -197,6 +206,8 @@ def list_practice_sets(
     subject_id: Optional[int] = None,
     reviewed: Optional[bool] = None,
     source_type: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """获取练习集列表"""
@@ -208,6 +219,10 @@ def list_practice_sets(
         query = query.filter(PracticeSet.reviewed == reviewed)
     if source_type:
         query = query.filter(PracticeSet.source_type == source_type)
+    if start_date:
+        query = query.filter(PracticeSet.created_at >= start_date)
+    if end_date:
+        query = query.filter(PracticeSet.created_at <= f"{end_date} 23:59:59")
 
     total = query.count()
     items = query.order_by(PracticeSet.created_at.desc()).offset(skip).limit(limit).all()
@@ -246,38 +261,95 @@ def get_practice_set(practice_set_id: int, db: Session = Depends(get_db)):
 
     subject_name = db.query(Subject).filter(Subject.id == ps.subject_id).first().name if ps.subject_id else ""
 
+    # 解析复习图片
+    review_images = None
+    if ps.review_images:
+        try:
+            import json
+            review_images = json.loads(ps.review_images)
+        except:
+            review_images = [ps.review_images] if ps.review_images else None
+
     # 获取关联的题目
-    ps_questions = db.query(PracticeSetQuestion).filter(
-        PracticeSetQuestion.practice_set_id == practice_set_id
-    ).order_by(PracticeSetQuestion.display_order).all()
-
     questions = []
-    for psq in ps_questions:
-        question = db.query(Question).filter(Question.id == psq.question_id).first()
-        if not question:
-            continue
+    word_review_stats = None
 
-        if ps.question_type == "similar" and psq.similar_question_id:
-            similar = db.query(SimilarQuestion).filter(SimilarQuestion.id == psq.similar_question_id).first()
-            question_text = similar.similar_text if similar else ""
-            answer = similar.similar_answer if similar else ""
-        else:
-            question_text = question.parsed_question or question.original_text or ""
-            answer = question.answer or ""
+    if ps.source_type == "word":
+        # 单词练习集：获取复习统计和单词题目
+        sessions = db.query(WordReviewSession).filter(
+            WordReviewSession.practice_set_id == practice_set_id
+        ).order_by(WordReviewSession.reviewed_at.desc()).all()
 
-        questions.append({
-            "id": psq.id,
-            "question_id": psq.question_id,
-            "similar_question_id": psq.similar_question_id,
-            "display_order": psq.display_order,
-            "question_text": question_text,
-            "answer": answer,
-            "difficulty": question.difficulty,
-        })
+        if sessions:
+            total_count = sum(s.total_count for s in sessions)
+            total_correct = sum(s.correct_count for s in sessions)
+            total_duration = sum(getattr(s, 'duration', 0) or 0 for s in sessions)
+            word_review_stats = {
+                "total_count": total_count,
+                "correct_count": total_correct,
+                "accuracy": round(total_correct / total_count * 100, 1) if total_count > 0 else 0,
+                "duration": total_duration,
+                "reviewed_at": sessions[0].reviewed_at if sessions else None,
+            }
+
+            # 获取单词题目（从 WordReviewLog 中获取，通过 reviewed_at 时间匹配）
+            for idx, session in enumerate(sessions):
+                review_logs = db.query(WordReviewLog).filter(
+                    WordReviewLog.reviewed_at == session.reviewed_at
+                ).order_by(WordReviewLog.id).all()
+
+                for log in review_logs:
+                    word = db.query(Word).filter(Word.id == log.word_id).first()
+                    if not word:
+                        continue
+                    # 获取单词标签
+                    tags = [{"id": t.id, "name": t.name} for t in word.tags] if word.tags else []
+                    questions.append({
+                        "id": log.id,
+                        "question_id": word.id,
+                        "similar_question_id": None,
+                        "display_order": len(questions),
+                        "question_text": word.english,
+                        "answer": word.chinese,
+                        "phonetic": word.phonetic,
+                        "difficulty": None,
+                        "is_correct": log.is_correct,
+                        "user_answer": log.user_answer,
+                        "tags": tags,
+                    })
+    else:
+        # 错题练习集：获取题目列表
+        ps_questions = db.query(PracticeSetQuestion).filter(
+            PracticeSetQuestion.practice_set_id == practice_set_id
+        ).order_by(PracticeSetQuestion.display_order).all()
+
+        for psq in ps_questions:
+            question = db.query(Question).filter(Question.id == psq.question_id).first()
+            if not question:
+                continue
+
+            if ps.question_type == "similar" and psq.similar_question_id:
+                similar = db.query(SimilarQuestion).filter(SimilarQuestion.id == psq.similar_question_id).first()
+                question_text = similar.similar_text if similar else ""
+                answer = similar.similar_answer if similar else ""
+            else:
+                question_text = question.parsed_question or question.original_text or ""
+                answer = question.answer or ""
+
+            questions.append({
+                "id": psq.id,
+                "question_id": psq.question_id,
+                "similar_question_id": psq.similar_question_id,
+                "display_order": psq.display_order,
+                "question_text": question_text,
+                "answer": answer,
+                "difficulty": question.difficulty,
+            })
 
     return {
         "id": ps.id,
         "name": ps.name,
+        "notes": ps.notes,
         "subject_id": ps.subject_id,
         "subject_name": subject_name,
         "source_type": ps.source_type or "question",
@@ -286,9 +358,39 @@ def get_practice_set(practice_set_id: int, db: Session = Depends(get_db)):
         "total_questions": ps.total_questions,
         "reviewed": ps.reviewed,
         "review_count": ps.review_count,
+        "last_reviewed_at": ps.last_reviewed_at,
+        "review_images": review_images,
         "created_at": ps.created_at,
         "questions": questions,
+        "word_review_stats": word_review_stats,
     }
+
+
+class PracticeSetUpdateRequest(BaseModel):
+    """更新练习集请求"""
+    name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.put("/{practice_set_id}")
+def update_practice_set(practice_set_id: int, data: PracticeSetUpdateRequest, db: Session = Depends(get_db)):
+    """更新练习集名称和备注"""
+    ps = db.query(PracticeSet).filter(
+        PracticeSet.id == practice_set_id,
+        PracticeSet.deleted == False
+    ).first()
+
+    if not ps:
+        raise HTTPException(status_code=404, detail="练习集不存在")
+
+    if data.name is not None:
+        ps.name = data.name
+    if data.notes is not None:
+        ps.notes = data.notes
+
+    db.commit()
+
+    return {"message": "更新成功"}
 
 
 @router.post("/{practice_set_id}/generate-pdf")
@@ -357,8 +459,8 @@ def generate_pdf(practice_set_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{practice_set_id}/mark-reviewed")
-def mark_reviewed(practice_set_id: int, db: Session = Depends(get_db)):
-    """标记练习集为已复习"""
+def mark_reviewed(practice_set_id: int, images: Optional[str] = Form(None), db: Session = Depends(get_db)):
+    """标记练习集为已复习，可上传复习完成的图片"""
     ps = db.query(PracticeSet).filter(
         PracticeSet.id == practice_set_id,
         PracticeSet.deleted == False
@@ -367,16 +469,20 @@ def mark_reviewed(practice_set_id: int, db: Session = Depends(get_db)):
     if not ps:
         raise HTTPException(status_code=404, detail="练习集不存在")
 
+    now = datetime.now()
+
     # 更新练习集
     ps.reviewed = True
     ps.review_count += 1
+    ps.last_reviewed_at = now
+    if images:
+        ps.review_images = images  # JSON字符串，存储多张图片路径
 
     # 更新所有关联的错题的复习次数
     ps_questions = db.query(PracticeSetQuestion).filter(
         PracticeSetQuestion.practice_set_id == practice_set_id
     ).all()
 
-    now = datetime.now()
     for psq in ps_questions:
         question = db.query(Question).filter(Question.id == psq.question_id).first()
         if question:
@@ -384,6 +490,14 @@ def mark_reviewed(practice_set_id: int, db: Session = Depends(get_db)):
             question.last_reviewed_at = now
 
     db.commit()
+
+    # 触发积分行为
+    from app.services.motivation import MotivationService
+    try:
+        service = MotivationService(db)
+        service.trigger_action("review_practice_set", reason="复习练习集")
+    except Exception:
+        pass  # 激励系统不影响主流程
 
     return {"message": "已标记为复习", "review_count": ps.review_count}
 

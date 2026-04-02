@@ -150,6 +150,14 @@ def create_question(data: QuestionCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(question)
 
+        # 触发积分行为
+        from app.services.motivation import MotivationService
+        try:
+            service = MotivationService(db)
+            service.trigger_action("upload_question", reason="上传错题")
+        except Exception:
+            pass  # 激励系统不影响主流程
+
         # 处理标签关联
         if data.tag_ids:
             tags = db.query(Tag).filter(Tag.id.in_(data.tag_ids)).all()
