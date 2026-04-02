@@ -91,8 +91,9 @@
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | INTEGER | PK, AUTO | 主键 |
-| code | VARCHAR(50) | NOT NULL, UNIQUE | 成就代码 |
+| code | VARCHAR(50) | NOT NULL | 成就代码（同成就多级共享） |
 | name | VARCHAR(100) | NOT NULL | 成就名称 |
+| level | INTEGER | DEFAULT 1 | 成就等级（1, 2, 3...） |
 | description | VARCHAR(500) | | 成就描述 |
 | icon | VARCHAR(500) | | 图标URL |
 | trigger_action | VARCHAR(50) | NOT NULL | 触发行为代码 |
@@ -103,17 +104,34 @@
 | deleted | BOOLEAN | DEFAULT FALSE | 软删除 |
 | created_at | DATETIME | DEFAULT NOW | 创建时间 |
 
-**预设成就模板：**
+**唯一索引**: (code, level) — 同一成就的每个等级唯一
+| is_preset | BOOLEAN | DEFAULT FALSE | 是否预设 |
+| is_active | BOOLEAN | DEFAULT TRUE | 是否启用 |
+| deleted | BOOLEAN | DEFAULT FALSE | 软删除 |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
 
-| code | name | trigger_action | trigger_count | reward_stars |
-|------|------|----------------|---------------|--------------|
-| first_upload | 首次上传 | upload_question | 1 | 20 |
-| upload_10 | 上传达人 | upload_question | 10 | 50 |
-| upload_50 | 错题收集者 | upload_question | 50 | 100 |
-| review_10 | 复习新星 | review_practice_set | 10 | 30 |
-| review_50 | 练习高手 | review_practice_set | 50 | 80 |
-| word_100 | 单词达人 | review_word | 100 | 100 |
-| similar_20 | 相似题专家 | generate_similar | 20 | 60 |
+**预设成就模板（多级示例）：**
+
+| code | name | level | trigger_action | trigger_count | reward_stars |
+|------|------|-------|----------------|---------------|--------------|
+| first_upload | 首次上传 | 1 | upload_question | 1 | 20 |
+| upload_master | 上传达人 | 1 | upload_question | 10 | 50 |
+| upload_master | 上传达人 | 2 | upload_question | 50 | 100 |
+| upload_master | 上传达人 | 3 | upload_question | 200 | 200 |
+| review_master | 练习高手 | 1 | review_practice_set | 10 | 30 |
+| review_master | 练习高手 | 2 | review_practice_set | 50 | 80 |
+| review_master | 练习高手 | 3 | review_practice_set | 200 | 150 |
+| word_master | 单词达人 | 1 | review_word | 50 | 50 |
+| word_master | 单词达人 | 2 | review_word | 200 | 100 |
+| word_master | 单词达人 | 3 | review_word | 500 | 200 |
+| similar_master | 相似题专家 | 1 | generate_similar | 20 | 60 |
+| similar_master | 相似题专家 | 2 | generate_similar | 100 | 120 |
+| similar_master | 相似题专家 | 3 | generate_similar | 300 | 250 |
+
+**说明**：
+- 同一 `code` 表示同一成就系列的不同等级
+- 用户需先达成 Lv1 才能解锁 Lv2，以此类推
+- 成就进度共享计数，跨等级累加
 
 #### achievement_progress（成就进度）
 
@@ -121,12 +139,17 @@
 |------|------|------|------|
 | id | INTEGER | PK, AUTO | 主键 |
 | user_id | INTEGER | DEFAULT 1 | 用户ID |
-| achievement_id | INTEGER | FK → achievement.id | 成就ID |
+| achievement_id | INTEGER | FK → achievement.id | 成就ID（关联到具体等级） |
 | current_count | INTEGER | DEFAULT 0 | 当前进度 |
 | is_unlocked | BOOLEAN | DEFAULT FALSE | 是否已解锁 |
 | unlocked_at | DATETIME | | 解锁时间 |
 
 **唯一索引**: (user_id, achievement_id)
+
+**进度追踪说明**：
+- 同一成就多级共享进度（通过 achievement.code 关联）
+- 用户解锁 Lv1 后，系统自动创建 Lv2 的进度记录
+- 成就进度查询按 code 分组，展示所有等级状态
 
 #### reward（奖励配置）
 
@@ -239,10 +262,12 @@
    - 积分明细按钮 → 弹窗展示历史记录
 
 2. **成就徽章墙**
-   - 网格展示所有成就
+   - 网格展示所有成就（按成就系列分组）
+   - 同一成就显示多个等级（如：单词达人 Lv1/Lv2/Lv3）
    - 已解锁：彩色 + 解锁时间
-   - 未解锁：灰色 + 进度条
-   - 点击成就 → 详情弹窗（描述、进度、奖励）
+   - 未解锁：灰色 + 当前进度/目标
+   - 下一级未解锁时显示锁定状态
+   - 点击成就 → 详情弹窗（描述、各等级进度、奖励）
 
 3. **奖励商城**
    - 卡片列表展示可兑换奖励
