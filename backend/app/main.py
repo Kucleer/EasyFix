@@ -4,15 +4,20 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
 from app.routers import question_router, upload_router, stats_router, similar_router, config_router, error_book_router, subject_router, tag_router, knowledge_point_router, practice_set_router, word_router, learning_report_router, motivation_router
 from app.config import get_settings
 from app.access_config import ACCESS_PASSWORD
+from app.services.init_motivation_data import init_preset_data
 
 settings = get_settings()
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
+
+# 初始化激励系统预设数据
+with SessionLocal() as db:
+    init_preset_data(db)
 
 app = FastAPI(
     title="EasyFix API",
