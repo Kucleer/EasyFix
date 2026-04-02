@@ -8,6 +8,7 @@ from app.models.knowledge_point import KnowledgePoint
 from app.models.practice_set import PracticeSet, PracticeSetQuestion, WordReviewSession
 from app.models.word import Word, WordReviewLog, WordReview
 from app.models.learning_report import LearningReport
+from app.models.star import StarAction, StarBalance, StarRecord
 
 __all__ = [
     "Subject",
@@ -27,4 +28,7 @@ __all__ = [
     "WordReviewLog",
     "WordReview",
     "LearningReport",
+    "StarAction",
+    "StarBalance",
+    "StarRecord",
 ]
