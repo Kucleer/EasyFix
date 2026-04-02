@@ -9,6 +9,7 @@ from app.models.practice_set import PracticeSet, PracticeSetQuestion, WordReview
 from app.models.word import Word, WordReviewLog, WordReview
 from app.models.learning_report import LearningReport
 from app.models.star import StarAction, StarBalance, StarRecord
+from app.models.achievement import Achievement, AchievementProgress
 
 __all__ = [
     "Subject",
@@ -31,4 +32,6 @@ __all__ = [
     "StarAction",
     "StarBalance",
     "StarRecord",
+    "Achievement",
+    "AchievementProgress",
 ]
