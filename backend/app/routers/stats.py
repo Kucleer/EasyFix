@@ -193,10 +193,26 @@ def get_stats_summary(db: Session = Depends(get_db)):
             accuracy=round(accuracy, 1)
         ))
 
+    # 计算活跃学习天数（从question或word_review_log最早记录到现在）
+    active_days = 0
+    first_question_date = db.query(func.min(Question.created_at)).filter(Question.deleted == False).scalar()
+    first_review_date = db.query(func.min(WordReviewLog.reviewed_at)).filter(WordReviewLog.deleted == False).scalar()
+
+    earliest_date = None
+    if first_question_date:
+        earliest_date = first_question_date
+    if first_review_date:
+        if earliest_date is None or first_review_date < earliest_date:
+            earliest_date = first_review_date
+
+    if earliest_date:
+        active_days = (datetime.now() - earliest_date).days + 1
+
     return StatsResponse(
         total_questions=total_questions or 0,
         total_subjects=total_subjects or 0,
         total_error_books=total_error_books or 0,
+        active_days=active_days,
         difficulty_distribution=difficulty_distribution,
         error_type_distribution=error_type_distribution,
         by_subject=by_subject,

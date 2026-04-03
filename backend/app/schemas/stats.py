@@ -40,6 +40,7 @@ class StatsResponse(BaseModel):
     total_questions: int
     total_subjects: int
     total_error_books: int
+    active_days: int = 0
     difficulty_distribution: dict = {}
     error_type_distribution: dict = {}
     by_subject: List[SubjectStats] = []

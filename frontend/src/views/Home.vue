@@ -12,10 +12,6 @@
             <div class="stat-value">{{ stats.total_questions }}</div>
             <div class="stat-label">错题总数</div>
           </div>
-          <div class="stat-trend up">
-            <el-icon><Top /></el-icon>
-            <span>12%</span>
-          </div>
         </div>
       </el-col>
       <el-col :span="6">
@@ -28,25 +24,17 @@
             <div class="stat-value">{{ stats.total_subjects }}</div>
             <div class="stat-label">学科数量</div>
           </div>
-          <div class="stat-trend up">
-            <el-icon><Top /></el-icon>
-            <span>5%</span>
-          </div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="stat-card stat-card-orange" @click="$router.push('/management')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Collection /></el-icon>
+            <el-icon class="stat-icon"><Timer /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.total_error_books }}</div>
-            <div class="stat-label">错题本数量</div>
-          </div>
-          <div class="stat-trend up">
-            <el-icon><Top /></el-icon>
-            <span>8%</span>
+            <div class="stat-value">{{ stats.active_days || 0 }}</div>
+            <div class="stat-label">活跃学习天数</div>
           </div>
         </div>
       </el-col>
@@ -59,10 +47,6 @@
           <div class="stat-info">
             <div class="stat-value">{{ stats.total_questions }}</div>
             <div class="stat-label">待复习</div>
-          </div>
-          <div class="stat-trend down">
-            <el-icon><Bottom /></el-icon>
-            <span>3%</span>
           </div>
         </div>
       </el-col>
@@ -79,10 +63,6 @@
           <div class="stat-info">
             <div class="stat-value">{{ stats.word_stats?.total_words || 0 }}</div>
             <div class="stat-label">单词总数</div>
-          </div>
-          <div class="stat-trend up">
-            <el-icon><Top /></el-icon>
-            <span>新增</span>
           </div>
         </div>
       </el-col>
@@ -206,7 +186,6 @@
           <template #header>
             <div class="card-header-modern">
               <span class="header-title">学科难度对比</span>
-              <el-tag type="primary" size="small">雷达分析</el-tag>
             </div>
           </template>
           <div v-if="hasSubjectData" class="chart-container">
@@ -220,7 +199,6 @@
           <template #header>
             <div class="card-header-modern">
               <span class="header-title">学科题目数量</span>
-              <el-tag type="primary" size="small">柱状统计</el-tag>
             </div>
           </template>
           <div v-if="hasSubjectData" class="chart-container">
@@ -310,6 +288,7 @@ const stats = ref({
   total_questions: 0,
   total_subjects: 0,
   total_error_books: 0,
+  active_days: 0,
   difficulty_distribution: {},
   error_type_distribution: {},
   by_subject: [],

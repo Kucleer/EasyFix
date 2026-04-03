@@ -1,6 +1,6 @@
 <template>
   <div class="motivation">
-    <el-card>
+    <el-card v-loading="loading">
       <template #header>
         <div class="card-header">
           <span>激励中心</span>
@@ -12,7 +12,7 @@
       </template>
 
       <!-- Tab切换 -->
-      <el-tabs v-model:active-tab="activeTab">
+      <el-tabs v-model="activeTab">
         <!-- 积分成就 Tab -->
         <el-tab-pane label="积分成就" name="achievements">
           <!-- 积分概览 -->
@@ -197,51 +197,25 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Coin, Calendar, Check, List, Star, Trophy, Medal, Ribbon, Gift, Book, Study, Timer, Target } from '@element-plus/icons-vue'
+import { Coin, Calendar, Check, List, Star, Trophy, Medal, Present, Notebook, School, Timer, Aim } from '@element-plus/icons-vue'
+import { motivationApi } from '@/api/motivation'
 
 const activeTab = ref('achievements')
 
 // 用户积分数据
 const userPoints = ref({
-  balance: 1250,
-  today_earned: 50,
+  balance: 0,
+  today_earned: 0,
 })
 
 // 成就数据
-const achievements = ref([
-  // 学习系列
-  { id: 1, code: 'study', name: '初次学习', series_name: '学习成就', level: '初级', icon: 'Book', color: '#409eff', progress: 100, unlocked: true, unlocked_at: '2024-01-15', description: '完成第一次学习' },
-  { id: 2, code: 'study', name: '学习达人', series_name: '学习成就', level: '中级', icon: 'Study', color: '#67c23a', progress: 70, unlocked: false, unlocked_at: null, description: '累计学习100道题目' },
-  { id: 3, code: 'study', name: '学习大师', series_name: '学习成就', level: '高级', icon: 'Trophy', color: '#e6a23c', progress: 30, unlocked: false, unlocked_at: null, description: '累计学习500道题目' },
-  { id: 4, code: 'study', name: '知识渊博', series_name: '学习成就', level: '终极', icon: 'Star', color: '#f56c6c', progress: 10, unlocked: false, unlocked_at: null, description: '累计学习1000道题目' },
-  // 复习系列
-  { id: 5, code: 'review', name: '复习新手', series_name: '复习成就', level: '初级', icon: 'Timer', color: '#909399', progress: 100, unlocked: true, unlocked_at: '2024-01-20', description: '完成第一次复习' },
-  { id: 6, code: 'review', name: '复习坚持', series_name: '复习成就', level: '中级', icon: 'Medal', color: '#b37feb', progress: 60, unlocked: false, unlocked_at: null, description: '连续复习7天' },
-  { id: 7, code: 'review', name: '复习达人', series_name: '复习成就', level: '高级', icon: 'Ribbon', color: '#ffd666', progress: 25, unlocked: false, unlocked_at: null, description: '连续复习30天' },
-  // 正确率系列
-  { id: 8, code: 'accuracy', name: '初露锋芒', series_name: '正确率成就', level: '初级', icon: 'Target', color: '#ff9f43', progress: 100, unlocked: true, unlocked_at: '2024-02-01', description: '单次练习正确率达到80%' },
-  { id: 9, code: 'accuracy', name: '精准打击', series_name: '正确率成就', level: '中级', icon: 'Target', color: '#ff6b6b', progress: 50, unlocked: false, unlocked_at: null, description: '单次练习正确率达到90%' },
-  { id: 10, code: 'accuracy', name: '完美答案', series_name: '正确率成就', level: '高级', icon: 'Trophy', color: '#f56c6c', progress: 20, unlocked: false, unlocked_at: null, description: '单次练习正确率达到100%' },
-])
+const achievements = ref([])
 
 // 奖励数据
-const rewards = ref([
-  { id: 1, name: 'VIP会员一天', description: '解锁所有高级功能一天', points_required: 100, stock: 10, color: '#409eff', icon: 'Gift', redeemed: false },
-  { id: 2, name: '自定义头像框', description: '使用自定义头像框7天', points_required: 200, stock: 5, color: '#67c23a', icon: 'Medal', redeemed: false },
-  { id: 3, name: '主题皮肤', description: '解锁专属主题皮肤', points_required: 300, stock: 3, color: '#e6a23c', icon: 'Star', redeemed: true },
-  { id: 4, name: 'VIP会员一周', description: '解锁所有高级功能一周', points_required: 500, stock: 5, color: '#f56c6c', icon: 'Gift', redeemed: false },
-  { id: 5, name: '专属徽章', description: '获得专属成就徽码', points_required: 800, stock: 2, color: '#b37feb', icon: 'Ribbon', redeemed: false },
-  { id: 6, name: 'VIP会员一月', description: '解锁所有高级功能一个月', points_required: 1500, stock: 3, color: '#ffd666', icon: 'Gift', redeemed: false },
-])
+const rewards = ref([])
 
 // 积分明细记录
-const pointsRecords = ref([
-  { id: 1, type: 'earn', points: 20, reason: '完成单词复习', created_at: '2024-03-01 10:30:00' },
-  { id: 2, type: 'earn', points: 30, reason: '完成错题练习', created_at: '2024-03-01 14:20:00' },
-  { id: 3, type: 'spend', points: 100, reason: '兑换VIP会员一天', created_at: '2024-03-01 16:00:00' },
-  { id: 4, type: 'earn', points: 15, reason: '每日签到奖励', created_at: '2024-02-28 09:00:00' },
-  { id: 5, type: 'earn', points: 25, reason: '分享练习成果', created_at: '2024-02-27 15:30:00' },
-])
+const pointsRecords = ref([])
 
 // 成就弹窗
 const achievementDialogVisible = ref(false)
@@ -249,6 +223,117 @@ const selectedAchievement = ref(null)
 
 // 积分明细弹窗
 const pointsDetailVisible = ref(false)
+
+// 加载状态
+const loading = ref(false)
+
+// 获取概览数据
+const fetchOverview = async () => {
+  try {
+    const res = await motivationApi.getOverview()
+    userPoints.value = {
+      balance: res.data.balance || 0,
+      today_earned: res.data.today_stars || 0,
+    }
+  } catch (error) {
+    console.error('获取概览失败:', error)
+  }
+}
+
+// 获取成就进度
+const fetchAchievements = async () => {
+  try {
+    const res = await motivationApi.getAchievementProgress()
+    // 转换后端数据为前端格式
+    achievements.value = res.data.map((p, index) => {
+      const progress = p.achievement.trigger_count > 0
+        ? Math.min(100, Math.round((p.current_count / p.achievement.trigger_count) * 100))
+        : 0
+      const seriesMap = {
+        'upload_question': 'study',
+        'review_practice_set': 'review',
+        'review_word': 'review',
+        'generate_similar': 'study',
+        'create_practice_set': 'study',
+      }
+      // 根据触发行为确定图标
+      const iconMapAction = {
+        'upload_question': 'Notebook',
+        'review_practice_set': 'Timer',
+        'review_word': 'School',
+        'generate_similar': 'Aim',
+        'create_practice_set': 'Trophy',
+      }
+      return {
+        id: p.achievement_id,
+        code: seriesMap[p.achievement.trigger_action] || 'study',
+        name: p.achievement.name,
+        series_name: '学习成就',
+        level: p.achievement.level === 1 ? '初级' : p.achievement.level === 2 ? '中级' : '高级',
+        icon: iconMapAction[p.achievement.trigger_action] || 'Notebook',
+        color: '#409eff',
+        progress,
+        unlocked: p.is_unlocked,
+        unlocked_at: p.unlocked_at,
+        description: p.achievement.description,
+        trigger_count: p.achievement.trigger_count,
+        current_count: p.current_count,
+      }
+    })
+  } catch (error) {
+    console.error('获取成就失败:', error)
+  }
+}
+
+// 获取奖励列表
+const fetchRewards = async () => {
+  try {
+    const res = await motivationApi.getRewards()
+    rewards.value = res.data.map(r => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      points_required: r.cost_stars,
+      stock: r.remaining_stock,
+      color: r.color || '#409eff',
+      icon: 'Present',
+      redeemed: false,
+    }))
+  } catch (error) {
+    console.error('获取奖励失败:', error)
+  }
+}
+
+// 获取积分记录
+const fetchRecords = async () => {
+  try {
+    const res = await motivationApi.getRecords({ limit: 50 })
+    pointsRecords.value = res.data.map((r, index) => ({
+      id: r.id || index,
+      type: r.star_delta > 0 ? 'earn' : 'spend',
+      points: Math.abs(r.star_delta),
+      reason: r.reason || r.action_code,
+      created_at: r.created_at,
+    }))
+  } catch (error) {
+    console.error('获取积分记录失败:', error)
+  }
+}
+
+// 初始化数据
+const initData = async () => {
+  loading.value = true
+  try {
+    await Promise.all([
+      fetchOverview(),
+      fetchAchievements(),
+      fetchRewards(),
+      fetchRecords(),
+    ])
+  } finally {
+    loading.value = false
+  }
+}
 
 // 按系列分组成就
 const achievementGroups = computed(() => {
@@ -335,14 +420,11 @@ const redeemReward = async (reward) => {
 
 // 图标名称到组件的映射
 const iconMap = {
-  Book, Study, Trophy, Star, Medal, Ribbon, Gift, Timer, Target
+  Notebook, School, Trophy, Star, Medal, Present, Timer, Aim
 }
 
 onMounted(() => {
-  // 可以在这里获取实际数据
-  // fetchUserPoints()
-  // fetchAchievements()
-  // fetchRewards()
+  initData()
 })
 </script>
 

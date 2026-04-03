@@ -4,8 +4,8 @@
 
 | 项目名称 | EasyFix 错题整理系统 |
 |---------|---------------------|
-| 当前版本 | v1.0.6 |
-| 文档更新 | 2026-03-31 |
+| 当前版本 | v1.0.8 |
+| 文档更新 | 2026-04-03 |
 | 文档状态 | 进行中 |
 
 ---
@@ -975,6 +975,129 @@ PUT /api/config/llm
 }
 ```
 
+### 4.11 练习集管理
+
+#### 4.11.1 获取练习集列表
+
+```
+GET /api/practice-sets
+```
+
+**Query参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| skip | int | 否 | 跳过记录数，默认0 |
+| limit | int | 否 | 返回数量，默认20 |
+| subject_id | int | 否 | 学科ID |
+| reviewed | bool | 否 | 复习状态 |
+| source_type | string | 否 | 来源类型：question/word |
+| start_date | string | 否 | 创建时间起（YYYY-MM-DD） |
+| end_date | string | 否 | 创建时间止（YYYY-MM-DD） |
+
+**响应示例**:
+```json
+{
+  "total": 10,
+  "items": [
+    {
+      "id": 1,
+      "name": "练习集名称",
+      "subject_id": 1,
+      "subject_name": "数学",
+      "source_type": "question",
+      "question_type": "original",
+      "total_questions": 10,
+      "reviewed": false,
+      "review_count": 0,
+      "created_at": "2026-04-01T10:00:00"
+    }
+  ]
+}
+```
+
+#### 4.11.2 获取练习集详情
+
+```
+GET /api/practice-sets/{practice_set_id}
+```
+
+**响应示例**:
+```json
+{
+  "id": 1,
+  "name": "练习集名称",
+  "notes": "备注",
+  "subject_id": 1,
+  "subject_name": "数学",
+  "source_type": "word",
+  "question_type": "original",
+  "total_questions": 10,
+  "reviewed": true,
+  "review_count": 1,
+  "last_reviewed_at": "2026-04-01T12:00:00",
+  "review_images": null,
+  "created_at": "2026-04-01T10:00:00",
+  "questions": [
+    {
+      "id": 1,
+      "question_id": 10,
+      "question_text": "apple",
+      "answer": "苹果",
+      "phonetic": null,
+      "is_correct": true,
+      "user_answer": "apple",
+      "tags": [{"id": 1, "name": "水果"}]
+    }
+  ],
+  "word_review_stats": {
+    "total_count": 10,
+    "correct_count": 8,
+    "accuracy": 80.0,
+    "duration": 120,
+    "reviewed_at": "2026-04-01T12:00:00"
+  }
+}
+```
+
+#### 4.11.3 创建练习集
+
+```
+POST /api/practice-sets
+```
+
+**请求体**:
+```json
+{
+  "name": "练习集名称",
+  "question_ids": [1, 2, 3],
+  "source_type": "question",
+  "question_type": "original"
+}
+```
+
+#### 4.11.4 标记已复习
+
+```
+POST /api/practice-sets/{practice_set_id}/mark-reviewed
+```
+
+**Form参数**:
+- `images`: 可选，复习完成图片的JSON字符串
+
+#### 4.11.5 批量删除
+
+```
+POST /api/practice-sets/batch-delete
+```
+
+**请求体**:
+```json
+{
+  "ids": [1, 2, 3]
+}
+```
+
 ---
 
 ## 五、前端页面
@@ -1152,6 +1275,22 @@ Upload.vue
 - 从错题列表勾选题目加入练习集
 - 批量生成相似题
 - 生成PDF打印（支持原题/相似题）
+- 练习集列表表格展示
+- 多条件筛选：学科、复习状态、创建时间范围
+- 单词练习集详情页展示单词题目列表
+- 单词复习统计：总单词数、正确数、用时等
+- 复习完成上传图片功能
+
+**练习集列表筛选**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| 学科 | el-select | 按学科筛选 |
+| 复习状态 | el-select | 已复习/未复习 |
+| 创建时间 | el-date-picker | 日期范围筛选 |
+
+**练习集详情页标签页**:
+1. **详情**: 练习集基本信息、统计、复习图片
+2. **单词练习**: 单词复习题目列表（含正确/错误状态、用户答案）
 
 ---
 
@@ -1238,7 +1377,231 @@ MAX_UPLOAD_SIZE=10485760  # 10MB
 
 ---
 
-## 九、版本历史
+## 九、激励系统
+
+### 9.1 功能概述
+
+激励系统通过积分、成就、奖励三大模块，激励用户持续使用应用学习。
+
+### 9.2 积分规则
+
+| 行为代码 | 行为名称 | 积分值 | 说明 |
+|---------|---------|-------|------|
+| upload_question | 上传错题 | 10 | 每上传一道错题 |
+| review_practice_set | 复习练习集 | 5 | 每次完成练习集复习 |
+| generate_similar | 生成相似题 | 3 | 每生成一道相似题 |
+| review_word | 背单词 | 2 | 每次完成单词复习 |
+| create_practice_set | 创建练习集 | 5 | 每创建一个练习集 |
+| daily_login | 每日登录 | 1 | 每日签到 |
+| continuous_7day | 连续7天学习 | 50 | 连续学习7天达成 |
+
+### 9.3 成就体系
+
+#### 成就列表
+
+| 成就代码 | 名称 | 级别 | 触发条件 | 奖励积分 |
+|---------|------|------|---------|---------|
+| first_upload | 首次上传 | 1 | 上传1道错题 | 20 |
+| upload_master | 上传达人 | 1/2/3 | 上传10/50/200道错题 | 50/100/200 |
+| review_master | 练习高手 | 1/2/3 | 复习10/50/200次练习集 | 30/80/150 |
+| word_master | 单词达人 | 1/2/3 | 背50/200/500个单词 | 50/100/200 |
+| similar_master | 相似题专家 | 1/2/3 | 生成20/100/300道相似题 | 60/120/250 |
+
+#### 成就进度计算
+
+| 触发行为 | 数据来源 |
+|---------|---------|
+| upload_question | Question 表计数 |
+| review_practice_set | PracticeSet.review_count 累计 |
+| generate_similar | SimilarQuestion 表计数 |
+| review_word | Word.review_count 累计 |
+| create_practice_set | PracticeSet 表计数 |
+
+### 9.4 数据库表结构
+
+#### 9.4.1 行为配置表 (star_action)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| code | VARCHAR(50) | NOT NULL, UNIQUE | 行为代码 |
+| name | VARCHAR(100) | NOT NULL | 行为名称 |
+| star_value | INTEGER | NOT NULL | 积分值 |
+| icon | VARCHAR(500) | | 图标 |
+| enabled | BOOLEAN | DEFAULT TRUE | 是否启用 |
+| is_custom | BOOLEAN | DEFAULT FALSE | 是否自定义 |
+| deleted | BOOLEAN | DEFAULT FALSE | 软删除 |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
+
+#### 9.4.2 积分余额表 (star_balance)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| user_id | INTEGER | DEFAULT 1 | 用户ID |
+| balance | INTEGER | DEFAULT 0 | 积分余额 |
+| updated_at | DATETIME | | 更新时间 |
+
+#### 9.4.3 积分记录表 (star_record)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| user_id | INTEGER | DEFAULT 1 | 用户ID |
+| action_code | VARCHAR(50) | NOT NULL | 行为代码 |
+| star_delta | INTEGER | NOT NULL | 积分变动 |
+| balance_after | INTEGER | NOT NULL | 变动后余额 |
+| reason | VARCHAR(200) | | 原因说明 |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
+
+#### 9.4.4 成就定义表 (achievement)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| code | VARCHAR(50) | NOT NULL | 成就代码 |
+| name | VARCHAR(100) | NOT NULL | 成就名称 |
+| level | INTEGER | DEFAULT 1 | 级别 |
+| description | VARCHAR(500) | | 描述 |
+| icon | VARCHAR(500) | | 图标 |
+| trigger_action | VARCHAR(50) | NOT NULL | 触发行为代码 |
+| trigger_count | INTEGER | NOT NULL | 触发计数 |
+| reward_stars | INTEGER | DEFAULT 0 | 奖励积分 |
+| is_preset | BOOLEAN | DEFAULT FALSE | 是否预设 |
+| is_active | BOOLEAN | DEFAULT TRUE | 是否启用 |
+| deleted | BOOLEAN | DEFAULT FALSE | 软删除 |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
+
+**唯一索引**: `(code, level)`
+
+#### 9.4.5 成就进度表 (achievement_progress)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| user_id | INTEGER | DEFAULT 1 | 用户ID |
+| achievement_id | INTEGER | FK → achievement.id | 成就ID |
+| current_count | INTEGER | DEFAULT 0 | 当前进度 |
+| is_unlocked | BOOLEAN | DEFAULT FALSE | 是否解锁 |
+| unlocked_at | DATETIME | | 解锁时间 |
+
+**唯一索引**: `(user_id, achievement_id)`
+
+#### 9.4.6 奖励表 (reward)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| name | VARCHAR(100) | NOT NULL | 奖励名称 |
+| description | TEXT | | 描述 |
+| icon | VARCHAR(500) | | 图标 |
+| cost_stars | INTEGER | NOT NULL | 所需积分 |
+| total_stock | INTEGER | DEFAULT -1 | 总库存（-1无限） |
+| remaining_stock | INTEGER | DEFAULT -1 | 剩余库存 |
+| is_active | BOOLEAN | DEFAULT TRUE | 是否上架 |
+| deleted | BOOLEAN | DEFAULT FALSE | 软删除 |
+| created_at | DATETIME | DEFAULT NOW | 创建时间 |
+
+#### 9.4.7 奖励兑换记录表 (redemption)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PK, AUTO | 主键 |
+| user_id | INTEGER | DEFAULT 1 | 用户ID |
+| reward_id | INTEGER | FK → reward.id | 奖励ID |
+| star_cost | INTEGER | NOT NULL | 消耗积分 |
+| redeemed_at | DATETIME | DEFAULT NOW | 兑换时间 |
+
+### 9.5 API 接口
+
+#### 积分模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/stars/balance | 获取积分余额 |
+| GET | /api/stars/records | 获取积分记录列表 |
+| GET | /api/stars/actions | 获取行为配置列表 |
+| POST | /api/stars/actions | 创建自定义行为 |
+| PUT | /api/stars/actions/{id} | 更新行为配置 |
+| DELETE | /api/stars/actions/{id} | 删除行为配置 |
+
+#### 成就模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/achievements | 获取成就列表 |
+| GET | /api/achievements/progress | 获取成就进度 |
+| POST | /api/achievements | 创建自定义成就 |
+| PUT | /api/achievements/{id} | 更新成就 |
+| DELETE | /api/achievements/{id} | 删除成就 |
+
+#### 奖励模块
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/rewards | 获取奖励列表 |
+| POST | /api/rewards | 创建奖励 |
+| PUT | /api/rewards/{id} | 更新奖励 |
+| DELETE | /api/rewards/{id} | 删除奖励 |
+| POST | /api/rewards/{id}/redeem | 兑换奖励 |
+| GET | /api/rewards/redemptions | 获取兑换记录 |
+
+#### 概览与触发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/motivation/overview | 获取激励概览 |
+| POST | /api/motivation/trigger/{action_code} | 触发积分行为（内部调用） |
+
+### 9.6 前端页面
+
+#### 激励中心页面 (Motivation.vue)
+
+- **积分成就 Tab**：展示积分余额、今日获取、成就徽章墙
+- **奖励商城 Tab**：展示可用奖励列表，支持兑换
+- **积分明细弹窗**：展示积分获取/消耗历史记录
+
+---
+
+## 十、版本历史
+
+### v1.0.8 (2026-04-03)
+
+**新增功能**:
+- 激励中心页面（积分成就、奖励商城）
+- 激励系统后端 API
+- 激励数据初始化服务
+
+**改进**:
+- 前端从后端 API 获取实时数据
+- 成就数据根据练习集实际数据计算
+
+**修复**:
+- element-plus/icons-vue 图标名称错误
+
+**数据库变更**:
+- 新增 star_action、star_balance、star_record 表
+- 新增 achievement、achievement_progress 表
+- 新增 reward、redemption 表
+
+### v1.0.7 (2026-04-02)
+
+**新增功能**:
+- 练习集详情页新增"单词练习"标签页
+- 练习集列表新增日期筛选功能
+
+**改进**:
+- 练习集列表从卡片布局改为表格布局
+- 练习集详情页默认显示详情标签页
+- 移除详情页"最近复习"字段
+- Element Plus 语言设置为中文
+
+**修复**:
+- 单词练习集 API 未返回 `is_correct`、`user_answer`、`tags` 等字段
+- 历史单词复习练习集的学科错误（数学→英语）
+
+**数据库变更**:
+- practice_set 表新增 review_images 字段
 
 ### v1.0.6 (2026-03-31)
 

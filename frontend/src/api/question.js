@@ -121,8 +121,21 @@ export const questionApi = {
   generatePracticeSetPdf(id) {
     return api.post(`/practice-sets/${id}/generate-pdf`)
   },
-  markPracticeSetReviewed(id) {
+  markPracticeSetReviewed(id, images = null) {
+    if (images) {
+      const formData = new FormData()
+      formData.append('images', images)
+      return api.post(`/practice-sets/${id}/mark-reviewed`, formData)
+    }
     return api.post(`/practice-sets/${id}/mark-reviewed`)
+  },
+  // 获取练习集详情
+  getPracticeSetDetail(id) {
+    return api.get(`/practice-sets/${id}`)
+  },
+  // 更新练习集名称和备注
+  updatePracticeSet(id, data) {
+    return api.put(`/practice-sets/${id}`, data)
   },
   deletePracticeSet(id) {
     return api.delete(`/practice-sets/${id}`)

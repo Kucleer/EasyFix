@@ -9,6 +9,7 @@ class PracticeSet(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False)  # 练习集名称
+    notes = Column(Text, nullable=True)  # 备注
     subject_id = Column(Integer, ForeignKey("subject.id"), nullable=False)  # 所属学科
     source_type = Column(String(20), default="question")  # question=来自错题, word=来自单词复习
     question_type = Column(String(20), default="original")  # original=原题, similar=相似题
@@ -16,6 +17,8 @@ class PracticeSet(Base):
     total_questions = Column(Integer, default=0)  # 总题数
     reviewed = Column(Boolean, default=False)  # 是否已复习
     review_count = Column(Integer, default=0)  # 复习次数
+    last_reviewed_at = Column(DateTime, nullable=True)  # 最近复习时间
+    review_images = Column(Text, nullable=True)  # JSON数组，复习完成上传的图片
     deleted = Column(Boolean, default=False, nullable=False)  # 软删除标记
     created_at = Column(DateTime, server_default=func.now())
 
@@ -51,6 +54,7 @@ class WordReviewSession(Base):
     total_count = Column(Integer, default=0)  # 总单词数
     correct_count = Column(Integer, default=0)  # 正确数
     accuracy = Column(Integer, default=0)  # 正确率(%)
+    duration = Column(Integer, default=0)  # 用时（秒）
     reviewed_at = Column(DateTime, server_default=func.now())  # 复习时间
 
     # Relationships

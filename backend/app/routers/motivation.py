@@ -89,7 +89,7 @@ def get_achievements(db: Session = Depends(get_db)):
 
 @router.get("/achievements/progress", response_model=List[AchievementProgressResponse])
 def get_progress(db: Session = Depends(get_db)):
-    from app.models.achievement import AchievementProgress
+    from app.models.achievement import Achievement, AchievementProgress
     from app.models.star import StarRecord
     from sqlalchemy import func
 
@@ -103,16 +103,22 @@ def get_progress(db: Session = Depends(get_db)):
     # 对于每个成就，计算当前进度（基于积分记录）
     result = []
     for p in progresses:
-        p.achievement = db.query(Achievement).filter(Achievement.id == p.achievement_id).first()
+        achievement = db.query(Achievement).filter(Achievement.id == p.achievement_id).first()
 
         # 计算真实进度：统计该行为代码的记录数
         count = db.query(func.count(StarRecord.id)).filter(
             StarRecord.user_id == DEFAULT_USER_ID,
-            StarRecord.action_code == p.achievement.trigger_action
+            StarRecord.action_code == achievement.trigger_action
         ).scalar() or 0
 
-        p.current_count = count
-        result.append(p)
+        result.append({
+            "id": p.id,
+            "achievement_id": p.achievement_id,
+            "current_count": p.current_count,
+            "is_unlocked": p.is_unlocked,
+            "unlocked_at": p.unlocked_at,
+            "achievement": achievement
+        })
 
     return result
 
@@ -164,7 +170,7 @@ def get_rewards(db: Session = Depends(get_db)):
     return rewards
 
 
-@router.post("/rewards", response_model=RewwardResponse)
+@router.post("/rewards", response_model=RewardResponse)
 def create_reward(data: RewardCreate, db: Session = Depends(get_db)):
     from app.models.reward import Reward
     reward = Reward(**data.model_dump())

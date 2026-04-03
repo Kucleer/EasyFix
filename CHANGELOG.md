@@ -4,10 +4,65 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.8] - 2026-04-03
+
+### Added
+- 激励中心页面（前端）
+  - 积分成就 Tab：显示积分余额、今日获取、成就徽章墙
+  - 奖励商城 Tab：显示可用奖励列表
+  - 积分明细弹窗：显示积分获取/消耗记录
+- 激励系统后端 API
+  - 积分余额查询 `/api/stars/balance`
+  - 积分记录查询 `/api/stars/records`
+  - 成就列表查询 `/api/achievements`
+  - 成就进度查询 `/api/achievements/progress`
+  - 奖励列表查询 `/api/rewards`
+  - 奖励兑换 `/api/rewards/{id}/redeem`
+  - 激励概览 `/api/motivation/overview`
+- 激励数据初始化服务
+  - 根据已有练习数据（错题、练习集、相似题、单词）初始化成就进度
+  - 根据历史数据初始化积分余额和积分记录
+- 激励触发动点（供内部调用）
+  - 上传错题、复习练习集、生成相似题、背单词、创建练习集等行为触发积分
+
+### Changed
+- 激励成就数据来源：从练习集实际数据计算（非静态模拟数据）
+- 前端 Motivation.vue：从后端 API 获取实时数据
+
+### Fixed
+- element-plus/icons-vue 图标名称错误（Book→Notebook, Gift→Present, Ribbon→Medal, Study→School, Target→Aim）
+- el-tabs 组件 v-model:active-tab 语法错误
+
+## [1.0.7] - 2026-04-02
+
+### Added
+- 练习集详情页新增"单词练习"标签页
+  - 展示所有单词题目
+  - 显示正确/错误状态和用户答案
+  - 单词标签显示
+  - 用时、正确数等统计数据
+- 练习集列表页新增日期筛选功能
+  - 按创建时间范围筛选
+
+### Changed
+- 练习集列表从卡片布局改为表格布局
+- 练习集详情页默认显示详情标签页
+- 移除详情页"最近复习"字段
+- 名称列宽度调宽（1200px）
+- 日期筛选器宽度调窄（400px）
+- Element Plus 语言设置为中文
+
+### Fixed
+- 单词练习集 API 未返回 `is_correct`、`user_answer`、`tags` 等字段
+- 历史单词复习练习集的学科错误（数学→英语）
+
 ## [1.0.6] - 2026-03-31
 
 ### Added
 - 单词复习计时功能
+- 练习集复习完成上传图片功能
+  - 非单词练习集标记已复习时支持上传多张完成图片
+  - 图片存储在练习集记录中
   - 复习过程实时显示用时（分:秒）
   - 复习结果页面显示总用时
   - 用时数据记录到练习集
@@ -21,6 +76,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - 历史单词复习练习集的学科错误（已批量修复为"英语"）
 - 单词复习结果duration参数未传递问题
+
+### Database
+- practice_set 表新增 review_images 字段
 
 ## [1.0.5] - 2026-03-30
 
