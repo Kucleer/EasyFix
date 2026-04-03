@@ -38,6 +38,18 @@ class AchievementResponse(AchievementBase):
         from_attributes = True
 
 
+class AchievementConfigSchema(BaseModel):
+    id: int
+    achievement_id: int
+    min_words: int = 10
+    min_accuracy: int = 90
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class AchievementProgressResponse(BaseModel):
     id: int
     achievement_id: int
@@ -45,6 +57,7 @@ class AchievementProgressResponse(BaseModel):
     is_unlocked: bool
     unlocked_at: Optional[datetime]
     achievement: AchievementResponse
+    config: Optional[AchievementConfigSchema] = None
 
     class Config:
         from_attributes = True
