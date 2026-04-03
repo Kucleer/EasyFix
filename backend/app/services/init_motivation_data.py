@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.star import StarAction, StarRecord, StarBalance
-from app.models.achievement import Achievement, AchievementProgress
+from app.models.achievement import Achievement, AchievementProgress, AchievementConfig
 from app.models.question import Question
 from app.models.similar_question import SimilarQuestion
 from app.models.practice_set import PracticeSet
@@ -18,6 +18,9 @@ PRESET_ACTIONS = [
     {"code": "create_practice_set", "name": "创建练习集", "star_value": 5},
     {"code": "daily_login", "name": "每日登录", "star_value": 1},
     {"code": "continuous_7day", "name": "连续7天学习", "star_value": 50},
+    {"code": "continuous_14day", "name": "连续14天学习", "star_value": 100},
+    {"code": "continuous_30day", "name": "连续30天学习", "star_value": 200},
+    {"code": "review_word_accuracy", "name": "单词正确率成就", "star_value": 30},
 ]
 
 
@@ -40,6 +43,12 @@ PRESET_ACHIEVEMENTS = [
     {"code": "similar_master", "name": "相似题专家", "level": 1, "trigger_action": "generate_similar", "trigger_count": 20, "reward_stars": 60, "description": "生成20道相似题"},
     {"code": "similar_master", "name": "相似题专家", "level": 2, "trigger_action": "generate_similar", "trigger_count": 100, "reward_stars": 120, "description": "生成100道相似题"},
     {"code": "similar_master", "name": "相似题专家", "level": 3, "trigger_action": "generate_similar", "trigger_count": 300, "reward_stars": 250, "description": "生成300道相似题"},
+    # 连续学习成就
+    {"code": "continuous_learning", "name": "连续学习", "level": 1, "trigger_action": "continuous_7day", "trigger_count": 7, "reward_stars": 50, "description": "连续学习7天"},
+    {"code": "continuous_learning", "name": "连续学习", "level": 2, "trigger_action": "continuous_14day", "trigger_count": 14, "reward_stars": 100, "description": "连续学习14天"},
+    {"code": "continuous_learning", "name": "连续学习", "level": 3, "trigger_action": "continuous_30day", "trigger_count": 30, "reward_stars": 200, "description": "连续学习30天"},
+    # 单词正确率成就
+    {"code": "word_accuracy", "name": "单词正确率", "level": 1, "trigger_action": "review_word_accuracy", "trigger_count": 1, "reward_stars": 30, "description": "单次复习10个单词以上且正确率90%以上"},
 ]
 
 DEFAULT_USER_ID = 1
@@ -244,3 +253,27 @@ def init_star_records_from_existing_data(db: Session):
             db.add(balance)
 
     db.commit()
+
+
+def init_achievement_configs(db: Session):
+    """初始化成就配置"""
+    from app.models.achievement import Achievement, AchievementConfig
+
+    # 单词正确率成就配置
+    word_accuracy = db.query(Achievement).filter(
+        Achievement.code == "word_accuracy"
+    ).first()
+
+    if word_accuracy:
+        existing = db.query(AchievementConfig).filter(
+            AchievementConfig.achievement_id == word_accuracy.id
+        ).first()
+
+        if not existing:
+            config = AchievementConfig(
+                achievement_id=word_accuracy.id,
+                min_words=10,
+                min_accuracy=90
+            )
+            db.add(config)
+            db.commit()
