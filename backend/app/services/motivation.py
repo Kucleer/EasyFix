@@ -8,7 +8,7 @@ from app.models.star import StarAction, StarBalance, StarRecord
 from app.models.achievement import Achievement, AchievementProgress
 from app.models.reward import Reward, Redemption
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # 默认用户ID（单用户场景）
@@ -64,6 +64,9 @@ class MotivationService:
 
         # 检查成就
         unlocked_achievements = self._check_achievements(user_id, action_code)
+
+        # 检查连续学习
+        self.check_continuous_learning(user_id)
 
         return {
             "star_delta": action.star_value,
@@ -194,6 +197,110 @@ class MotivationService:
         self.db.add(record)
         balance.balance = new_balance
         self.db.commit()
+
+    def _add_star_record(self, user_id: int, action_code: str, star_delta: int, reason: str):
+        """内部方法：添加积分记录"""
+        balance = self.get_or_create_balance(user_id)
+        new_balance = balance.balance + star_delta
+
+        record = StarRecord(
+            user_id=user_id,
+            action_code=action_code,
+            star_delta=star_delta,
+            balance_after=new_balance,
+            reason=reason
+        )
+        self.db.add(record)
+        balance.balance = new_balance
+        self.db.commit()
+
+    def check_continuous_learning(self, user_id: int = None) -> List[dict]:
+        """检查并更新连续学习成就"""
+        if user_id is None:
+            user_id = DEFAULT_USER_ID
+
+        unlocked = []
+
+        # 获取连续学习相关的行为
+        continuous_actions = ['continuous_7day', 'continuous_14day', 'continuous_30day']
+
+        # 查询用户的学习日期记录
+        records = self.db.query(StarRecord).filter(
+            StarRecord.user_id == user_id,
+            StarRecord.action_code.in_(['upload_question', 'review_practice_set', 'review_word', 'generate_similar', 'create_practice_set'])
+        ).order_by(StarRecord.created_at.desc()).all()
+
+        if not records:
+            return unlocked
+
+        # 提取唯一的学习日期
+        study_dates = set()
+        for r in records:
+            date_str = r.created_at.strftime('%Y-%m-%d') if isinstance(r.created_at, datetime) else datetime.strptime(str(r.created_at), '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d')
+            study_dates.add(date_str)
+
+        study_dates = sorted(study_dates, reverse=True)
+
+        # 检查每个连续学习成就
+        for action_code in continuous_actions:
+            achievement = self.db.query(Achievement).filter(
+                Achievement.code == 'continuous_learning',
+                Achievement.trigger_action == action_code,
+                Achievement.deleted == False
+            ).first()
+
+            if not achievement:
+                continue
+
+            days = achievement.trigger_count
+
+            # 计算连续天数
+            consecutive_days = 0
+            today = datetime.now().strftime('%Y-%m-%d')
+
+            for i in range(days):
+                check_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                if check_date in study_dates:
+                    consecutive_days += 1
+                else:
+                    break
+
+            # 检查是否解锁
+            progress = self.db.query(AchievementProgress).filter(
+                AchievementProgress.user_id == user_id,
+                AchievementProgress.achievement_id == achievement.id
+            ).first()
+
+            if not progress:
+                progress = AchievementProgress(
+                    user_id=user_id,
+                    achievement_id=achievement.id,
+                    current_count=0,
+                    is_unlocked=False
+                )
+                self.db.add(progress)
+
+            if consecutive_days >= days and not progress.is_unlocked:
+                progress.is_unlocked = True
+                progress.unlocked_at = datetime.now()
+                progress.current_count = consecutive_days
+
+                # 发放奖励积分
+                if achievement.reward_stars > 0:
+                    self._add_stars(user_id, achievement.reward_stars, f"成就奖励：{achievement.name} Lv{achievement.level}")
+
+                # 触发该行为记录
+                self._add_star_record(user_id, action_code, achievement.reward_stars, f"连续学习成就解锁：{achievement.name}")
+
+                unlocked.append({
+                    "achievement_id": achievement.id,
+                    "name": achievement.name,
+                    "level": achievement.level,
+                    "reward_stars": achievement.reward_stars
+                })
+
+        self.db.commit()
+        return unlocked
 
     def redeem_reward(self, reward_id: int, user_id: int = DEFAULT_USER_ID) -> dict:
         """兑换奖励"""
