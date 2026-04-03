@@ -95,8 +95,9 @@
                 :class="{ 'is-redeemed': reward.redeemed }"
               >
                 <div class="reward-icon" :style="{ backgroundColor: reward.color }">
-                  <el-icon :size="40" color="#fff">
-                    <component :is="reward.icon" />
+                  <img v-if="reward.image_url" :src="reward.image_url" style="width:40px;height:40px;object-fit:contain;" />
+                  <el-icon v-else :size="40" color="#fff">
+                    <component :is="reward.icon || 'Present'" />
                   </el-icon>
                 </div>
                 <div class="reward-content">
