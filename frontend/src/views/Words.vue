@@ -383,6 +383,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Printer, Upload } from '@element-plus/icons-vue'
 import { wordApi } from '@/api/word'
 import { questionApi } from '@/api/question'
+import { motivationApi } from '@/api/motivation'
 
 const words = ref({ total: 0, items: [] })
 const allTags = ref([])
@@ -797,6 +798,17 @@ const finishReview = async () => {
     reviewResult.accuracy = data.accuracy
     reviewResult.duration = duration
     reviewStep.value = 'result'
+
+    // 调用单词正确率成就检查
+    try {
+      await motivationApi.triggerWordAccuracy({
+        total_count: data.total,
+        correct_count: data.correct,
+        reason: '单词复习'
+      })
+    } catch (error) {
+      console.error('激励触发失败:', error)
+    }
   } catch (error) {
     ElMessage.error('提交结果失败')
   }

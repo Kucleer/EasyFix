@@ -61,5 +61,10 @@ export const motivationApi = {
   // 概览
   getOverview() {
     return api.get('/motivation/overview')
+  },
+
+  // 单词复习正确率触发
+  triggerWordAccuracy(data) {
+    return api.post('/motivation/trigger/review_word_accuracy', data)
   }
 }
