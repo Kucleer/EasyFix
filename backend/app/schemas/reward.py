@@ -30,6 +30,7 @@ class RewardUpdate(BaseModel):
 class RewardResponse(RewardBase):
     id: int
     created_at: datetime
+    image_url: Optional[str] = None
 
     class Config:
         from_attributes = True
