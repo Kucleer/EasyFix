@@ -126,6 +126,20 @@
             </div>
           </div>
         </el-tab-pane>
+
+        <!-- 兑换明细 Tab -->
+        <el-tab-pane label="兑换明细" name="redemptions">
+          <el-table :data="redemptionList" stripe>
+            <el-table-column prop="reward.name" label="奖励名称" />
+            <el-table-column prop="star_cost" label="消耗积分" width="120" />
+            <el-table-column prop="redeemed_at" label="兑换时间" width="180">
+              <template #default="{ row }">
+                {{ formatDate(row.redeemed_at) }}
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="redemptionList.length === 0" description="暂无兑换记录" />
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -217,6 +231,9 @@ const rewards = ref([])
 
 // 积分明细记录
 const pointsRecords = ref([])
+
+// 兑换记录数据
+const redemptionList = ref([])
 
 // 成就弹窗
 const achievementDialogVisible = ref(false)
@@ -321,6 +338,19 @@ const fetchRecords = async () => {
   }
 }
 
+// 获取兑换记录
+const fetchRedemptions = async () => {
+  try {
+    const res = await motivationApi.getRedemptions()
+    redemptionList.value = res.data.map(r => ({
+      ...r,
+      reward: r.reward || { name: '未知奖励' }
+    }))
+  } catch (error) {
+    console.error('获取兑换记录失败:', error)
+  }
+}
+
 // 初始化数据
 const initData = async () => {
   loading.value = true
@@ -330,6 +360,7 @@ const initData = async () => {
       fetchAchievements(),
       fetchRewards(),
       fetchRecords(),
+      fetchRedemptions(),
     ])
   } finally {
     loading.value = false
