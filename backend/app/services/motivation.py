@@ -5,7 +5,7 @@
 """
 from sqlalchemy.orm import Session
 from app.models.star import StarAction, StarBalance, StarRecord
-from app.models.achievement import Achievement, AchievementProgress
+from app.models.achievement import Achievement, AchievementProgress, AchievementConfig
 from app.models.reward import Reward, Redemption
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -301,6 +301,74 @@ class MotivationService:
 
         self.db.commit()
         return unlocked
+
+    def check_word_accuracy(self, user_id: int, total_count: int, correct_count: int, reason: str = None) -> Optional[dict]:
+        """检查单词正确率成就"""
+        # 获取单词正确率成就
+        achievement = self.db.query(Achievement).filter(
+            Achievement.code == "word_accuracy",
+            Achievement.deleted == False
+        ).first()
+
+        if not achievement:
+            return None
+
+        # 获取成就配置
+        config = self.db.query(AchievementConfig).filter(
+            AchievementConfig.achievement_id == achievement.id
+        ).first()
+
+        min_words = config.min_words if config else 10
+        min_accuracy = config.min_accuracy if config else 90
+
+        # 计算正确率
+        accuracy = (correct_count / total_count * 100) if total_count > 0 else 0
+
+        # 检查是否满足条件
+        if total_count < min_words or accuracy < min_accuracy:
+            return None
+
+        # 检查是否已解锁
+        progress = self.db.query(AchievementProgress).filter(
+            AchievementProgress.user_id == user_id,
+            AchievementProgress.achievement_id == achievement.id
+        ).first()
+
+        if progress and progress.is_unlocked:
+            return None  # 已解锁
+
+        # 解锁成就
+        if not progress:
+            progress = AchievementProgress(
+                user_id=user_id,
+                achievement_id=achievement.id,
+                current_count=0,
+                is_unlocked=False
+            )
+            self.db.add(progress)
+
+        progress.is_unlocked = True
+        progress.unlocked_at = datetime.now()
+        progress.current_count = 1
+
+        # 发放奖励积分
+        if achievement.reward_stars > 0:
+            self._add_stars(user_id, achievement.reward_stars, f"成就奖励：{achievement.name}")
+
+            # 触发行为记录
+            self._add_star_record(user_id, "review_word_accuracy", achievement.reward_stars, reason or "单词正确率成就解锁")
+
+        self.db.commit()
+
+        return {
+            "achievement_id": achievement.id,
+            "name": achievement.name,
+            "level": achievement.level,
+            "reward_stars": achievement.reward_stars,
+            "accuracy": accuracy,
+            "total_count": total_count,
+            "correct_count": correct_count
+        }
 
     def redeem_reward(self, reward_id: int, user_id: int = DEFAULT_USER_ID) -> dict:
         """兑换奖励"""

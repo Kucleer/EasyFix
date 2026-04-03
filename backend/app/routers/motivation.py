@@ -287,6 +287,27 @@ def trigger_action(action_code: str, reason: str = None, db: Session = Depends(g
     return result
 
 
+@router.post("/motivation/trigger/review_word_accuracy")
+def trigger_word_accuracy(
+    total_count: int,
+    correct_count: int,
+    reason: str = None,
+    db: Session = Depends(get_db)
+):
+    """触发单词正确率成就"""
+    DEFAULT_USER_ID = 1
+    service = MotivationService(db)
+    result = service.check_word_accuracy(
+        user_id=DEFAULT_USER_ID,
+        total_count=total_count,
+        correct_count=correct_count,
+        reason=reason
+    )
+    if result is None:
+        return {"unlocked": False, "message": "未达成条件"}
+    return {"unlocked": True, **result}
+
+
 # ============ 奖励图片上传 ============
 
 @router.post("/rewards/{reward_id}/upload-image")
