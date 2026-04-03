@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import Path
 from sqlalchemy.orm import Session
 from app.database import get_db
+import os
+import uuid
 from app.services.motivation import MotivationService
 from app.schemas.star import (
     StarBalanceResponse, StarRecordResponse, StarActionResponse,
@@ -274,3 +277,33 @@ def trigger_action(action_code: str, reason: str = None, db: Session = Depends(g
     if result is None:
         raise HTTPException(status_code=404, detail="行为不存在或已禁用")
     return result
+
+
+# ============ 奖励图片上传 ============
+
+@router.post("/rewards/{reward_id}/upload-image")
+async def upload_reward_image(reward_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """上传奖励图片"""
+    from app.models.reward import Reward
+
+    reward = db.query(Reward).filter(Reward.id == reward_id).first()
+    if not reward:
+        raise HTTPException(status_code=404, detail="奖励不存在")
+
+    # 保存文件
+    upload_dir = os.path.join("backend", "uploads", "rewards")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    ext = os.path.splitext(file.filename)[1] if file.filename else ".png"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(upload_dir, filename)
+
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    # 更新数据库
+    reward.image_url = f"/uploads/rewards/{filename}"
+    db.commit()
+
+    return {"Image_url": reward.image_url}
