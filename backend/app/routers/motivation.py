@@ -219,8 +219,16 @@ def redeem_reward(reward_id: int, db: Session = Depends(get_db)):
 
 @router.get("/rewards/redemptions", response_model=List[RedemptionResponse])
 def get_redemptions(db: Session = Depends(get_db)):
+    """获取当前用户的兑换记录"""
     from app.models.reward import Redemption
-    redemptions = db.query(Redemption).order_by(Redemption.redeemed_at.desc()).limit(50).all()
+    from app.models.star import StarBalance
+
+    DEFAULT_USER_ID = 1
+
+    redemptions = db.query(Redemption).filter(
+        Redemption.user_id == DEFAULT_USER_ID
+    ).order_by(Redemption.redeemed_at.desc()).limit(50).all()
+
     return redemptions
 
 
