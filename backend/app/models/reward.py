@@ -16,6 +16,7 @@ class Reward(Base):
     remaining_stock = Column(Integer, default=-1)
     is_active = Column(Boolean, default=True)
     deleted = Column(Boolean, default=False)
+    image_url = Column(String(500), nullable=True)  # 自定义图片路径，与 icon 二选一
     created_at = Column(DateTime, server_default=func.now())
 
 
