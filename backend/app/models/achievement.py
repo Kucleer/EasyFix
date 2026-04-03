@@ -42,3 +42,17 @@ class AchievementProgress(Base):
     )
 
     achievement = relationship("Achievement")
+
+
+class AchievementConfig(Base):
+    """成就配置表"""
+    __tablename__ = "achievement_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    achievement_id = Column(Integer, ForeignKey("achievement.id"), unique=True)
+    min_words = Column(Integer, default=10)      # 每次最少单词数
+    min_accuracy = Column(Integer, default=90)    # 最低正确率%
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    achievement = relationship("Achievement")
