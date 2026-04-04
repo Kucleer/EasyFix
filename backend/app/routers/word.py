@@ -147,6 +147,36 @@ def list_words(
     }
 
 
+@router.get("/{word_id}/memory-curve", response_model=MemoryCurveResponse)
+def get_memory_curve(word_id: int, db: Session = Depends(get_db)):
+    """获取单词记忆曲线"""
+    word = db.query(Word).filter(Word.id == word_id, Word.deleted == False).first()
+    if not word:
+        raise HTTPException(status_code=404, detail="单词不存在")
+
+    # 获取复习历史
+    logs = db.query(WordReviewLog).filter(
+        WordReviewLog.word_id == word_id,
+        WordReviewLog.deleted == False
+    ).order_by(WordReviewLog.reviewed_at.desc()).all()
+
+    review_history = []
+    for log in logs:
+        review_history.append({
+            "reviewed_at": log.reviewed_at,
+            "is_correct": log.is_correct,
+            "user_answer": log.user_answer or " - "
+        })
+
+    return {
+        "word_id": word.id,
+        "learning_phase": word.learning_phase or "新学",
+        "interval": word.interval or 1,
+        "next_review_at": word.next_review_at,
+        "review_history": review_history
+    }
+
+
 @router.get("/{word_id}", response_model=WordResponse)
 def get_word(word_id: int, db: Session = Depends(get_db)):
     """获取单词详情"""
@@ -609,34 +639,3 @@ def print_pdf(
     return {"pdf_url": f"/uploads/{pdf_path}"}
 
 
-from datetime import timedelta
-
-
-@router.get("/{word_id}/memory-curve", response_model=MemoryCurveResponse)
-def get_memory_curve(word_id: int, db: Session = Depends(get_db)):
-    """获取单词记忆曲线"""
-    word = db.query(Word).filter(Word.id == word_id, Word.deleted == False).first()
-    if not word:
-        raise HTTPException(status_code=404, detail="单词不存在")
-
-    # 获取复习历史
-    logs = db.query(WordReviewLog).filter(
-        WordReviewLog.word_id == word_id,
-        WordReviewLog.deleted == False
-    ).order_by(WordReviewLog.reviewed_at.desc()).all()
-
-    review_history = []
-    for log in logs:
-        review_history.append({
-            "reviewed_at": log.reviewed_at,
-            "is_correct": log.is_correct,
-            "user_answer": log.user_answer or " - "
-        })
-
-    return {
-        "word_id": word.id,
-        "learning_phase": word.learning_phase or "新学",
-        "interval": word.interval or 1,
-        "next_review_at": word.next_review_at,
-        "review_history": review_history
-    }
