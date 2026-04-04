@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-04-04
+
+### Added
+- 艾宾浩斯记忆曲线复习功能
+  - 新增 learning_phase 字段追踪学习阶段（新学/在途/遗忘点/牢记）
+  - 新增 /api/words/{word_id}/memory-curve API
+  - 复习抽取优先未复习 → 曲线到期 → 低正确率 → 随机
+  - 首页新增待复习数量卡片
+  - 单词详情页新增记忆曲线 Tab，展示阶段进度和复习历史
+
+### Changed
+- submit_review 更新 learning_phase 和 interval
+- 首页"复习次数"卡片改为"待复习"
+
 ## [1.0.9] - 2026-04-04
 
 ### Added
