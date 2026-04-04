@@ -159,6 +159,40 @@
         <!-- 行为配置 -->
         <el-tab-pane label="行为配置" name="starActions">
           <div class="tab-content">
+            <!-- 积分调整区块 -->
+            <div class="stars-adjust-section">
+              <h4>积分调整</h4>
+              <el-form :model="starsAdjustForm" :inline="true" size="default">
+                <el-form-item label="积分变动">
+                  <el-input-number
+                    v-model="starsAdjustForm.delta"
+                    :min="-9999"
+                    :max="9999"
+                    controls-position="right"
+                    style="width: 120px"
+                  />
+                  <span style="margin-left: 8px; color: #909399;">（正数增加，负数减少）</span>
+                </el-form-item>
+                <el-form-item label="调整原因" required>
+                  <el-input
+                    v-model="starsAdjustForm.reason"
+                    placeholder="请输入调整原因"
+                    maxlength="200"
+                    show-word-limit
+                    style="width: 300px"
+                  />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="handleStarsAdjust" :loading="starsAdjustLoading">
+                    确认调整
+                  </el-button>
+                </el-form-item>
+              </el-form>
+              <div v-if="starsAdjustResult !== null" class="adjust-result">
+                调整后积分余额：<span class="balance-value">{{ starsAdjustResult }}</span>
+              </div>
+            </div>
+
             <div class="action-bar">
               <el-button type="primary" @click="showStarActionDialog = true">
                 <el-icon><Plus /></el-icon>
@@ -513,6 +547,47 @@ const starActions = ref([])
 const showStarActionDialog = ref(false)
 const editStarActionData = ref(null)
 const starActionForm = reactive({ code: '', name: '', star_value: 0, enabled: true })
+
+// 积分调整相关
+const starsAdjustForm = reactive({
+  delta: 0,
+  reason: ''
+})
+const starsAdjustLoading = ref(false)
+const starsAdjustResult = ref(null)
+
+const fetchBalance = async () => {
+  try {
+    const { data } = await motivationApi.getBalance()
+    starsAdjustResult.value = data.balance
+  } catch (e) {
+    console.error('获取积分余额失败:', e)
+  }
+}
+
+const handleStarsAdjust = async () => {
+  if (!starsAdjustForm.reason.trim()) {
+    ElMessage.warning('请输入调整原因')
+    return
+  }
+  try {
+    starsAdjustLoading.value = true
+    const { data } = await motivationApi.adjustStars({
+      delta: starsAdjustForm.delta,
+      reason: starsAdjustForm.reason
+    })
+    starsAdjustResult.value = data.new_balance
+    starsAdjustForm.delta = 0
+    starsAdjustForm.reason = ''
+    ElMessage.success('积分调整成功')
+    // 刷新积分数据
+    fetchBalance()
+  } catch (error) {
+    ElMessage.error(error.detail || '调整失败')
+  } finally {
+    starsAdjustLoading.value = false
+  }
+}
 
 // 成就管理
 const achievements = ref([])
@@ -1026,5 +1101,28 @@ onMounted(() => {
 .text-danger {
   color: #f56c6c;
   font-weight: bold;
+}
+
+.stars-adjust-section {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.stars-adjust-section h4 {
+  margin: 0 0 12px 0;
+  color: #303133;
+}
+
+.adjust-result {
+  margin-top: 12px;
+  color: #606266;
+}
+
+.balance-value {
+  font-size: 18px;
+  font-weight: bold;
+  color: #409eff;
 }
 </style>
