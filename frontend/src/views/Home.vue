@@ -1,12 +1,12 @@
 <template>
   <div class="home">
-    <!-- 总体统计 - 科技感卡片 -->
+    <!-- 总体统计 - 彩虹配色 -->
     <el-row :gutter="24">
-      <el-col :span="6">
-        <div class="stat-card stat-card-blue" @click="$router.push('/questions')">
+      <el-col :span="8">
+        <div class="stat-card stat-card-red" @click="$router.push('/questions')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Document /></el-icon>
+            <img src="/icons/错题总数.png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.total_questions }}</div>
@@ -14,11 +14,11 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card stat-card-green" @click="$router.push('/questions')">
+      <el-col :span="8">
+        <div class="stat-card stat-card-orange" @click="$router.push('/questions')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Books /></el-icon>
+            <img src="/icons/学科数量.png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.total_subjects }}</div>
@@ -26,11 +26,11 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card stat-card-orange" @click="$router.push('/management')">
+      <el-col :span="8">
+        <div class="stat-card stat-card-yellow" @click="$router.push('/management')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Timer /></el-icon>
+            <img src="/icons/活跃学习天数.png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.active_days || 0 }}</div>
@@ -38,27 +38,55 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card stat-card-red" @click="$router.push('/questions')">
+    </el-row>
+
+    <!-- 单词统计卡片 -->
+    <el-row :gutter="24" style="margin-top: 24px">
+      <el-col :span="8">
+        <div class="stat-card stat-card-green" @click="$router.push('/questions')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Warning /></el-icon>
+            <img src="/icons/待复习(错题).png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.total_questions }}</div>
-            <div class="stat-label">待复习</div>
+            <div class="stat-value">{{ stats.to_review_questions || 0 }}</div>
+            <div class="stat-label">待复习(错题)</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="8">
+        <div class="stat-card stat-card-cyan" @click="$router.push('/words')">
+          <div class="stat-glow"></div>
+          <div class="stat-icon-wrapper">
+            <img src="/icons/待复习(错题).png" class="stat-icon-img" />
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.word_stats?.to_review_count || 0 }}</div>
+            <div class="stat-label">待复习(单词)</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="8">
+        <div class="stat-card stat-card-blue" @click="$router.push('/words')">
+          <div class="stat-glow"></div>
+          <div class="stat-icon-wrapper">
+            <img src="/icons/复习次数.png" class="stat-icon-img" />
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.word_stats?.total_reviews || 0 }}</div>
+            <div class="stat-label">复习次数</div>
           </div>
         </div>
       </el-col>
     </el-row>
 
-    <!-- 单词统计卡片 -->
+    <!-- 第三行 -->
     <el-row :gutter="24" style="margin-top: 24px">
-      <el-col :span="6">
-        <div class="stat-card stat-card-purple" @click="$router.push('/words')">
+      <el-col :span="8">
+        <div class="stat-card stat-card-indigo" @click="$router.push('/words')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Document /></el-icon>
+            <img src="/icons/单词总数.png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.word_stats?.total_words || 0 }}</div>
@@ -66,11 +94,11 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card stat-card-cyan" @click="$router.push('/words')">
+      <el-col :span="8">
+        <div class="stat-card stat-card-violet" @click="$router.push('/words')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Refresh /></el-icon>
+            <img src="/icons/已复习单词.png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.word_stats?.reviewed_words || 0 }}</div>
@@ -78,23 +106,11 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card stat-card-teal" @click="$router.push('/words')">
+      <el-col :span="8">
+        <div class="stat-card stat-card-purple" @click="$router.push('/words')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Timer /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.word_stats?.to_review_count || 0 }}</div>
-            <div class="stat-label">待复习</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card stat-card-gold" @click="$router.push('/words')">
-          <div class="stat-glow"></div>
-          <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><CircleCheck /></el-icon>
+            <img src="/icons/单词正确率.png" class="stat-icon-img" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.word_stats?.accuracy || 0 }}%</div>
@@ -548,13 +564,15 @@ onMounted(async () => {
 /* 科技感统计卡片 */
 .stat-card {
   position: relative;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   border-radius: 16px;
-  padding: 24px;
+  padding: 16px;
   cursor: pointer;
   overflow: hidden;
   transition: all 0.3s ease;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: flex-end;
+  height: 130px;
 }
 
 .stat-card:hover {
@@ -568,58 +586,47 @@ onMounted(async () => {
   left: -50%;
   width: 200%;
   height: 200%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 60%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 60%);
   pointer-events: none;
 }
 
-.stat-card-blue { border-left: 4px solid #409eff; }
-.stat-card-green { border-left: 4px solid #67c23a; }
-.stat-card-orange { border-left: 4px solid #e6a23c; }
-.stat-card-red { border-left: 4px solid #f56c6c; }
-.stat-card-purple { border-left: 4px solid #9c27b0; }
-.stat-card-cyan { border-left: 4px solid #00bcd4; }
-.stat-card-teal { border-left: 4px solid #009688; }
-.stat-card-gold { border-left: 4px solid #ffc107; }
+.stat-card-red { background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%); }
+.stat-card-orange { background: linear-gradient(135deg, #ffa502 0%, #ff9500 100%); }
+.stat-card-yellow { background: linear-gradient(135deg, #f1c40f 0%, #f39c12 100%); }
+.stat-card-green { background: linear-gradient(135deg, #2ed573 0%, #26a65b 100%); }
+.stat-card-cyan { background: linear-gradient(135deg, #00bcd4 0%, #00acc1 100%); }
+.stat-card-blue { background: linear-gradient(135deg, #409eff 0%, #3c8af0 100%); }
+.stat-card-indigo { background: linear-gradient(135deg, #6360db 0%, #5558d4 100%); }
+.stat-card-violet { background: linear-gradient(135deg, #8e44ad 0%, #7d3c98 100%); }
+.stat-card-purple { background: linear-gradient(135deg, #9c27b0 0%, #8e24a0 100%); }
+.stat-card-teal { background: linear-gradient(135deg, #009688 0%, #00897b 100%); }
+.stat-card-gold { background: linear-gradient(135deg, #ffc107 0%, #ffb300 100%); }
 
 .stat-icon-wrapper {
-  width: 60px;
-  height: 60px;
-  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-right: 12px;
+  flex-shrink: 0;
+  height: 78px;
+  width: 78px;
 }
 
-.stat-card-blue .stat-icon-wrapper { background: rgba(64, 158, 255, 0.2); }
-.stat-card-green .stat-icon-wrapper { background: rgba(103, 194, 58, 0.2); }
-.stat-card-orange .stat-icon-wrapper { background: rgba(230, 162, 60, 0.2); }
-.stat-card-red .stat-icon-wrapper { background: rgba(245, 108, 108, 0.2); }
-.stat-card-purple .stat-icon-wrapper { background: rgba(156, 39, 176, 0.2); }
-.stat-card-cyan .stat-icon-wrapper { background: rgba(0, 188, 212, 0.2); }
-.stat-card-teal .stat-icon-wrapper { background: rgba(0, 150, 136, 0.2); }
-.stat-card-gold .stat-icon-wrapper { background: rgba(255, 193, 7, 0.2); }
-
-.stat-icon {
-  font-size: 28px;
+.stat-icon-img {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
 }
-
-.stat-card-blue .stat-icon { color: #409eff; }
-.stat-card-green .stat-icon { color: #67c23a; }
-.stat-card-orange .stat-icon { color: #e6a23c; }
-.stat-card-red .stat-icon { color: #f56c6c; }
-.stat-card-purple .stat-icon { color: #9c27b0; }
-.stat-card-cyan .stat-icon { color: #00bcd4; }
-.stat-card-teal .stat-icon { color: #009688; }
-.stat-card-gold .stat-icon { color: #ffc107; }
 
 .stat-info {
   position: relative;
   z-index: 1;
+  flex: 1;
+  text-align: right;
 }
 
 .stat-value {
-  font-size: 36px;
+  font-size: 30px;
   font-weight: bold;
   color: #fff;
   line-height: 1;
@@ -627,9 +634,11 @@ onMounted(async () => {
 }
 
 .stat-label {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  margin-top: 8px;
+  font-size: 32px;
+  color: rgba(255, 255, 255, 0.9);
+  margin-top: 6px;
+  font-weight: 600;
+  letter-spacing: 1px;
 }
 
 .stat-trend {

@@ -129,6 +129,11 @@ export const questionApi = {
     }
     return api.post(`/practice-sets/${id}/mark-reviewed`)
   },
+  markPracticeSetReviewedWithGrading(id, questionResults) {
+    const formData = new FormData()
+    formData.append('question_results', JSON.stringify(questionResults))
+    return api.post(`/practice-sets/${id}/mark-reviewed`, formData)
+  },
   // 获取练习集详情
   getPracticeSetDetail(id) {
     return api.get(`/practice-sets/${id}`)
@@ -136,6 +141,10 @@ export const questionApi = {
   // 更新练习集名称和备注
   updatePracticeSet(id, data) {
     return api.put(`/practice-sets/${id}`, data)
+  },
+  // 更新练习集复习图片
+  updatePracticeSetReviewImages(id, images) {
+    return api.put(`/practice-sets/${id}/review-images`, { images })
   },
   deletePracticeSet(id) {
     return api.delete(`/practice-sets/${id}`)

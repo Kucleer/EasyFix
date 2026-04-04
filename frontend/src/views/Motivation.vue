@@ -173,6 +173,15 @@
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            v-if="pointsRecordsTotal > 0"
+            v-model:current-page="pointsQuery.page"
+            :page-size="pointsQuery.limit"
+            :total="pointsRecordsTotal"
+            layout="prev, pager, next"
+            @current-change="fetchRecords"
+            style="margin-top: 16px; justify-content: center;"
+          />
           <el-empty v-if="pointsRecords.length === 0" description="暂无积分记录" />
         </el-tab-pane>
       </el-tabs>
@@ -266,6 +275,11 @@ const rewards = ref([])
 
 // 积分明细记录
 const pointsRecords = ref([])
+const pointsRecordsTotal = ref(0)
+const pointsQuery = reactive({
+  page: 1,
+  limit: 20
+})
 
 // 兑换记录数据
 const redemptionList = ref([])
@@ -371,8 +385,10 @@ const selectReward = (reward) => {
 // 获取积分记录
 const fetchRecords = async () => {
   try {
-    const res = await motivationApi.getRecords({ limit: 50 })
-    pointsRecords.value = res.data
+    const skip = (pointsQuery.page - 1) * pointsQuery.limit
+    const res = await motivationApi.getRecords({ skip, limit: pointsQuery.limit })
+    pointsRecords.value = res.data.items
+    pointsRecordsTotal.value = res.data.total
   } catch (error) {
     console.error('获取积分记录失败:', error)
   }

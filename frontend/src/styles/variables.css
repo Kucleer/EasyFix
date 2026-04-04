@@ -1,0 +1,98 @@
+/* frontend/src/styles/variables.css */
+
+/* ==================== 字体层级 ==================== */
+:root {
+  /* 字号 */
+  --font-h1: 20px;
+  --font-h2: 18px;
+  --font-h3: 16px;
+  --font-body: 14px;
+  --font-small: 12px;
+
+  /* 字重 */
+  --font-weight-bold: bold;
+  --font-weight-semibold: 600;
+  --font-weight-normal: normal;
+
+  /* ==================== 背景色 ==================== */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #fafafa;
+  --bg-dark: #1a1a1a;
+
+  /* ==================== 文字色 ==================== */
+  --text-primary: #303133;
+  --text-secondary: #606266;
+  --text-muted: #909399;
+  --text-white: #ffffff;
+
+  /* ==================== 强调色 ==================== */
+  --accent-blue: #409eff;
+  --accent-purple: #8250df;
+  --accent-pink: #ec7cf3;
+  --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+  /* ==================== 功能色 ==================== */
+  --success: #67c23a;
+  --warning: #e6a23c;
+  --danger: #f56c6c;
+  --info: #909399;
+
+  /* ==================== 边框色 ==================== */
+  --border-light: #f0f0f0;
+  --border-default: #dcdfe6;
+  --border-dark: #303133;
+
+  /* ==================== 圆角系统 ==================== */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* ==================== 阴影系统 ==================== */
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* ==================== Element Plus 主题覆盖 ==================== */
+.el-button {
+  border-radius: var(--radius-md) !important;
+}
+
+.el-button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.el-card {
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+  border: 1px solid var(--border-light);
+}
+
+.el-input__wrapper {
+  border-radius: var(--radius-sm) !important;
+}
+
+.el-table {
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+}
+
+.el-table th {
+  background-color: var(--bg-tertiary) !important;
+  font-weight: var(--font-weight-semibold) !important;
+}
+
+.el-table tr:hover > td {
+  background-color: #f5f7fa !important;
+}
+
+.el-dialog {
+  border-radius: var(--radius-lg) !important;
+}
+
+.el-tag {
+  border-radius: var(--radius-sm) !important;
+}

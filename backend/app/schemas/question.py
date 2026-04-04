@@ -28,6 +28,7 @@ class QuestionUpdate(BaseModel):
     semester: Optional[int] = Field(default=None, ge=1, le=2)
     answer: Optional[str] = None
     analysis: Optional[str] = None
+    analysis_image: Optional[str] = None
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     error_type: Optional[str] = None
     knowledge_point: Optional[str] = None
@@ -77,9 +78,12 @@ class QuestionResponse(BaseModel):
     semester: Optional[int] = None  # 学期 1-2
     answer: Optional[str] = None
     analysis: Optional[str] = None
+    analysis_image: Optional[str] = None
     difficulty: int
     error_type: Optional[str] = None
     knowledge_point: Optional[str] = None
+    correct_count: Optional[int] = 0
+    error_count: Optional[int] = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
     tags: List[TagResponse] = []

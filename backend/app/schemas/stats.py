@@ -29,6 +29,7 @@ class WordStats(BaseModel):
     reviewed_words: int = 0
     total_reviews: int = 0
     accuracy: float = 0.0
+    to_review_count: int = 0
 
 
 class AccuracyCurvePoint(BaseModel):
@@ -41,6 +42,7 @@ class StatsResponse(BaseModel):
     total_subjects: int
     total_error_books: int
     active_days: int = 0
+    to_review_questions: int = 0  # 待复习错题数
     difficulty_distribution: dict = {}
     error_type_distribution: dict = {}
     by_subject: List[SubjectStats] = []

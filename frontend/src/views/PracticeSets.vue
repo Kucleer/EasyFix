@@ -33,7 +33,7 @@
         <span class="selected-count">已选择 {{ selectedIds.length }} 项</span>
         <el-button
           type="primary"
-          size="small"
+          size="default"
           :disabled="selectedIds.length === 0"
           @click="batchDownloadPdf"
         >
@@ -41,7 +41,7 @@
         </el-button>
         <el-button
           type="danger"
-          size="small"
+          size="default"
           :disabled="selectedIds.length === 0"
           @click="batchDelete"
         >
@@ -61,7 +61,7 @@
         <el-table-column prop="name" label="名称" width="1200">
           <template #default="{ row }">
             <span class="ps-name">{{ row.name }}</span>
-            <el-tag :type="row.question_type === 'original' ? 'primary' : 'success'" size="small" style="margin-left: 8px">
+            <el-tag :type="row.question_type === 'original' ? 'primary' : 'success'" :style="{ marginLeft: '8px', fontSize: '14px' }">
               {{ row.question_type === 'original' ? '原题' : '相似题' }}
             </el-tag>
           </template>
@@ -74,9 +74,18 @@
         </el-table-column>
         <el-table-column prop="total_questions" label="题目数" width="80" align="center" />
         <el-table-column prop="review_count" label="复习次数" width="80" align="center" />
+        <el-table-column prop="accuracy" label="正确率" width="80" align="center">
+          <template #default="{ row }">
+            <span v-if="row.source_type === 'word' && row.word_review_stats?.accuracy != null">
+              {{ row.word_review_stats.accuracy }}%
+            </span>
+            <span v-else-if="row.accuracy != null">{{ row.accuracy }}%</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="reviewed" label="状态" width="80" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.reviewed ? 'success' : 'info'" size="small">
+            <el-tag :type="row.reviewed ? 'success' : 'info'" :style="{ fontSize: '14px' }">
               {{ row.reviewed ? '已复习' : '未复习' }}
             </el-tag>
           </template>
@@ -86,13 +95,13 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="360" fixed="right">
+        <el-table-column label="操作" width="420" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" size="small" @click="showDetail(row)">查看详情</el-button>
-            <el-button v-if="row.pdf_path" type="primary" size="small" @click="downloadPdf(row)">下载PDF</el-button>
-            <el-button v-else type="info" size="small" disabled>无PDF</el-button>
-            <el-button type="warning" size="small" @click="markReviewed(row)" :disabled="row.reviewed">标记已复习</el-button>
-            <el-button type="danger" size="small" @click="deletePracticeSet(row)">删除</el-button>
+            <el-button type="primary" size="default" @click="showDetail(row)">查看详情</el-button>
+            <el-button v-if="row.pdf_path" type="primary" size="default" @click="downloadPdf(row)">下载PDF</el-button>
+            <el-button v-else type="info" size="default" disabled>无PDF</el-button>
+            <el-button type="warning" size="default" @click="markReviewed(row)" :disabled="row.reviewed">标记已复习</el-button>
+            <el-button type="danger" size="default" @click="deletePracticeSet(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -111,6 +120,60 @@
         />
       </div>
     </el-card>
+
+    <!-- 批改弹窗 -->
+    <el-dialog v-model="gradingDialogVisible" title="批改练习集" width="600px" destroy-on-close>
+      <!-- 整体批改 -->
+      <div v-if="gradingStep === 'overall'" class="grading-overall">
+        <p class="grading-tip">共 {{ currentPsQuestions.length }} 道题目</p>
+        <p class="grading-question">本次练习整体正确情况如何？</p>
+        <div class="grading-buttons">
+          <el-button type="success" size="large" @click="handleOverallGrading(true)">全部正确</el-button>
+          <el-button type="danger" size="large" @click="handleOverallGrading(false)">有错误</el-button>
+        </div>
+      </div>
+
+      <!-- 逐题批改 -->
+      <div v-if="gradingStep === 'detail'" class="grading-detail">
+        <div class="grading-progress">
+          <span>{{ gradingCurrentIndex + 1 }} / {{ currentPsQuestions.length }}</span>
+          <span class="grading-accuracy">正确率: {{ getGradingAccuracy() }}%</span>
+        </div>
+        <div class="grading-question-item">
+          <p class="question-text">{{ currentPsQuestions[gradingCurrentIndex]?.question_text || currentPsQuestions[gradingCurrentIndex]?.original_question_text }}</p>
+          <p class="question-answer">答案: {{ currentPsQuestions[gradingCurrentIndex]?.answer || currentPsQuestions[gradingCurrentIndex]?.original_answer }}</p>
+        </div>
+        <div class="grading-question-buttons">
+          <el-button type="success" size="large" @click="handleQuestionGrading(currentPsQuestions[gradingCurrentIndex].question_id, true)">正确</el-button>
+          <el-button type="danger" size="large" @click="handleQuestionGrading(currentPsQuestions[gradingCurrentIndex].question_id, false)">错误</el-button>
+        </div>
+      </div>
+
+      <!-- 图片上传（批改完成后） -->
+      <div v-if="gradingStep === 'upload'" class="grading-upload">
+        <p class="grading-tip">批改完成，正确率: {{ getGradingAccuracy() }}%</p>
+        <p class="grading-subtip">可选：上传复习完成的图片</p>
+        <el-upload
+          ref="uploadRef"
+          :auto-upload="false"
+          :multiple="true"
+          :limit="9"
+          accept="image/*"
+          list-type="picture-card"
+          :on-change="handleImageChange"
+          :on-remove="handleImageRemove"
+          :file-list="reviewImages"
+        >
+          <el-icon><Plus /></el-icon>
+        </el-upload>
+      </div>
+
+      <template #footer>
+        <el-button v-if="gradingStep === 'detail'" @click="gradingStep = 'overall'">返回</el-button>
+        <el-button @click="gradingDialogVisible = false">取消</el-button>
+        <el-button v-if="gradingStep === 'upload'" type="primary" @click="submitGrading" :loading="uploadLoading">完成</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 复习完成上传图片弹窗 -->
     <el-dialog v-model="uploadDialogVisible" title="上传复习完成图片" width="600px" destroy-on-close>
@@ -161,18 +224,79 @@
             </div>
 
             <!-- 错题练习集复习图片 -->
-            <div v-if="detailData.source_type !== 'word' && detailData.review_images && detailData.review_images.length > 0" class="review-images">
-              <h4>复习完成图片</h4>
-              <div class="image-grid">
-                <el-image
-                  v-for="(img, idx) in detailData.review_images"
-                  :key="idx"
-                  :src="'/uploads/' + img"
-                  :preview-src-list="detailData.review_images.map(i => '/uploads/' + i)"
-                  fit="cover"
-                  style="width: 120px; height: 120px; border-radius: 8px; margin-right: 10px; cursor: pointer;"
-                />
+            <div v-if="detailData.source_type !== 'word'" class="review-images">
+              <h4>
+                复习完成图片
+                <el-button v-if="!isEditingImages" type="primary" size="small" style="margin-left: 12px;" @click="startEditImages">编辑图片</el-button>
+                <template v-else>
+                  <el-button type="primary" size="small" @click="saveEditImages" :loading="imageEditLoading">保存</el-button>
+                  <el-button size="small" @click="cancelEditImages">取消</el-button>
+                </template>
+              </h4>
+              <div v-if="!isEditingImages" class="image-grid">
+                <template v-if="detailData.review_images && detailData.review_images.length > 0">
+                  <div v-for="(img, idx) in detailData.review_images" :key="idx" class="image-item">
+                    <el-image
+                      :src="'/uploads/' + img"
+                      :preview-src-list="detailData.review_images.map(i => '/uploads/' + i)"
+                      fit="cover"
+                      style="width: 120px; height: 120px; border-radius: 8px; cursor: pointer;"
+                    />
+                  </div>
+                </template>
+                <el-empty v-else description="暂无复习图片" :image-size="60" />
               </div>
+              <!-- 编辑模式 -->
+              <div v-else class="image-edit-grid">
+                <el-upload
+                  ref="imageEditUploadRef"
+                  :auto-upload="false"
+                  :multiple="true"
+                  :limit="9"
+                  accept="image/*"
+                  list-type="picture-card"
+                  :on-change="handleEditImageChange"
+                  :on-remove="handleEditImageRemove"
+                  :file-list="editImagesFileList"
+                >
+                  <el-icon><Plus /></el-icon>
+                </el-upload>
+              </div>
+            </div>
+
+            <!-- 错题练习集题目列表 -->
+            <div v-if="detailData.source_type !== 'word' && detailData.questions && detailData.questions.length > 0" class="question-list-section">
+              <h4>题目列表</h4>
+              <el-table :data="detailData.questions" border style="width: 100%">
+                <el-table-column type="index" label="序号" width="60" align="center" />
+                <el-table-column label="原题" min-width="200">
+                  <template #default="{ row }">
+                    <div v-if="row.original_question_text" class="original-question">
+                      {{ row.original_question_text.substring(0, 50) }}{{ row.original_question_text.length > 50 ? '...' : '' }}
+                    </div>
+                    <el-image
+                      v-if="row.original_image"
+                      :src="'/uploads/' + row.original_image"
+                      fit="contain"
+                      style="width: 40px; height: 40px; cursor: pointer;"
+                      @click="previewImage(row.original_image)"
+                    />
+                    <span v-if="!row.original_question_text && !row.original_image" class="text-muted">-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="答案" min-width="100">
+                  <template #default="{ row }">
+                    {{ row.original_answer || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="批改" width="80" align="center">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.is_correct === true" type="success" size="small">正确</el-tag>
+                    <el-tag v-else-if="row.is_correct === false" type="danger" size="small">错误</el-tag>
+                    <span v-else class="text-muted">-</span>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
           </div>
         </el-tab-pane>
@@ -268,6 +392,13 @@ const detailForm = reactive({
   notes: ''
 })
 
+// 图片编辑相关
+const isEditingImages = ref(false)
+const imageEditLoading = ref(false)
+const editImagesFileList = ref([])
+const editImagesUploaded = ref([])
+const imageEditUploadRef = ref()
+
 
 const fetchPracticeSets = async () => {
   try {
@@ -309,13 +440,10 @@ const downloadPdf = (ps) => {
 }
 
 const markReviewed = async (ps) => {
-  // 非单词练习集需要上传复习完成的图片
-  if (ps.source_type !== 'word') {
-    currentReviewPs.value = ps
-    reviewImages.value = []
-    uploadDialogVisible.value = true
-  } else {
-    // 单词练习集直接标记
+  currentReviewPs.value = ps
+
+  // 单词练习集直接标记已复习
+  if (ps.source_type === 'word') {
     try {
       await questionApi.markPracticeSetReviewed(ps.id)
       ElMessage.success('已标记为复习')
@@ -323,6 +451,89 @@ const markReviewed = async (ps) => {
     } catch (error) {
       ElMessage.error('操作失败')
     }
+    return
+  }
+
+  // 错题练习集进入批改流程
+  gradingDialogVisible.value = true
+  initGrading(ps)
+}
+
+// ============ 批改相关 ============
+const gradingDialogVisible = ref(false)
+const gradingStep = ref('overall') // 'overall' | 'detail' | 'upload'
+const gradingCurrentIndex = ref(0)
+const gradingResults = ref({}) // { questionId: true/false }
+const currentPsQuestions = ref([])
+
+const initGrading = async (ps) => {
+  // 获取练习集详情（含题目）
+  try {
+    const { data } = await questionApi.getPracticeSet(ps.id)
+    currentPsQuestions.value = data.questions || []
+    gradingResults.value = {}
+    gradingCurrentIndex.value = 0
+    gradingStep.value = 'overall'
+  } catch (error) {
+    ElMessage.error('获取练习集详情失败')
+    gradingDialogVisible.value = false
+  }
+}
+
+const handleOverallGrading = (isAllCorrect) => {
+  if (isAllCorrect) {
+    // 整体全对
+    currentPsQuestions.value.forEach(q => {
+      gradingResults.value[q.question_id] = true
+    })
+    gradingStep.value = 'upload'
+  } else {
+    // 进入逐题批改
+    gradingStep.value = 'detail'
+  }
+}
+
+const handleQuestionGrading = (questionId, isCorrect) => {
+  gradingResults.value[questionId] = isCorrect
+  gradingCurrentIndex.value++
+
+  if (gradingCurrentIndex.value >= currentPsQuestions.value.length) {
+    // 全部批改完成，进入图片上传
+    gradingStep.value = 'upload'
+  }
+}
+
+const getGradingAccuracy = () => {
+  const total = currentPsQuestions.value.length
+  if (total === 0) return 0
+  const correct = Object.values(gradingResults.value).filter(v => v === true).length
+  return Math.round(correct / total * 100)
+}
+
+const submitGrading = async () => {
+  // 构建批改结果
+  const questionResults = Object.entries(gradingResults.value).map(([question_id, is_correct]) => ({
+    question_id: parseInt(question_id),
+    is_correct
+  }))
+
+  // 先提交批改
+  try {
+    await questionApi.markPracticeSetReviewedWithGrading(
+      currentReviewPs.value.id,
+      questionResults
+    )
+    ElMessage.success('批改完成')
+    gradingDialogVisible.value = false
+
+    // 如果有图片，进入图片上传；否则完成
+    if (reviewImages.value.length > 0) {
+      uploadDialogVisible.value = true
+    } else {
+      fetchPracticeSets()
+    }
+  } catch (error) {
+    ElMessage.error('批改提交失败')
   }
 }
 
@@ -340,27 +551,30 @@ const confirmMarkReviewed = async () => {
   try {
     uploadLoading.value = true
 
-    // 如果有图片，先上传
-    let imagesJson = null
+    // 如果有图片，先上传（使用简单上传接口，不调用OCR/LLM）
+    let imagePaths = []
     if (reviewImages.value.length > 0) {
       const formData = new FormData()
       reviewImages.value.forEach(file => {
         formData.append('files', file.raw)
       })
 
-      // 先上传图片
-      const uploadRes = await fetch('/api/upload/batch', {
+      // 使用简单批量上传接口，不进行OCR识别
+      const uploadRes = await fetch('/api/upload/batch-simple', {
         method: 'POST',
         body: formData,
       })
       const uploadData = await uploadRes.json()
       if (uploadData.images) {
-        imagesJson = JSON.stringify(uploadData.images)
+        // 只提取图片路径
+        imagePaths = uploadData.images
+          .filter(img => img.success)
+          .map(img => img.image_path)
       }
     }
 
-    // 标记为已复习
-    await questionApi.markPracticeSetReviewed(currentReviewPs.value.id, imagesJson)
+    // 更新练习集图片（不重复标记已复习）
+    await questionApi.updatePracticeSetReviewImages(currentReviewPs.value.id, imagePaths)
 
     uploadDialogVisible.value = false
 
@@ -503,6 +717,83 @@ const batchDelete = async () => {
     if (error !== 'cancel') {
       ElMessage.error('批量删除失败')
     }
+  }
+}
+
+const previewImage = (imagePath) => {
+  if (imagePath) {
+    window.open('/uploads/' + imagePath, '_blank')
+  }
+}
+
+// 图片编辑相关
+const startEditImages = () => {
+  // 初始化已上传的图片列表
+  editImagesUploaded.value = [...(detailData.value.review_images || [])]
+  editImagesFileList.value = (detailData.value.review_images || []).map((img, idx) => ({
+    name: img,
+    url: '/uploads/' + img,
+    status: 'success',
+    isOld: true,
+  }))
+  isEditingImages.value = true
+}
+
+const handleEditImageChange = (file, fileList) => {
+  editImagesFileList.value = fileList
+}
+
+const handleEditImageRemove = (file, fileList) => {
+  editImagesFileList.value = fileList
+}
+
+const cancelEditImages = () => {
+  isEditingImages.value = false
+  editImagesFileList.value = []
+  editImagesUploaded.value = []
+}
+
+const saveEditImages = async () => {
+  try {
+    imageEditLoading.value = true
+
+    // 分离新上传的文件和已有的图片
+    const newFiles = editImagesFileList.value.filter(f => !f.isOld)
+    let newImagePaths = [...editImagesUploaded.value]
+
+    // 上传新文件
+    if (newFiles.length > 0) {
+      const formData = new FormData()
+      newFiles.forEach(file => {
+        formData.append('files', file.raw)
+      })
+
+      const uploadRes = await fetch('/api/upload/batch-simple', {
+        method: 'POST',
+        body: formData,
+      })
+      const uploadData = await uploadRes.json()
+      if (uploadData.images) {
+        const uploadedPaths = uploadData.images
+          .filter(img => img.success)
+          .map(img => img.image_path)
+        newImagePaths = [...editImagesUploaded.value, ...uploadedPaths]
+      }
+    }
+
+    // 更新练习集图片
+    await questionApi.updatePracticeSetReviewImages(detailData.value.id, newImagePaths)
+
+    ElMessage.success('图片更新成功')
+    isEditingImages.value = false
+
+    // 刷新详情
+    const { data } = await questionApi.getPracticeSetDetail(detailData.value.id)
+    detailData.value = data
+  } catch (error) {
+    ElMessage.error('更新图片失败')
+  } finally {
+    imageEditLoading.value = false
   }
 }
 
@@ -651,6 +942,24 @@ onMounted(() => {
   gap: 10px;
 }
 
+.image-item {
+  position: relative;
+}
+
+.image-edit-grid {
+  min-height: 150px;
+}
+
+.question-list-section {
+  margin-top: 20px;
+}
+
+.original-question {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.4;
+}
+
 /* 单词练习样式 */
 .word-practice {
   padding: 10px 0;
@@ -758,5 +1067,81 @@ onMounted(() => {
 
 .word-user-answer .value.wrong {
   color: #f56c6c;
+}
+
+/* 批改弹窗样式 */
+.grading-overall {
+  text-align: center;
+  padding: 30px 0;
+}
+
+.grading-tip {
+  font-size: 16px;
+  color: #606266;
+  margin-bottom: 20px;
+}
+
+.grading-subtip {
+  font-size: 14px;
+  color: #909399;
+  margin-bottom: 15px;
+}
+
+.grading-question {
+  font-size: 18px;
+  font-weight: bold;
+  color: #303133;
+  margin-bottom: 30px;
+}
+
+.grading-buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+.grading-detail {
+  padding: 10px 0;
+}
+
+.grading-progress {
+  font-size: 16px;
+  color: #606266;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.grading-accuracy {
+  color: #409eff;
+  font-weight: bold;
+}
+
+.grading-question-item {
+  background: #f5f7fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.grading-question-item .question-text {
+  font-size: 16px;
+  margin-bottom: 10px;
+  color: #303133;
+}
+
+.grading-question-item .question-answer {
+  font-size: 14px;
+  color: #67c23a;
+}
+
+.grading-question-buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+.grading-upload {
+  padding: 10px 0;
 }
 </style>

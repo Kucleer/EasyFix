@@ -24,6 +24,12 @@ def get_stats_summary(db: Session = Depends(get_db)):
     """
     # 只统计未删除的记录
     total_questions = db.query(func.count(Question.id)).filter(Question.deleted == False).scalar()
+    # 待复习错题 = review_count = 0 或 (review_count > 0 且 correct_count > error_count)
+    to_review_questions = db.query(func.count(Question.id)).filter(
+        Question.deleted == False,
+        (Question.review_count == 0) | (Question.review_count.is_(None)) |  # 未复习过
+        ((Question.review_count > 0) & (Question.correct_count > Question.error_count))  # 做对了
+    ).scalar() or 0
     total_subjects = db.query(func.count(Subject.id)).filter(Subject.deleted == False).scalar()
     total_error_books = db.query(func.count(ErrorBook.id)).filter(ErrorBook.deleted == False).scalar()
 
@@ -151,6 +157,13 @@ def get_stats_summary(db: Session = Depends(get_db)):
     # 复习次数：统计word_review_log中不同reviewed_at的数量（同一时间算1次）
     total_reviews = db.query(func.count(func.distinct(WordReviewLog.reviewed_at))).filter(WordReviewLog.deleted == False).scalar() or 0
 
+    # 待复习 = 未复习 + 曲线到期
+    unreviewed_count = db.query(func.count(Word.id)).filter(Word.deleted == False, Word.review_count == 0).scalar() or 0
+    from datetime import datetime
+    now = datetime.now()
+    due_count = db.query(func.count(Word.id)).filter(Word.deleted == False, Word.next_review_at != None, Word.next_review_at <= now).scalar() or 0
+    to_review_count = unreviewed_count + due_count
+
     # 计算已复习单词的正确率
     if reviewed_words > 0:
         total_correct = db.query(func.sum(Word.correct_count)).filter(Word.deleted == False, Word.review_count > 0).scalar() or 0
@@ -164,6 +177,7 @@ def get_stats_summary(db: Session = Depends(get_db)):
         reviewed_words=reviewed_words,
         total_reviews=total_reviews,
         accuracy=round(word_accuracy, 1),
+        to_review_count=to_review_count,
     )
 
     # 单词准确率曲线（累计到当天的正确率）
@@ -213,6 +227,7 @@ def get_stats_summary(db: Session = Depends(get_db)):
         total_subjects=total_subjects or 0,
         total_error_books=total_error_books or 0,
         active_days=active_days,
+        to_review_questions=to_review_questions,
         difficulty_distribution=difficulty_distribution,
         error_type_distribution=error_type_distribution,
         by_subject=by_subject,

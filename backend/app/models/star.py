@@ -38,4 +38,5 @@ class StarRecord(Base):
     star_delta = Column(Integer, nullable=False)
     balance_after = Column(Integer, nullable=False)
     reason = Column(String(200), nullable=True)
+    deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())

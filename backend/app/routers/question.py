@@ -25,6 +25,7 @@ def list_questions(
     semester: Optional[int] = Query(None, ge=1, le=2),
     tag_ids: Optional[str] = Query(None, description="标签ID，多个用逗号分隔"),
     knowledge_point: Optional[str] = Query(None, description="知识点搜索"),
+    accuracy_range: Optional[str] = Query(None, description="正确率区间筛选，如 '0-30','30-60','60-80','80-100'"),
     db: Session = Depends(get_db),
 ):
     # 过滤已删除的记录
@@ -62,6 +63,32 @@ def list_questions(
         tag_list = [int(t.strip()) for t in tag_ids.split(',') if t.strip().isdigit()]
         if tag_list:
             query = query.join(QuestionTag).filter(QuestionTag.c.tag_id.in_(tag_list))
+    # 正确率区间筛选
+    if accuracy_range:
+        if accuracy_range == 'none':
+            # 无统计：正确次数+错误次数都为0
+            query = query.filter(
+                (Question.correct_count == 0) & (Question.error_count == 0)
+            )
+        else:
+            # 解析区间，如 '30-60'
+            try:
+                parts = accuracy_range.split('-')
+                if len(parts) == 2:
+                    min_acc = int(parts[0]) / 100
+                    max_acc = int(parts[1]) / 100
+                    # 正确率 = correct_count / (correct_count + error_count)
+                    # 使用 SQL 表达式计算
+                    from sqlalchemy import case
+                    accuracy_expr = case(
+                        (Question.correct_count + Question.error_count == 0, None),
+                        else_=Question.correct_count * 1.0 / (Question.correct_count + Question.error_count)
+                    )
+                    query = query.filter(
+                        (accuracy_expr >= min_acc) & (accuracy_expr <= max_acc)
+                    )
+            except:
+                pass
 
     total = query.count()
     items = query.order_by(Question.created_at.desc()).offset(skip).limit(limit).all()
@@ -84,6 +111,8 @@ def list_questions(
             "difficulty": q.difficulty,
             "error_type": q.error_type,
             "knowledge_point": q.knowledge_point,
+            "correct_count": q.correct_count,
+            "error_count": q.error_count,
             "created_at": q.created_at,
             "updated_at": q.updated_at,
             "tags": q.tags,
@@ -259,6 +288,7 @@ def update_question(
             "semester": question.semester,
             "answer": question.answer,
             "analysis": question.analysis,
+            "analysis_image": question.analysis_image,
             "difficulty": question.difficulty,
             "error_type": question.error_type,
             "knowledge_point": question.knowledge_point,

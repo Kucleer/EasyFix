@@ -193,4 +193,73 @@
     font-size: 12px;
   }
 }
+
+/* ==================== 全局字体层级 ==================== */
+h1, .h1 {
+  font-size: var(--font-h1);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+}
+
+h2, .h2 {
+  font-size: var(--font-h2);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+h3, .h3 {
+  font-size: var(--font-h3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+body, p {
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.text-secondary, .text-muted {
+  font-size: var(--font-small);
+  color: var(--text-muted);
+}
+
+/* 全局字体平滑 */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 统一卡片hover效果 */
+.el-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg) !important;
+  transition: all 0.3s ease;
+}
+
+/* 统一按钮hover效果 */
+.el-button:not(.is-text):not(.is-link):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* 统一输入框focus */
+.el-input__wrapper:focus-within {
+  box-shadow: 0 0 0 1px var(--accent-blue) inset;
+}
+
+/* 渐变按钮样式 */
+.btn-gradient {
+  background: var(--accent-gradient) !important;
+  border: none !important;
+  color: var(--text-white) !important;
+}
+
+.btn-gradient:hover {
+  opacity: 0.9;
+  transform: translateY(-2px);
+}
 </style>

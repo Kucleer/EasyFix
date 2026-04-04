@@ -94,8 +94,7 @@
                   <el-tag
                     v-for="(count, type) in row.error_type_counts"
                     :key="type"
-                    size="small"
-                    style="margin-right: 5px; margin-bottom: 5px"
+                    :style="{ marginRight: '5px', marginBottom: '5px', fontSize: '14px' }"
                   >
                     {{ type }}: {{ count }}
                   </el-tag>

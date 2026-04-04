@@ -47,10 +47,10 @@
                 {{ formatDate(row.created_at) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="viewReport(row)">查看</el-button>
-                <el-button link type="danger" size="small" @click="deleteReport(row)">删除</el-button>
+                <el-button type="primary" size="default" @click="viewReport(row)">查看</el-button>
+                <el-button type="danger" size="default" @click="deleteReport(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -173,7 +173,7 @@
 
           <div v-if="currentReport.content.question_analysis.top_error_knowledge_points?.length" class="subsection">
             <h4>高频出错知识点 TOP10</h4>
-            <el-table :data="currentReport.content.question_analysis.top_error_knowledge_points" size="small">
+            <el-table :data="currentReport.content.question_analysis.top_error_knowledge_points">
               <el-table-column prop="point" label="知识点" />
               <el-table-column prop="count" label="错误次数" width="100" />
             </el-table>

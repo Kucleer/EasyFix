@@ -1,10 +1,10 @@
 """
 练习集路由 - 管理练习集的创建、打印、复习等功能
 """
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException, Form, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -38,6 +38,10 @@ class PracticeSetQuestionResponse(BaseModel):
     is_correct: Optional[bool] = None
     user_answer: Optional[str] = None
     tags: Optional[List[dict]] = None
+    # 新增：原题信息
+    original_question_text: Optional[str] = None
+    original_answer: Optional[str] = None
+    original_image: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -55,6 +59,7 @@ class PracticeSetResponse(BaseModel):
     total_questions: int
     reviewed: bool
     review_count: int
+    accuracy: Optional[float] = None  # 整体正确率
     last_reviewed_at: Optional[datetime] = None
     review_images: Optional[List[str]] = None  # 复习图片列表
     created_at: datetime
@@ -230,6 +235,28 @@ def list_practice_sets(
     result = []
     for ps in items:
         subject_name = db.query(Subject).filter(Subject.id == ps.subject_id).first().name if ps.subject_id else ""
+
+        # 获取单词复习统计
+        word_review_stats = None
+        if ps.source_type == "word":
+            print(f"[DEBUG] Processing word practice set id={ps.id}, name={ps.name}")
+            sessions = db.query(WordReviewSession).filter(
+                WordReviewSession.practice_set_id == ps.id
+            ).order_by(WordReviewSession.reviewed_at.desc()).all()
+            print(f"[DEBUG] Found {len(sessions)} sessions for practice_set_id={ps.id}")
+
+            if sessions:
+                total_count = sum(s.total_count for s in sessions)
+                total_correct = sum(s.correct_count for s in sessions)
+                total_duration = sum(getattr(s, 'duration', 0) or 0 for s in sessions)
+                word_review_stats = {
+                    "total_count": total_count,
+                    "correct_count": total_correct,
+                    "accuracy": round(total_correct / total_count * 100, 1) if total_count > 0 else 0,
+                    "duration": total_duration,
+                }
+                print(f"[DEBUG] word_review_stats = {word_review_stats}")
+
         result.append({
             "id": ps.id,
             "name": ps.name,
@@ -241,8 +268,10 @@ def list_practice_sets(
             "total_questions": ps.total_questions,
             "reviewed": ps.reviewed or False,
             "review_count": ps.review_count or 0,
+            "accuracy": ps.accuracy,
             "created_at": ps.created_at,
             "questions": [],
+            "word_review_stats": word_review_stats,
         })
 
     return {"total": total, "items": result}
@@ -344,6 +373,10 @@ def get_practice_set(practice_set_id: int, db: Session = Depends(get_db)):
                 "question_text": question_text,
                 "answer": answer,
                 "difficulty": question.difficulty,
+                "is_correct": psq.is_correct,
+                "original_question_text": question.parsed_question or question.original_text or "",
+                "original_answer": question.answer or "",
+                "original_image": question.original_image or None,
             })
 
     return {
@@ -358,6 +391,7 @@ def get_practice_set(practice_set_id: int, db: Session = Depends(get_db)):
         "total_questions": ps.total_questions,
         "reviewed": ps.reviewed,
         "review_count": ps.review_count,
+        "accuracy": ps.accuracy,
         "last_reviewed_at": ps.last_reviewed_at,
         "review_images": review_images,
         "created_at": ps.created_at,
@@ -370,6 +404,11 @@ class PracticeSetUpdateRequest(BaseModel):
     """更新练习集请求"""
     name: Optional[str] = None
     notes: Optional[str] = None
+
+
+class ReviewImagesUpdateRequest(BaseModel):
+    """更新复习图片请求"""
+    images: Optional[List[str]] = None  # 新的图片路径列表
 
 
 @router.put("/{practice_set_id}")
@@ -391,6 +430,30 @@ def update_practice_set(practice_set_id: int, data: PracticeSetUpdateRequest, db
     db.commit()
 
     return {"message": "更新成功"}
+
+
+@router.put("/{practice_set_id}/review-images")
+def update_review_images(
+    practice_set_id: int,
+    data: ReviewImagesUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    """更新练习集的复习图片"""
+    ps = db.query(PracticeSet).filter(
+        PracticeSet.id == practice_set_id,
+        PracticeSet.deleted == False
+    ).first()
+
+    if not ps:
+        raise HTTPException(status_code=404, detail="练习集不存在")
+
+    if data.images is not None:
+        import json
+        ps.review_images = json.dumps(data.images, ensure_ascii=False)
+
+    db.commit()
+
+    return {"message": "更新成功", "review_images": data.images}
 
 
 @router.post("/{practice_set_id}/generate-pdf")
@@ -459,8 +522,14 @@ def generate_pdf(practice_set_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{practice_set_id}/mark-reviewed")
-def mark_reviewed(practice_set_id: int, images: Optional[str] = Form(None), db: Session = Depends(get_db)):
-    """标记练习集为已复习，可上传复习完成的图片"""
+def mark_reviewed(
+    practice_set_id: int,
+    images: Optional[str] = Form(None),
+    is_all_correct: Optional[bool] = Form(None),
+    question_results: Optional[str] = Body(None),
+    db: Session = Depends(get_db)
+):
+    """标记练习集为已复习，支持整体批改或逐题批改"""
     ps = db.query(PracticeSet).filter(
         PracticeSet.id == practice_set_id,
         PracticeSet.deleted == False
@@ -471,23 +540,59 @@ def mark_reviewed(practice_set_id: int, images: Optional[str] = Form(None), db: 
 
     now = datetime.now()
 
+    # 解析题目结果
+    results_list = []
+    if question_results:
+        import json
+        results_list = json.loads(question_results)
+
     # 更新练习集
     ps.reviewed = True
     ps.review_count += 1
     ps.last_reviewed_at = now
     if images:
-        ps.review_images = images  # JSON字符串，存储多张图片路径
+        ps.review_images = images
 
-    # 更新所有关联的错题的复习次数
+    # 获取所有关联题目
     ps_questions = db.query(PracticeSetQuestion).filter(
         PracticeSetQuestion.practice_set_id == practice_set_id
     ).all()
 
+    correct_count = 0
+    total_count = len(ps_questions)
+
     for psq in ps_questions:
         question = db.query(Question).filter(Question.id == psq.question_id).first()
-        if question:
-            question.review_count = (question.review_count or 0) + 1
-            question.last_reviewed_at = now
+        if not question:
+            continue
+
+        # 更新复习次数
+        question.review_count = (question.review_count or 0) + 1
+
+        # 根据整体批改或逐题批改更新
+        if is_all_correct == True:
+            # 整体全对
+            psq.is_correct = True
+            question.correct_count = (question.correct_count or 0) + 1
+            correct_count += 1
+        elif results_list:
+            # 逐题批改
+            result = next((r for r in results_list if r.get('question_id') == psq.question_id), None)
+            if result is not None:
+                psq.is_correct = result.get('is_correct')
+                if result.get('is_correct'):
+                    question.correct_count = (question.correct_count or 0) + 1
+                    correct_count += 1
+                else:
+                    question.error_count = (question.error_count or 0) + 1
+
+        question.last_reviewed_at = now
+
+    # 计算并保存整体正确率
+    if total_count > 0:
+        ps.accuracy = round(correct_count / total_count * 100, 1)
+    else:
+        ps.accuracy = None
 
     db.commit()
 
@@ -499,7 +604,7 @@ def mark_reviewed(practice_set_id: int, images: Optional[str] = Form(None), db: 
     except Exception:
         pass  # 激励系统不影响主流程
 
-    return {"message": "已标记为复习", "review_count": ps.review_count}
+    return {"message": "已标记为复习", "review_count": ps.review_count, "accuracy": ps.accuracy}
 
 
 class BatchDeleteRequest(BaseModel):

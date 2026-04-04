@@ -281,6 +281,60 @@ async def upload_batch_images(
     }
 
 
+@router.post("/batch-simple", response_model=BatchUploadResponse)
+async def upload_batch_images_simple(
+    files: List[UploadFile] = File(...),
+):
+    """
+    简单批量上传多张图片，不进行OCR识别
+
+    Returns:
+        {
+            "images": [
+                {
+                    "image_path": str,
+                    "original_filename": str,
+                    "size": int,
+                },
+                ...
+            ],
+            "total_count": int,
+            "success_count": int,
+            "failed_count": int,
+        }
+    """
+    results = []
+    success_count = 0
+    failed_count = 0
+
+    for file in files:
+        save_result = await _save_image(file)
+
+        if "error" in save_result:
+            results.append({
+                "original_filename": file.filename,
+                "success": False,
+                "error": save_result["error"],
+            })
+            failed_count += 1
+            continue
+
+        results.append({
+            "image_path": save_result["image_path"],
+            "original_filename": file.filename,
+            "size": save_result["size"],
+            "success": True,
+        })
+        success_count += 1
+
+    return {
+        "images": results,
+        "total_count": len(files),
+        "success_count": success_count,
+        "failed_count": failed_count,
+    }
+
+
 @router.post("/to-error-book/{error_book_id}")
 async def upload_to_error_book(
     error_book_id: int,

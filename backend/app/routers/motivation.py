@@ -32,11 +32,26 @@ def get_balance(db: Session = Depends(get_db)):
     return StarBalanceResponse(balance=balance.balance)
 
 
-@router.get("/stars/records", response_model=List[StarRecordResponse])
+@router.get("/stars/records")
 def get_records(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
+    """获取积分明细列表（分页）"""
     from app.models.star import StarRecord
-    records = db.query(StarRecord).order_by(StarRecord.created_at.desc()).offset(skip).limit(limit).all()
-    return records
+    from sqlalchemy import func
+
+    # 查询总数
+    total = db.query(func.count(StarRecord.id)).filter(
+        StarRecord.deleted == False
+    ).scalar()
+
+    # 查询列表
+    records = db.query(StarRecord).filter(
+        StarRecord.deleted == False
+    ).order_by(StarRecord.created_at.desc()).offset(skip).limit(limit).all()
+
+    return {
+        "total": total,
+        "items": records
+    }
 
 
 @router.post("/stars/adjust")

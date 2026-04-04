@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func, Boolean, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func, Boolean, Enum, Float
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -17,6 +17,7 @@ class PracticeSet(Base):
     total_questions = Column(Integer, default=0)  # 总题数
     reviewed = Column(Boolean, default=False)  # 是否已复习
     review_count = Column(Integer, default=0)  # 复习次数
+    accuracy = Column(Float, nullable=True)  # 整体正确率百分比
     last_reviewed_at = Column(DateTime, nullable=True)  # 最近复习时间
     review_images = Column(Text, nullable=True)  # JSON数组，复习完成上传的图片
     deleted = Column(Boolean, default=False, nullable=False)  # 软删除标记
@@ -36,6 +37,7 @@ class PracticeSetQuestion(Base):
     practice_set_id = Column(Integer, ForeignKey("practice_set.id"), nullable=False)
     question_id = Column(Integer, ForeignKey("question.id"), nullable=False)
     similar_question_id = Column(Integer, ForeignKey("similar_question.id"), nullable=True)  # 相似题ID，可为null
+    is_correct = Column(Boolean, nullable=True)  # 批改是否正确
     display_order = Column(Integer, default=0)  # 显示顺序
 
     # Relationships

@@ -17,10 +17,13 @@ class Question(Base):
     parsed_question = Column(Text, nullable=True)
     answer = Column(Text, nullable=True)
     analysis = Column(Text, nullable=True)
+    analysis_image = Column(String(500), nullable=True)  # 答案解析图片
     difficulty = Column(Integer, default=3)
     error_type = Column(String(50), nullable=True)  # 计算/概念/审题/其他
     knowledge_point = Column(String(200), nullable=True)
     review_count = Column(Integer, default=0, nullable=False)  # 复习次数
+    correct_count = Column(Integer, default=0, nullable=False)  # 正确次数
+    error_count = Column(Integer, default=0, nullable=False)  # 错误次数
     last_reviewed_at = Column(DateTime, nullable=True)  # 最后复习时间
     deleted = Column(Boolean, default=False, nullable=False)  # 软删除标记
     created_at = Column(DateTime, server_default=func.now())

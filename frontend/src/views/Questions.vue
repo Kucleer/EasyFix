@@ -16,8 +16,8 @@
         <el-select v-model="filters.subject_id" placeholder="选择学科" clearable @change="fetchQuestions" style="width: 195px">
           <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-select v-model="filters.difficulty" placeholder="难度" multiple clearable @change="fetchQuestions" style="width: 300px">
-          <el-option v-for="i in 5" :key="i" :label="`难度 ${i}`" :value="i" />
+        <el-select v-model="filters.difficulty" placeholder="难度" multiple clearable @change="fetchQuestions" style="width: 150px">
+          <el-option v-for="i in 5" :key="i" :label="'★'.repeat(i)" :value="i" />
         </el-select>
         <el-select v-model="filters.tag_ids" placeholder="标签" multiple clearable @change="fetchQuestions" style="width: 300px">
           <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
@@ -43,6 +43,13 @@
           <el-option label="上学期" :value="1" />
           <el-option label="下学期" :value="2" />
         </el-select>
+        <el-select v-model="filters.accuracy_range" placeholder="正确率筛选" clearable @change="fetchQuestions" style="width: 150px">
+          <el-option label="0-30% 薄弱" :value="'0-30'" />
+          <el-option label="30-60% 一般" :value="'30-60'" />
+          <el-option label="60-80% 良好" :value="'60-80'" />
+          <el-option label="80-100% 掌握" :value="'80-100'" />
+          <el-option label="无统计" :value="'none'" />
+        </el-select>
         <el-input
           v-model="filters.keyword"
           placeholder="搜索关键词"
@@ -55,8 +62,8 @@
       <!-- 已选筛选条件展示 -->
       <div v-if="hasActiveFilters" class="selected-filters">
         <span class="filter-label">已选条件：</span>
-        <el-tag v-if="filters.difficulty?.length" v-for="d in filters.difficulty" :key="d" :type="getDifficultyType(d)" size="small" closable @close="removeFilter('difficulty', d)">
-          难度{{ d }}
+        <el-tag v-if="filters.difficulty?.length" v-for="d in filters.difficulty" :key="d" size="small" closable @close="removeFilter('difficulty', d)" :class="'difficulty-filter-' + d">
+          {{ getDifficultyStars(d) }}
         </el-tag>
         <el-tag v-if="filters.error_type?.length" v-for="et in filters.error_type" :key="et" :type="getErrorTypeType(et)" size="small" closable @close="removeFilter('error_type', et)">
           {{ et }}
@@ -82,7 +89,7 @@
       <!-- 错题列表 -->
       <el-table v-model:selection="selectedQuestions" :data="questions.items" stripe style="width: 100%; margin-top: 20px" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="50" />
-        <el-table-column label="题目" min-width="300">
+        <el-table-column label="题目" min-width="250">
           <template #default="{ row }">
             <div class="question-cell">
               <el-image
@@ -98,30 +105,42 @@
         </el-table-column>
         <el-table-column prop="difficulty" label="难度" width="80">
           <template #default="{ row }">
-            <el-tag :type="getDifficultyType(row.difficulty)">{{ row.difficulty }}</el-tag>
+            <span class="difficulty-stars" :class="'difficulty-' + row.difficulty">{{ getDifficultyStars(row.difficulty) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="error_type" label="错误类型" width="120">
+        <el-table-column label="正确率" width="100" sortable :sort-method="(a, b) => getAccuracyValue(a) - getAccuracyValue(b)">
           <template #default="{ row }">
-            <el-tag v-if="row.error_type" :type="getErrorTypeType(row.error_type)" size="small">{{ row.error_type }}</el-tag>
+            {{ getAccuracyDisplay(row) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="复习" width="100">
+          <template #default="{ row }">
+            <span class="review-info">
+              <span class="correct">{{ row.correct_count || 0 }}</span> /
+              <span class="total">{{ (row.correct_count || 0) + (row.error_count || 0) }}</span>
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="error_type" label="错误类型" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.error_type" :type="getErrorTypeType(row.error_type)" :style="{ marginRight: '4px', fontSize: '14px' }">{{ row.error_type }}</el-tag>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="知识点" width="140">
+        <el-table-column label="知识点" width="150">
           <template #default="{ row }">
-            <el-tag v-if="row.knowledge_point" size="small" type="info">{{ row.knowledge_point }}</el-tag>
+            <el-tag v-if="row.knowledge_point" type="info" :style="{ marginRight: '4px', fontSize: '14px' }">{{ row.knowledge_point }}</el-tag>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="标签" width="160">
+        <el-table-column label="标签" width="150">
           <template #default="{ row }">
             <el-tag
               v-for="tag in (row.tags || []).slice(0, 2)"
               :key="tag.id"
-              size="small"
-              :style="{ marginRight: '4px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff' }"
+              :style="{ marginRight: '4px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff', fontSize: '14px' }"
             >{{ tag.name }}</el-tag>
-            <el-tag v-if="(row.tags || []).length > 2" size="small">+{{ row.tags.length - 2 }}</el-tag>
+            <el-tag v-if="(row.tags || []).length > 2" :style="{ fontSize: '14px' }">+{{ row.tags.length - 2 }}</el-tag>
             <span v-if="!row.tags?.length">-</span>
           </template>
         </el-table-column>
@@ -130,12 +149,12 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="viewDetail(row)">查看</el-button>
-            <el-button link type="primary" size="small" @click="editQuestion(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="generateSimilar(row)">相似题</el-button>
-            <el-button link type="danger" size="small" @click="deleteQuestion(row)">删除</el-button>
+            <el-button type="primary" size="default" @click="viewDetail(row)">查看</el-button>
+            <el-button type="primary" size="default" @click="editQuestion(row)">编辑</el-button>
+            <el-button type="primary" size="default" @click="generateSimilar(row)">相似题</el-button>
+            <el-button type="danger" size="default" @click="deleteQuestion(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -195,6 +214,15 @@
         <div class="detail-item">
           <label>解析：</label>
           <div class="question-text" v-html="decodeHTML(currentQuestion.analysis || '暂无')"></div>
+        </div>
+        <div v-if="currentQuestion.analysis_image" class="detail-item">
+          <label>解析图片：</label>
+          <el-image
+            :src="'/uploads/' + currentQuestion.analysis_image"
+            :preview-src-list="['/uploads/' + currentQuestion.analysis_image]"
+            fit="contain"
+            style="width: 200px; height: 200px; cursor: pointer"
+          />
         </div>
         <div class="detail-row">
           <div class="detail-item half">
@@ -257,6 +285,20 @@
         </el-form-item>
         <el-form-item label="解析">
           <el-input v-model="editForm.analysis" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-form-item label="解析图片">
+          <div v-if="editForm.analysis_image" class="analysis-image-preview">
+            <el-image :src="'/uploads/' + editForm.analysis_image" fit="contain" style="width: 100px; height: 100px; margin-right: 10px" />
+            <el-button size="small" @click="editForm.analysis_image = ''">移除</el-button>
+          </div>
+          <el-upload
+            v-if="!editForm.analysis_image"
+            :show-file-list="false"
+            accept="image/*"
+            :http-request="handleAnalysisImageUpload"
+          >
+            <el-button size="small" type="primary">上传图片</el-button>
+          </el-upload>
         </el-form-item>
         <el-form-item label="难度">
           <el-rate v-model="editForm.difficulty" :max="5" />
@@ -360,6 +402,7 @@ const filters = reactive({
   keyword: '',
   grade: null,
   semester: null,
+  accuracy_range: null,
 })
 const pagination = reactive({
   page: 1,
@@ -383,6 +426,7 @@ const editForm = reactive({
   parsed_question: '',
   answer: '',
   analysis: '',
+  analysis_image: '',
   difficulty: 3,
   error_type: [],
   knowledge_point: '',
@@ -443,6 +487,30 @@ const getImageList = (row) => {
   return []
 }
 
+const handleAnalysisImageUpload = async (options) => {
+  const { file } = options
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await questionApi.uploadFile(file)
+    if (res.data && res.data.path) {
+      editForm.analysis_image = res.data.path
+      ElMessage.success('上传成功')
+    } else if (res.data && res.data.image_path) {
+      editForm.analysis_image = res.data.image_path
+      ElMessage.success('上传成功')
+    } else if (res.data && res.data.file_path) {
+      editForm.analysis_image = res.data.file_path
+      ElMessage.success('上传成功')
+    } else {
+      ElMessage.error('上传失败')
+    }
+  } catch (error) {
+    console.error('上传失败:', error)
+    ElMessage.error('上传失败')
+  }
+}
+
 const viewDetail = async (row) => {
   const { data } = await questionApi.get(row.id)
   currentQuestion.value = data
@@ -454,6 +522,7 @@ const editQuestion = (row) => {
   editForm.parsed_question = row.parsed_question || ''
   editForm.answer = row.answer || ''
   editForm.analysis = row.analysis || ''
+  editForm.analysis_image = row.analysis_image || ''
   editForm.difficulty = row.difficulty || 3
   editForm.error_type = row.error_type ? (Array.isArray(row.error_type) ? row.error_type : row.error_type.split(',').map(e => e.trim()).filter(e => e)) : []
   editForm.knowledge_point = row.knowledge_point || ''
@@ -521,6 +590,10 @@ const getDifficultyType = (difficulty) => {
   return types[difficulty] || 'info'
 }
 
+const getDifficultyStars = (difficulty) => {
+  return '★'.repeat(difficulty)
+}
+
 const getErrorTypeType = (errorType) => {
   const typeMap = {
     '计算': 'danger',
@@ -532,6 +605,20 @@ const getErrorTypeType = (errorType) => {
   return typeMap[errorType] || ''
 }
 
+const getAccuracyDisplay = (row) => {
+  const correct = row.correct_count || 0
+  const error = row.error_count || 0
+  if (correct + error === 0) return '-'
+  return Math.round(correct / (correct + error) * 100) + '%'
+}
+
+const getAccuracyValue = (row) => {
+  const correct = row.correct_count || 0
+  const error = row.error_count || 0
+  if (correct + error === 0) return -1
+  return correct / (correct + error)
+}
+
 const hasActiveFilters = computed(() => {
   return filters.difficulty?.length ||
     filters.error_type?.length ||
@@ -539,7 +626,8 @@ const hasActiveFilters = computed(() => {
     filters.knowledge_point ||
     filters.subject_id ||
     filters.grade ||
-    filters.semester
+    filters.semester ||
+    filters.accuracy_range
 })
 
 const removeFilter = (key, val) => {
@@ -860,5 +948,62 @@ onMounted(() => {
 .batch-buttons {
   display: flex;
   gap: 10px;
+}
+
+.analysis-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 难度星级样式 */
+.difficulty-stars {
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+
+.difficulty-stars.difficulty-1,
+.difficulty-stars.difficulty-2 {
+  color: #67c23a;
+}
+
+.difficulty-stars.difficulty-3 {
+  color: #e6a23c;
+}
+
+.difficulty-stars.difficulty-4,
+.difficulty-stars.difficulty-5 {
+  color: #f56c6c;
+}
+
+/* 难度筛选标签样式 */
+.difficulty-filter-1,
+.difficulty-filter-2 {
+  color: #67c23a;
+  border-color: #67c23a;
+}
+
+.difficulty-filter-3 {
+  color: #e6a23c;
+  border-color: #e6a23c;
+}
+
+.difficulty-filter-4,
+.difficulty-filter-5 {
+  color: #f56c6c;
+  border-color: #f56c6c;
+}
+
+/* 表格字体加大 */
+:deep(.el-table) {
+  font-size: 15px;
+}
+
+:deep(.el-table th) {
+  font-size: 15px;
+}
+
+:deep(.el-table td) {
+  font-size: 15px;
 }
 </style>
