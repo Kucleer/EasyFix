@@ -7,7 +7,8 @@ import uuid
 from app.services.motivation import MotivationService
 from app.schemas.star import (
     StarBalanceResponse, StarRecordResponse, StarActionResponse,
-    StarActionCreate, StarActionUpdate
+    StarActionCreate, StarActionUpdate,
+    StarsAdjustRequest, StarsAdjustResponse
 )
 from app.schemas.achievement import (
     AchievementResponse, AchievementProgressResponse,
@@ -19,6 +20,8 @@ from app.schemas.reward import (
 from typing import List
 
 router = APIRouter(prefix="/api", tags=["激励系统"])
+
+DEFAULT_USER_ID = 1
 
 # ============ 积分模块 ============
 
@@ -34,6 +37,58 @@ def get_records(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
     from app.models.star import StarRecord
     records = db.query(StarRecord).order_by(StarRecord.created_at.desc()).offset(skip).limit(limit).all()
     return records
+
+
+@router.post("/stars/adjust")
+def adjust_stars(data: StarsAdjustRequest, db: Session = Depends(get_db)):
+    """手动调整积分（增加或减少）"""
+    from app.models.star import StarAction, StarRecord, StarBalance
+
+    # 校验
+    if data.delta == 0:
+        raise HTTPException(status_code=400, detail="积分变动不能为0")
+    if not data.reason or len(data.reason.strip()) == 0:
+        raise HTTPException(status_code=400, detail="请输入调整原因")
+    if len(data.reason) > 200:
+        raise HTTPException(status_code=400, detail="调整原因不能超过200字符")
+
+    # 获取或创建余额
+    balance = db.query(StarBalance).filter(StarBalance.user_id == DEFAULT_USER_ID).first()
+    if not balance:
+        balance = StarBalance(user_id=DEFAULT_USER_ID, balance=0)
+        db.add(balance)
+        db.commit()
+        db.refresh(balance)
+
+    # 检查余额是否足够（减少时）
+    if data.delta < 0 and balance.balance + data.delta < 0:
+        raise HTTPException(status_code=400, detail="积分不足，无法减少")
+
+    # 计算新余额
+    new_balance = balance.balance + data.delta
+
+    # 创建积分记录
+    record = StarRecord(
+        user_id=DEFAULT_USER_ID,
+        action_code="manual_adjustment",
+        star_delta=data.delta,
+        balance_after=new_balance,
+        reason=data.reason.strip()
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    # 更新余额
+    balance.balance = new_balance
+    db.commit()
+
+    return {
+        "success": True,
+        "new_balance": new_balance,
+        "delta": data.delta,
+        "record_id": record.id
+    }
 
 
 @router.get("/stars/actions", response_model=List[StarActionResponse])
