@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.9] - 2026-04-04
+
+### Added
+- 奖励管理新增图片上传功能
+- 奖励管理新增奖励描述字段
+- 奖励商城展示奖励图片和描述
+- 简单文件上传接口 `/api/upload/file`（不进行OCR）
+
+### Changed
+- 奖励卡片布局改为左侧列表+右侧详情模式
+  - 左侧：120px单列卡片列表，支持垂直滚动
+  - 右侧：大图+名称+积分+库存+描述+兑换按钮
+  - hover效果：边框变蓝+缩放1.05
+  - 选中效果：蓝色边框+浅蓝背景
+- 积分明细Tab展示所有积分变更记录（非仅兑换）
+- 单词复习抽词排序：新词40% > 需加强40% > 薄弱20%
+- 练习页查看详情按钮改为蓝色(primary)
+- 练习页详情默认打开详情tab
+- 单词正确率成就改为累计模式（满足条件7/14/30次后解锁对应等级）
+
+### Fixed
+- 单词正确率成就错误触发问题（需≥90%才触发）
+- 单词复习完成后未触发单词达人成就计算
+- 单词复习提交后光标未恢复问题
+- reward表缺少image_url列（已添加）
+
+### Database
+- reward表新增image_url列
+
+### API Endpoints
+- POST /api/upload/file - 简单文件上传（无OCR）
+
 ## [1.0.8] - 2026-04-03
 
 ### Added
