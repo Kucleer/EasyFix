@@ -83,7 +83,7 @@
         </el-table-column>
         <el-table-column label="属性" width="150">
           <template #default="{ row }">
-            <el-tag v-if="row.grade" size="small">{{ row.grade }}年级</el-tag>
+            <el-tag v-if="row.grade" :style="{ fontSize: '14px' }">{{ row.grade }}年级</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="复习" width="100">
@@ -97,15 +97,16 @@
         <el-table-column label="正确率" width="120" sortable prop="accuracy">
           <template #default="{ row }">
             <span :style="{ color: getAccuracyColor(row) }">{{ getAccuracyText(row) }}</span>
-            <el-tag v-if="row.accuracy_level" :type="getAccuracyLevelTagType(row.accuracy_level)" size="small" style="margin-left: 5px">
+            <el-tag v-if="row.accuracy_level" :type="getAccuracyLevelTagType(row.accuracy_level)" :style="{ marginLeft: '5px', fontSize: '14px' }">
               {{ getAccuracyLevelText(row.accuracy_level) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="editWord(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="deleteWord(row)">删除</el-button>
+            <el-button type="info" size="default" @click="viewDetail(row)">详情</el-button>
+            <el-button type="primary" size="default" @click="editWord(row)">编辑</el-button>
+            <el-button type="danger" size="default" @click="deleteWord(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -155,6 +156,71 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveWord">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 详情弹窗 -->
+    <el-dialog v-model="detailVisible" title="单词详情" width="600px">
+      <el-tabs v-if="detailVisible" v-model="activeTab">
+        <el-tab-pane label="基本信息" name="info">
+          <el-form label-width="80px" size="default">
+            <el-form-item label="英文">{{ detailWord.english }}</el-form-item>
+            <el-form-item label="中文">{{ detailWord.chinese }}</el-form-item>
+            <el-form-item label="音标">{{ detailWord.phonetic || '-' }}</el-form-item>
+            <el-form-item label="年级">{{ detailWord.grade ? detailWord.grade + '年级' : '-' }}</el-form-item>
+            <el-form-item label="学期">{{ detailWord.semester === 1 ? '上学期' : detailWord.semester === 2 ? '下学期' : '-' }}</el-form-item>
+            <el-form-item label="标签">
+              <el-tag v-for="t in detailWord.tags" :key="t.id" style="margin-right: 5px">{{ t.name }}</el-tag>
+              <span v-if="!detailWord.tags || detailWord.tags.length === 0">-</span>
+            </el-form-item>
+            <el-form-item label="复习次数">{{ detailWord.review_count || 0 }}</el-form-item>
+            <el-form-item label="正确次数">{{ detailWord.correct_count || 0 }}</el-form-item>
+            <el-form-item label="正确率">{{ getAccuracyText(detailWord) }}</el-form-item>
+          </el-form>
+        </el-tab-pane>
+        <el-tab-pane label="记忆曲线" name="curve">
+          <div v-if="memoryCurve" class="memory-curve">
+            <!-- 阶段进度条 -->
+            <div class="phase-bar">
+              <div class="phase-track">
+                <div
+                  class="phase-dot"
+                  v-for="(phase, idx) in ['新学', '在途', '遗忘点', '牢记']"
+                  :key="phase"
+                  :class="{ active: memoryCurve.learning_phase === phase }"
+                  :style="{ left: phasePosition[phase] + '%', borderColor: memoryCurve.learning_phase === phase ? phaseColors[phase] : '#ddd' }"
+                >
+                  {{ phase }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 下次复习时间 -->
+            <div class="next-review">
+              <span v-if="memoryCurve.learning_phase === '遗忘点'">即将到期</span>
+              <span v-else-if="memoryCurve.next_review_at">下次复习：{{ formatDate(memoryCurve.next_review_at) }}</span>
+              <span v-else>暂未安排复习</span>
+            </div>
+
+            <!-- 复习历史 -->
+            <div class="review-history">
+              <div class="history-title">复习历史：</div>
+              <div v-if="memoryCurve.review_history.length === 0" class="history-empty">暂无复习记录</div>
+              <div v-else class="history-item">
+                <span class="history-date">今天（待复习）</span>
+              </div>
+              <div v-for="(log, idx) in memoryCurve.review_history" :key="idx" class="history-item">
+                <span class="history-date">{{ formatDate(log.reviewed_at) }}</span>
+                <span v-if="log.is_correct" class="history-correct">正确</span>
+                <span v-else class="history-wrong">错误 【{{ log.user_answer }}】</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="no-curve">加载中...</div>
+        </el-tab-pane>
+      </el-tabs>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -506,6 +572,61 @@ const importForm = reactive({
 const currentQuestion = ref({})
 const tableRef = ref()
 const selectedWords = ref([])
+
+// 记忆曲线相关
+const memoryCurve = ref(null)
+const memoryCurveLoading = ref(false)
+
+const fetchMemoryCurve = async (wordId) => {
+  memoryCurveLoading.value = true
+  try {
+    const { data } = await wordApi.getMemoryCurve(wordId)
+    memoryCurve.value = data
+  } catch (error) {
+    console.error('获取记忆曲线失败:', error)
+  } finally {
+    memoryCurveLoading.value = false
+  }
+}
+
+// 阶段对应的颜色
+const phaseColors = {
+  '新学': '#909399',
+  '在途': '#409eff',
+  '遗忘点': '#e6a23c',
+  '牢记': '#67c23a'
+}
+
+// 阶段对应的进度位置
+const phasePosition = {
+  '新学': 12.5,
+  '在途': 37.5,
+  '遗忘点': 62.5,
+  '牢记': 87.5
+}
+
+// 格式化日期
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  return `${month}月${day}日`
+}
+
+// 详情弹窗相关
+const detailVisible = ref(false)
+const detailWord = ref({})
+const activeTab = ref('info')
+
+const viewDetail = async (row) => {
+  detailWord.value = row
+  activeTab.value = 'info'
+  memoryCurve.value = null
+  detailVisible.value = true
+  // 获取记忆曲线
+  await fetchMemoryCurve(row.id)
+}
 
 // 计算单词正确率
 const getAccuracy = (row) => {
@@ -1203,9 +1324,10 @@ onMounted(() => {
 }
 
 .timer {
-  font-size: 24px;
+  font-size: 32px;
   color: #909399;
   font-family: monospace;
+  font-weight: 600;
 }
 
 .question-content {
@@ -1428,5 +1550,63 @@ onMounted(() => {
   text-align: right;
   color: #909399;
   font-size: 14px;
+}
+
+/* 记忆曲线样式 */
+.memory-curve {
+  padding: 20px;
+}
+.phase-bar {
+  margin-bottom: 20px;
+}
+.phase-track {
+  position: relative;
+  height: 40px;
+  background: #f0f0f0;
+  border-radius: 20px;
+}
+.phase-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 4px 8px;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  border: 2px solid #ddd;
+}
+.phase-dot.active {
+  background: #409eff;
+  color: #fff;
+  border-color: #409eff;
+}
+.next-review {
+  margin-bottom: 20px;
+  font-size: 16px;
+  color: #666;
+}
+.review-history {
+  border-top: 1px solid #eee;
+  padding-top: 15px;
+}
+.history-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+.history-date {
+  min-width: 100px;
+}
+.history-correct {
+  color: #67c23a;
+}
+.history-wrong {
+  color: #f56c6c;
 }
 </style>

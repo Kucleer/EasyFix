@@ -56,6 +56,11 @@ export const wordApi = {
   printPdf(params) {
     return api.post('/words/print-pdf', null, { params })
   },
+
+  // 获取单词记忆曲线
+  getMemoryCurve(wordId) {
+    return api.get(`/words/${wordId}/memory-curve`)
+  },
 }
 
 export default wordApi
