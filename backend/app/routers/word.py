@@ -303,6 +303,10 @@ def get_stats(db: Session = Depends(get_db)):
         Word.next_review_at <= now
     ).count()
 
+    # 待复习数量 = 未复习 + 曲线到期
+    unreviewed_count = db.query(Word).filter(Word.deleted == False, Word.review_count == 0).count()
+    to_review_count = unreviewed_count + due_words
+
     # 年级分布
     grade_dist = {}
     words_by_grade = db.query(Word.grade, func.count(Word.id)).filter(
@@ -323,6 +327,7 @@ def get_stats(db: Session = Depends(get_db)):
         "grade_distribution": grade_dist,
         "review_today": review_today,
         "due_words": due_words,
+        "to_review_count": to_review_count,
     }
 
 

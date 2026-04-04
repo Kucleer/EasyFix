@@ -100,6 +100,7 @@ class WordStatsResponse(BaseModel):
     grade_distribution: dict = {}  # 各年级分布
     review_today: int = 0  # 今日复习数
     due_words: int = 0  # 待复习数
+    to_review_count: int = 0  # 待复习单词数（未复习+曲线到期）
 
 
 class ReviewQuestion(BaseModel):
