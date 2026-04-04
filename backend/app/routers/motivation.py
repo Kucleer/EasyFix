@@ -42,7 +42,7 @@ def get_records(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
 @router.post("/stars/adjust")
 def adjust_stars(data: StarsAdjustRequest, db: Session = Depends(get_db)):
     """手动调整积分（增加或减少）"""
-    from app.models.star import StarAction, StarRecord, StarBalance
+    from app.models.star import StarRecord, StarBalance
 
     # 校验
     if data.delta == 0:
@@ -57,17 +57,14 @@ def adjust_stars(data: StarsAdjustRequest, db: Session = Depends(get_db)):
     if not balance:
         balance = StarBalance(user_id=DEFAULT_USER_ID, balance=0)
         db.add(balance)
-        db.commit()
-        db.refresh(balance)
+        # 不立即commit
 
     # 检查余额是否足够（减少时）
     if data.delta < 0 and balance.balance + data.delta < 0:
         raise HTTPException(status_code=400, detail="积分不足，无法减少")
 
-    # 计算新余额
+    # 计算新余额并创建记录
     new_balance = balance.balance + data.delta
-
-    # 创建积分记录
     record = StarRecord(
         user_id=DEFAULT_USER_ID,
         action_code="manual_adjustment",
@@ -76,12 +73,13 @@ def adjust_stars(data: StarsAdjustRequest, db: Session = Depends(get_db)):
         reason=data.reason.strip()
     )
     db.add(record)
-    db.commit()
-    db.refresh(record)
 
     # 更新余额
     balance.balance = new_balance
+
+    # 统一提交
     db.commit()
+    db.refresh(record)
 
     return {
         "success": True,
