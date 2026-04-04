@@ -63,6 +63,11 @@ export const motivationApi = {
     return api.get('/motivation/overview')
   },
 
+  // 积分调整
+  adjustStars(data) {
+    return api.post('/stars/adjust', data)
+  },
+
   // 单词复习正确率触发
   triggerWordAccuracy(data) {
     return api.post('/motivation/trigger/review_word_accuracy', data)
