@@ -116,3 +116,15 @@ class ReviewStartResponse(BaseModel):
     session_id: int
     questions: List[ReviewQuestion]
     total: int
+
+
+class MemoryCurveResponse(BaseModel):
+    """记忆曲线响应"""
+    word_id: int
+    learning_phase: str
+    interval: int
+    next_review_at: Optional[datetime] = None
+    review_history: List[dict] = []
+
+    class Config:
+        from_attributes = True
