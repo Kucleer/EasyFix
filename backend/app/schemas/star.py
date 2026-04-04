@@ -48,3 +48,20 @@ class StarRecordResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class StarsAdjustRequest(BaseModel):
+    """积分调整请求"""
+    delta: int
+    reason: str
+
+    class Config:
+        from_attributes = True
+
+
+class StarsAdjustResponse(BaseModel):
+    """积分调整响应"""
+    success: bool
+    new_balance: int
+    delta: int
+    record_id: int
