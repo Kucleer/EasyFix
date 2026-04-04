@@ -176,6 +176,24 @@ class MotivationService:
     def _get_achievement_total_count(self, user_id: int, trigger_action: str) -> int:
         """获取用户已完成该行为的总次数"""
         from sqlalchemy import func
+        from app.models.word import Word
+        from app.models.practice_set import PracticeSet
+
+        # 对于 review_word，使用 Word 表的 review_count 总和
+        if trigger_action == "review_word":
+            count = self.db.query(func.coalesce(func.sum(Word.review_count), 0)).filter(
+                Word.deleted == False
+            ).scalar() or 0
+            return count
+
+        # 对于 review_practice_set，使用 PracticeSet 表的 review_count 总和
+        if trigger_action == "review_practice_set":
+            count = self.db.query(func.coalesce(func.sum(PracticeSet.review_count), 0)).filter(
+                PracticeSet.deleted == False
+            ).scalar() or 0
+            return count
+
+        # 其他行为统计 StarRecord 次数
         count = self.db.query(func.count(StarRecord.id)).filter(
             StarRecord.user_id == user_id,
             StarRecord.action_code == trigger_action
@@ -303,19 +321,13 @@ class MotivationService:
         return unlocked
 
     def check_word_accuracy(self, user_id: int, total_count: int, correct_count: int, reason: str = None) -> Optional[dict]:
-        """检查单词正确率成就"""
-        # 获取单词正确率成就
-        achievement = self.db.query(Achievement).filter(
-            Achievement.code == "word_accuracy",
-            Achievement.deleted == False
-        ).first()
-
-        if not achievement:
-            return None
-
+        """检查单词正确率成就（累计模式）
+        每次复习满足条件（≥min_words且正确率≥min_accuracy%）时增加进度
+        进度达到trigger_count时解锁对应等级
+        """
         # 获取成就配置
-        config = self.db.query(AchievementConfig).filter(
-            AchievementConfig.achievement_id == achievement.id
+        config = self.db.query(AchievementConfig).join(Achievement).filter(
+            Achievement.code == "word_accuracy"
         ).first()
 
         min_words = config.min_words if config else 10
@@ -324,47 +336,105 @@ class MotivationService:
         # 计算正确率
         accuracy = (correct_count / total_count * 100) if total_count > 0 else 0
 
-        # 检查是否满足条件
+        # 检查是否满足触发条件
         if total_count < min_words or accuracy < min_accuracy:
             return None
 
-        # 检查是否已解锁
+        # 获取所有单词正确率成就（按等级排序）
+        achievements = self.db.query(Achievement).filter(
+            Achievement.code == "word_accuracy",
+            Achievement.deleted == False
+        ).order_by(Achievement.level).all()
+
+        if not achievements:
+            return None
+
+        unlocked_results = []
+
+        # 找出当前用户已解锁的最高等级
+        highest_unlocked_level = 0
+        for ach in achievements:
+            progress = self.db.query(AchievementProgress).filter(
+                AchievementProgress.user_id == user_id,
+                AchievementProgress.achievement_id == ach.id,
+                AchievementProgress.is_unlocked == True
+            ).first()
+            if progress:
+                highest_unlocked_level = ach.level
+
+        # 确定当前应该增加进度的成就等级
+        # 如果全部未解锁，从level 1开始
+        # 如果已有解锁的，从下一个未解锁的等级开始
+        current_target_level = highest_unlocked_level + 1 if highest_unlocked_level < len(achievements) else None
+
+        if current_target_level is None:
+            # 所有等级都已解锁，无需继续
+            return None
+
+        # 查找当前目标成就
+        target_achievement = None
+        for ach in achievements:
+            if ach.level == current_target_level:
+                target_achievement = ach
+                break
+
+        if not target_achievement:
+            return None
+
+        # 获取或创建进度记录
         progress = self.db.query(AchievementProgress).filter(
             AchievementProgress.user_id == user_id,
-            AchievementProgress.achievement_id == achievement.id
+            AchievementProgress.achievement_id == target_achievement.id
         ).first()
 
-        if progress and progress.is_unlocked:
-            return None  # 已解锁
-
-        # 解锁成就
         if not progress:
             progress = AchievementProgress(
                 user_id=user_id,
-                achievement_id=achievement.id,
+                achievement_id=target_achievement.id,
                 current_count=0,
                 is_unlocked=False
             )
             self.db.add(progress)
 
-        progress.is_unlocked = True
-        progress.unlocked_at = datetime.now()
-        progress.current_count = 1
+        # 增加进度（每次满足条件就+1）
+        progress.current_count += 1
 
-        # 发放奖励积分
-        if achievement.reward_stars > 0:
-            self._add_stars(user_id, achievement.reward_stars, f"成就奖励：{achievement.name}")
+        # 检查是否达到解锁条件
+        if progress.current_count >= target_achievement.trigger_count:
+            progress.is_unlocked = True
+            progress.unlocked_at = datetime.now()
 
-            # 触发行为记录
-            self._add_star_record(user_id, "review_word_accuracy", achievement.reward_stars, reason or "单词正确率成就解锁")
+            # 发放奖励积分
+            if target_achievement.reward_stars > 0:
+                self._add_stars(user_id, target_achievement.reward_stars, f"成就奖励：{target_achievement.name} Lv{target_achievement.level}")
+                self._add_star_record(user_id, "review_word_accuracy", target_achievement.reward_stars, reason or f"单词正确率成就解锁 Lv{target_achievement.level}")
+
+            unlocked_results.append({
+                "achievement_id": target_achievement.id,
+                "name": target_achievement.name,
+                "level": target_achievement.level,
+                "reward_stars": target_achievement.reward_stars,
+                "current_count": progress.current_count,
+                "trigger_count": target_achievement.trigger_count
+            })
 
         self.db.commit()
 
+        if unlocked_results:
+            return {
+                "unlocked_achievements": unlocked_results,
+                "accuracy": accuracy,
+                "total_count": total_count,
+                "correct_count": correct_count
+            }
+
+        # 条件满足但未解锁，返回当前进度
         return {
-            "achievement_id": achievement.id,
-            "name": achievement.name,
-            "level": achievement.level,
-            "reward_stars": achievement.reward_stars,
+            "progress": {
+                "level": current_target_level,
+                "current_count": progress.current_count,
+                "trigger_count": target_achievement.trigger_count
+            },
             "accuracy": accuracy,
             "total_count": total_count,
             "correct_count": correct_count

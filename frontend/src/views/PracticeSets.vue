@@ -88,7 +88,7 @@
         </el-table-column>
         <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
-            <el-button type="info" size="small" @click="showDetail(row)">查看详情</el-button>
+            <el-button type="primary" size="small" @click="showDetail(row)">查看详情</el-button>
             <el-button v-if="row.pdf_path" type="primary" size="small" @click="downloadPdf(row)">下载PDF</el-button>
             <el-button v-else type="info" size="small" disabled>无PDF</el-button>
             <el-button type="warning" size="small" @click="markReviewed(row)" :disabled="row.reviewed">标记已复习</el-button>
@@ -135,8 +135,8 @@
     </el-dialog>
 
     <!-- 练习集详情弹窗 -->
-    <el-dialog v-model="detailDialogVisible" :title="detailData.name || '练习集详情'" width="900px" destroy-on-close>
-      <el-tabs v-if="detailData.id" v-model:active-tab="detailActiveTab">
+    <el-dialog v-model="detailDialogVisible" :title="detailData.name || '练习集详情'" width="900px" @opened="onDetailDialogOpened">
+      <el-tabs v-model="detailActiveTab">
         <!-- 详情页 -->
         <el-tab-pane label="详情" name="detail">
           <div class="detail-info">
@@ -232,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
@@ -267,6 +267,7 @@ const detailForm = reactive({
   name: '',
   notes: ''
 })
+
 
 const fetchPracticeSets = async () => {
   try {
@@ -395,13 +396,15 @@ const showDetail = async (ps) => {
     detailForm.name = data.name
     detailForm.notes = data.notes || ''
     detailDialogVisible.value = true
-    // 默认显示详情标签页（延迟设置确保el-tabs渲染完成）
-    setTimeout(() => {
-      detailActiveTab.value = 'detail'
-    }, 100)
   } catch (error) {
     ElMessage.error('获取详情失败')
   }
+}
+
+// 弹窗打开后确保详情tab选中
+const onDetailDialogOpened = async () => {
+  await nextTick()
+  detailActiveTab.value = 'detail'
 }
 
 // 保存详情

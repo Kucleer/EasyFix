@@ -160,6 +160,13 @@ export const uploadApi = {
       timeout: 120000, // 2分钟超时
     })
   },
+  uploadFile(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/upload/file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }
 
 // 统计API

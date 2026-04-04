@@ -11,6 +11,7 @@ class RewardBase(BaseModel):
     total_stock: int = -1
     remaining_stock: int = -1
     is_active: bool = True
+    image_url: Optional[str] = None
 
 
 class RewardCreate(RewardBase):
@@ -25,6 +26,7 @@ class RewardUpdate(BaseModel):
     total_stock: Optional[int] = None
     remaining_stock: Optional[int] = None
     is_active: Optional[bool] = None
+    image_url: Optional[str] = None
 
 
 class RewardResponse(RewardBase):

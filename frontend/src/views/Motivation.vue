@@ -86,59 +86,94 @@
         <!-- 奖励商城 Tab -->
         <el-tab-pane label="奖励商城" name="rewards">
           <div class="rewards-section">
-            <h3 class="section-title">可用奖励</h3>
-            <div class="rewards-grid">
-              <div
-                v-for="reward in rewards"
-                :key="reward.id"
-                class="reward-card"
-                :class="{ 'is-redeemed': reward.redeemed }"
-              >
-                <div class="reward-icon" :style="{ backgroundColor: reward.color }">
-                  <img v-if="reward.image_url" :src="reward.image_url" style="width:40px;height:40px;object-fit:contain;" />
-                  <el-icon v-else :size="40" color="#fff">
-                    <component :is="reward.icon || 'Present'" />
-                  </el-icon>
-                </div>
-                <div class="reward-content">
-                  <div class="reward-name">{{ reward.name }}</div>
-                  <div class="reward-desc">{{ reward.description }}</div>
-                  <div class="reward-meta">
-                    <span class="reward-points">
-                      <el-icon><Coin /></el-icon>
-                      {{ reward.points_required }}
-                    </span>
-                    <span class="reward-stock" :class="{ 'out-of-stock': reward.stock === 0 }">
-                      库存: {{ reward.stock }}
-                    </span>
+            <div class="rewards-layout">
+              <!-- 左侧列表 -->
+              <div class="reward-list">
+                <div
+                  v-for="reward in rewards"
+                  :key="reward.id"
+                  class="reward-list-card"
+                  :class="{ 'selected': selectedReward?.id === reward.id }"
+                  @click="selectReward(reward)"
+                >
+                  <img v-if="reward.image_url" :src="reward.image_url" class="reward-list-img" />
+                  <div v-else class="reward-list-icon">
+                    <el-icon :size="30" color="#fff">
+                      <component :is="reward.icon || 'Present'" />
+                    </el-icon>
                   </div>
-                  <el-button
-                    type="primary"
-                    size="small"
-                    :disabled="reward.stock === 0 || reward.redeemed || userPoints.balance < reward.points_required"
-                    @click="redeemReward(reward)"
-                    class="redeem-btn"
-                  >
-                    {{ reward.redeemed ? '已兑换' : (reward.stock === 0 ? '库存不足' : '立即兑换') }}
-                  </el-button>
+                  <div class="reward-list-name">{{ reward.name }}</div>
+                </div>
+              </div>
+
+              <!-- 右侧详情 -->
+              <div class="reward-detail">
+                <div v-if="selectedReward" class="reward-detail-inner">
+                  <img
+                    v-if="selectedReward.image_url"
+                    :src="selectedReward.image_url"
+                    class="reward-detail-image"
+                  />
+                  <div v-else class="reward-detail-placeholder">
+                    <el-icon :size="80" color="#ccc">
+                      <component :is="selectedReward.icon || 'Present'" />
+                    </el-icon>
+                  </div>
+                  <div class="reward-detail-content">
+                    <h2 class="reward-detail-name">{{ selectedReward.name }}</h2>
+                    <div class="reward-detail-meta">
+                      <span class="reward-points">
+                        <el-icon><Coin /></el-icon>
+                        {{ selectedReward.points_required }}
+                      </span>
+                      <span class="reward-stock" :class="{ 'out-of-stock': selectedReward.stock === 0 }">
+                        库存: {{ selectedReward.stock }}
+                      </span>
+                    </div>
+                    <p class="reward-detail-desc">{{ selectedReward.description || '暂无描述' }}</p>
+                    <el-button
+                      type="primary"
+                      size="large"
+                      :disabled="selectedReward.stock === 0 || selectedReward.redeemed || userPoints.balance < selectedReward.points_required"
+                      @click="redeemReward(selectedReward)"
+                      class="redeem-btn"
+                    >
+                      {{ selectedReward.redeemed ? '已兑换' : (selectedReward.stock === 0 ? '库存不足' : '立即兑换') }}
+                    </el-button>
+                  </div>
+                </div>
+                <div v-else class="reward-empty">
+                  <el-empty description="请选择一个奖励" />
                 </div>
               </div>
             </div>
           </div>
         </el-tab-pane>
 
-        <!-- 兑换明细 Tab -->
-        <el-tab-pane label="兑换明细" name="redemptions">
-          <el-table :data="redemptionList" stripe>
-            <el-table-column prop="reward.name" label="奖励名称" />
-            <el-table-column prop="star_cost" label="消耗积分" width="120" />
-            <el-table-column prop="redeemed_at" label="兑换时间" width="180">
+        <!-- 积分明细 Tab -->
+        <el-tab-pane label="积分明细" name="points">
+          <el-table :data="pointsRecords" stripe style="width: 100%" max-height="400">
+            <el-table-column prop="action_code" label="行为" width="150">
               <template #default="{ row }">
-                {{ formatDate(row.redeemed_at) }}
+                {{ getActionName(row.action_code) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="star_delta" label="积分变动" width="120">
+              <template #default="{ row }">
+                <span :class="row.star_delta > 0 ? 'text-success' : 'text-danger'">
+                  {{ row.star_delta > 0 ? '+' : '' }}{{ row.star_delta }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="balance_after" label="变动后余额" width="120" />
+            <el-table-column prop="reason" label="备注" />
+            <el-table-column prop="created_at" label="时间" width="180">
+              <template #default="{ row }">
+                {{ formatDate(row.created_at) }}
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="redemptionList.length === 0" description="暂无兑换记录" />
+          <el-empty v-if="pointsRecords.length === 0" description="暂无积分记录" />
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -310,29 +345,34 @@ const fetchRewards = async () => {
     rewards.value = res.data.map(r => ({
       id: r.id,
       name: r.name,
-      description: r.description,
+      description: r.description || '',
+      image_url: r.image_url || '',
       points_required: r.cost_stars,
       stock: r.remaining_stock,
       color: r.color || '#409eff',
       icon: 'Present',
       redeemed: false,
     }))
+    if (rewards.value.length > 0 && !selectedReward.value) {
+      selectedReward.value = rewards.value[0]
+    }
   } catch (error) {
     console.error('获取奖励失败:', error)
   }
+}
+
+// 选中奖励
+const selectedReward = ref(null)
+
+const selectReward = (reward) => {
+  selectedReward.value = reward
 }
 
 // 获取积分记录
 const fetchRecords = async () => {
   try {
     const res = await motivationApi.getRecords({ limit: 50 })
-    pointsRecords.value = res.data.map((r, index) => ({
-      id: r.id || index,
-      type: r.star_delta > 0 ? 'earn' : 'spend',
-      points: Math.abs(r.star_delta),
-      reason: r.reason || r.action_code,
-      created_at: r.created_at,
-    }))
+    pointsRecords.value = res.data
   } catch (error) {
     console.error('获取积分记录失败:', error)
   }
@@ -412,6 +452,25 @@ const showPointsDetail = () => {
 const formatDate = (dateStr) => {
   if (!dateStr) return ''
   return new Date(dateStr).toLocaleString('zh-CN')
+}
+
+// 获取行为名称
+const actionNameMap = {
+  'upload_question': '上传错题',
+  'review_practice_set': '复习练习集',
+  'generate_similar': '生成相似题',
+  'review_word': '背单词',
+  'create_practice_set': '创建练习集',
+  'daily_login': '每日登录',
+  'continuous_7day': '连续7天学习',
+  'continuous_14day': '连续14天学习',
+  'continuous_30day': '连续30天学习',
+  'review_word_accuracy': '单词正确率',
+  'reward': '成就奖励',
+  'redeem': '兑换奖励',
+}
+const getActionName = (actionCode) => {
+  return actionNameMap[actionCode] || actionCode
 }
 
 // 获取类型名称
@@ -648,82 +707,148 @@ onMounted(() => {
   margin-top: 20px;
 }
 
-.rewards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 20px;
+.rewards-layout {
+  display: flex;
+  gap: 24px;
+  min-height: 500px;
 }
 
-.reward-card {
+.reward-list {
+  width: 120px;
+  flex-shrink: 0;
+  max-height: 600px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  background-color: #fff;
-  border-radius: 12px;
+  gap: 12px;
+}
+
+.reward-list-card {
+  width: 120px;
+  height: 120px;
   border: 2px solid #f0f0f0;
+  border-radius: 8px;
   overflow: hidden;
-  transition: all 0.3s ease;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
 }
 
-.reward-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+.reward-list-card:hover {
+  border-color: #409eff;
+  transform: scale(1.05);
 }
 
-.reward-card.is-redeemed {
-  opacity: 0.6;
+.reward-list-card.selected {
+  border-color: #409eff;
+  background: #ecf5ff;
 }
 
-.reward-icon {
-  height: 100px;
+.reward-list-img {
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+}
+
+.reward-list-icon {
+  width: 100%;
+  height: 90px;
+  background: #409eff;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.reward-content {
-  padding: 15px;
+.reward-list-name {
+  height: 30px;
+  line-height: 30px;
+  font-size: 12px;
+  text-align: center;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #fff;
+}
+
+.reward-detail {
   flex: 1;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+  overflow: hidden;
+}
+
+.reward-detail-inner {
   display: flex;
   flex-direction: column;
 }
 
-.reward-name {
-  font-size: 16px;
+.reward-detail-image {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  background: #f5f5f5;
+}
+
+.reward-detail-placeholder {
+  width: 100%;
+  height: 300px;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reward-detail-content {
+  padding: 24px;
+}
+
+.reward-detail-name {
+  font-size: 20px;
   font-weight: bold;
   color: #303133;
-  margin-bottom: 8px;
+  margin: 0 0 16px 0;
 }
 
-.reward-desc {
-  font-size: 13px;
-  color: #909399;
-  margin-bottom: 12px;
-  flex: 1;
-}
-
-.reward-meta {
+.reward-detail-meta {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+  gap: 24px;
+  margin-bottom: 16px;
 }
 
-.reward-points {
+.reward-detail-meta .reward-points {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
   color: #e6a23c;
 }
 
-.reward-stock {
-  font-size: 13px;
+.reward-detail-meta .reward-stock {
+  font-size: 14px;
   color: #67c23a;
 }
 
-.reward-stock.out-of-stock {
+.reward-detail-meta .reward-stock.out-of-stock {
   color: #f56c6c;
+}
+
+.reward-detail-desc {
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.reward-empty {
+  height: 100%;
+  min-height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .redeem-btn {

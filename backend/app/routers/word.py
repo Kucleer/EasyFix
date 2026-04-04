@@ -338,9 +338,9 @@ def start_review(
         selected_words = all_words
     else:
         # 智能抽样算法
-        pool_a = []  # 未复习单词 (review_count=0)
-        pool_b = []  # 困难单词 (正确率<60%)
-        pool_c = []  # 普通单词 (其他)
+        pool_a = []  # 新词 (未复习单词 review_count=0)
+        pool_b = []  # 薄弱 (困难单词 正确率<60%)
+        pool_c = []  # 需加强 (普通单词 其他)
 
         for w in all_words:
             accuracy = (w.correct_count / w.review_count * 100) if w.review_count and w.review_count > 0 else 0
@@ -354,35 +354,40 @@ def start_review(
         selected_words = []
         remaining_count = min(count, len(all_words))
 
-        # 从A池抽取 min(count*20%, A中实际数量) 个
-        a_count = min(int(count * 0.2), len(pool_a), remaining_count)
+        # 优先从新词池抽取
+        a_count = min(int(count * 0.4), len(pool_a), remaining_count)  # 40% 新词
         selected_words.extend(random.sample(pool_a, a_count))
         remaining_count -= a_count
 
-        # 从B池抽取 min(count*30%, B中实际数量) 个
-        b_count = min(int(count * 0.3), len(pool_b), remaining_count)
-        selected_words.extend(random.sample(pool_b, b_count))
-        remaining_count -= b_count
+        # 从需加强池抽取
+        c_count = min(int(count * 0.4), len(pool_c), remaining_count)  # 40% 需加强
+        selected_words.extend(random.sample(pool_c, c_count))
+        remaining_count -= c_count
 
-        # 剩余从C池抽取
+        # 剩余从薄弱池补充
         if remaining_count > 0:
-            c_available = [w for w in pool_c if w not in selected_words]
-            c_count = min(remaining_count, len(c_available))
-            if c_count > 0:
-                selected_words.extend(random.sample(c_available, c_count))
+            b_available = [w for w in pool_b if w not in selected_words]
+            b_count = min(remaining_count, len(b_available))
+            if b_count > 0:
+                selected_words.extend(random.sample(b_available, b_count))
 
-        # 如果还不够，从B池补充（按正确率从低到高）
-        if len(selected_words) < count:
-            needed = count - len(selected_words)
-            b_remaining = [w for w in pool_b if w not in selected_words]
-            b_remaining.sort(key=lambda w: (w.correct_count / w.review_count * 100) if w.review_count and w.review_count > 0 else 0)
-            selected_words.extend(b_remaining[:needed])
-
-        # 如果还不够，从A池补充
+        # 如果还不够，从各池补充
         if len(selected_words) < count:
             needed = count - len(selected_words)
             a_remaining = [w for w in pool_a if w not in selected_words]
-            selected_words.extend(a_remaining[:needed])
+            selected_words.extend(random.sample(a_remaining, min(needed, len(a_remaining))))
+            needed = count - len(selected_words)
+
+        if len(selected_words) < count:
+            needed = count - len(selected_words)
+            c_remaining = [w for w in pool_c if w not in selected_words]
+            selected_words.extend(random.sample(c_remaining, min(needed, len(c_remaining))))
+            needed = count - len(selected_words)
+
+        if len(selected_words) < count:
+            needed = count - len(selected_words)
+            b_remaining = [w for w in pool_b if w not in selected_words]
+            selected_words.extend(random.sample(b_remaining, min(needed, len(b_remaining))))
 
     # 创建复习场次
     review_session = WordReview(total_count=len(selected_words))

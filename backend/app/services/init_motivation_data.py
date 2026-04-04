@@ -48,7 +48,9 @@ PRESET_ACHIEVEMENTS = [
     {"code": "continuous_learning", "name": "连续学习", "level": 2, "trigger_action": "continuous_14day", "trigger_count": 14, "reward_stars": 100, "description": "连续学习14天"},
     {"code": "continuous_learning", "name": "连续学习", "level": 3, "trigger_action": "continuous_30day", "trigger_count": 30, "reward_stars": 200, "description": "连续学习30天"},
     # 单词正确率成就
-    {"code": "word_accuracy", "name": "单词正确率", "level": 1, "trigger_action": "review_word_accuracy", "trigger_count": 1, "reward_stars": 30, "description": "单次复习10个单词以上且正确率90%以上"},
+    {"code": "word_accuracy", "name": "单词正确率", "level": 1, "trigger_action": "review_word_accuracy", "trigger_count": 7, "reward_stars": 30, "description": "累计7次复习10个单词以上且正确率90%以上"},
+    {"code": "word_accuracy", "name": "单词正确率", "level": 2, "trigger_action": "review_word_accuracy", "trigger_count": 14, "reward_stars": 80, "description": "累计14次复习10个单词以上且正确率90%以上"},
+    {"code": "word_accuracy", "name": "单词正确率", "level": 3, "trigger_action": "review_word_accuracy", "trigger_count": 30, "reward_stars": 150, "description": "累计30次复习10个单词以上且正确率90%以上"},
 ]
 
 DEFAULT_USER_ID = 1
@@ -259,12 +261,13 @@ def init_achievement_configs(db: Session):
     """初始化成就配置"""
     from app.models.achievement import Achievement, AchievementConfig
 
-    # 单词正确率成就配置
-    word_accuracy = db.query(Achievement).filter(
-        Achievement.code == "word_accuracy"
-    ).first()
+    # 单词正确率成就配置（所有等级）
+    word_achievements = db.query(Achievement).filter(
+        Achievement.code == "word_accuracy",
+        Achievement.deleted == False
+    ).all()
 
-    if word_accuracy:
+    for word_accuracy in word_achievements:
         existing = db.query(AchievementConfig).filter(
             AchievementConfig.achievement_id == word_accuracy.id
         ).first()
@@ -276,4 +279,6 @@ def init_achievement_configs(db: Session):
                 min_accuracy=90
             )
             db.add(config)
-            db.commit()
+
+    if word_achievements:
+        db.commit()

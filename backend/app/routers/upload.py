@@ -131,6 +131,62 @@ async def upload_image(
     }
 
 
+class SimpleUploadResponse(BaseModel):
+    path: str
+    original_filename: str
+    size: int
+
+
+@router.post("/file", response_model=SimpleUploadResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+):
+    """
+    简单文件上传（不进行OCR识别）
+
+    Returns:
+        {
+            "path": str,
+            "original_filename": str,
+            "size": int,
+        }
+    """
+    # 读取文件内容
+    content = await file.read()
+
+    # 验证文件大小
+    if len(content) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=400, detail=f"文件大小超过限制: {settings.MAX_UPLOAD_SIZE // (1024*1024)}MB")
+
+    # 生成存储路径
+    now = datetime.now()
+    year = now.strftime("%Y")
+    month = now.strftime("%m")
+    file_uuid = str(uuid.uuid4())[:8]
+    ext = os.path.splitext(file.filename)[1] or ".jpg"
+    safe_filename = file.filename.replace("/", "_").replace("\\", "_")
+    filename = f"{file_uuid}_{safe_filename}"
+
+    # 存储在 UPLOAD_DIR/year/month/ 下
+    relative_dir = os.path.join(year, month)
+    relative_path = os.path.join(relative_dir, filename)
+    absolute_dir = os.path.abspath(os.path.join(settings.UPLOAD_DIR, year, month))
+    absolute_path = os.path.join(absolute_dir, filename)
+
+    # 创建目录并保存文件
+    os.makedirs(absolute_dir, exist_ok=True)
+    with open(absolute_path, "wb") as f:
+        f.write(content)
+
+    # 返回相对路径（统一使用正斜杠）
+    url_path = relative_path.replace("\\", "/")
+    return {
+        "path": url_path,
+        "original_filename": file.filename,
+        "size": len(content),
+    }
+
+
 @router.post("/batch", response_model=BatchUploadResponse)
 async def upload_batch_images(
     files: List[UploadFile] = File(...),

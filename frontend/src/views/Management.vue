@@ -409,6 +409,9 @@
         <el-form-item label="奖励名称" required>
           <el-input v-model="rewardForm.name" placeholder="如: 免作业卡" />
         </el-form-item>
+        <el-form-item label="奖励描述">
+          <el-input v-model="rewardForm.description" type="textarea" :rows="2" placeholder="描述奖励的用途或详情" />
+        </el-form-item>
         <el-form-item label="所需积分" required>
           <el-input-number v-model="rewardForm.cost_stars" :min="0" :max="99999" />
         </el-form-item>
@@ -417,6 +420,22 @@
         </el-form-item>
         <el-form-item label="剩余库存">
           <el-input-number v-model="rewardForm.remaining_stock" :min="-1" :max="99999" placeholder="-1表示无限" />
+        </el-form-item>
+        <el-form-item label="奖励图片">
+          <div v-if="rewardForm.image_url" class="reward-image-preview">
+            <img :src="rewardForm.image_url" style="width:100px;height:100px;object-fit:contain;border:1px solid #ddd;" />
+            <el-button type="danger" size="small" @click="removeRewardImage" style="margin-top:8px;">删除图片</el-button>
+          </div>
+          <el-upload
+            v-else
+            ref="rewardImageRef"
+            :auto-upload="false"
+            :limit="1"
+            accept="image/*"
+            :on-change="uploadRewardImage"
+          >
+            <el-button size="small" type="primary">点击上传图片</el-button>
+          </el-upload>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -430,7 +449,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { questionApi } from '@/api/question'
+import { questionApi, uploadApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
 import axios from 'axios'
 
@@ -505,7 +524,7 @@ const achievementForm = reactive({ name: '', level: 1, trigger_action: '', trigg
 const rewards = ref([])
 const showRewardDialog = ref(false)
 const editRewardData = ref(null)
-const rewardForm = reactive({ name: '', cost_stars: 0, total_stock: -1, remaining_stock: -1 })
+const rewardForm = reactive({ name: '', description: '', cost_stars: 0, total_stock: -1, remaining_stock: -1, image_url: '' })
 
 // 获取学科列表
 const fetchSubjects = async () => {
@@ -884,22 +903,44 @@ const createOrUpdateReward = async () => {
     showRewardDialog.value = false
     editRewardData.value = null
     rewardForm.name = ''
+    rewardForm.description = ''
     rewardForm.cost_stars = 0
     rewardForm.total_stock = -1
     rewardForm.remaining_stock = -1
+    rewardForm.image_url = ''
     fetchRewards()
   } catch (e) {
     ElMessage.error('保存失败')
   }
 }
 
+// 上传奖励图片
+const rewardImageRef = ref(null)
+const uploadRewardImage = async (file) => {
+  try {
+    const { data } = await uploadApi.uploadFile(file.raw)
+    rewardForm.image_url = '/uploads/' + data.path
+    ElMessage.success('图片上传成功')
+  } catch (e) {
+    console.error('上传失败:', e)
+    ElMessage.error('图片上传失败')
+  }
+  return false
+}
+
+const removeRewardImage = () => {
+  rewardForm.image_url = ''
+}
+
 // 编辑奖励
 const editReward = (row) => {
   editRewardData.value = row
   rewardForm.name = row.name
+  rewardForm.description = row.description || ''
   rewardForm.cost_stars = row.cost_stars
   rewardForm.total_stock = row.total_stock
   rewardForm.remaining_stock = row.remaining_stock
+  rewardForm.image_url = row.image_url || ''
   showRewardDialog.value = true
 }
 

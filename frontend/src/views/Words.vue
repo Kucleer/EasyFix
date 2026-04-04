@@ -194,6 +194,7 @@
               <div class="hint">提示：{{ currentQuestion.word_length }}个字母</div>
             </div>
             <el-input
+              ref="answerInputRef"
               v-model="userAnswer"
               placeholder="输入英文单词"
               @keyup.enter="submitAnswer"
@@ -476,6 +477,7 @@ const reviewResult = reactive({
 const reviewStartTime = ref(null)
 const reviewTimer = ref(null)
 const reviewElapsed = ref(0) // 秒
+const answerInputRef = ref(null)
 
 // 打印相关
 const printDialogVisible = ref(false)
@@ -749,6 +751,9 @@ const nextQuestion = () => {
   currentQuestion.value = reviewQuestions.value[currentIndex.value]
   userAnswer.value = ''
   selectedOption.value = ''
+  nextTick(() => {
+    answerInputRef.value?.focus()
+  })
 }
 
 // 终止答题，结算已答题目
