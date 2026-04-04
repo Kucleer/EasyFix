@@ -33,6 +33,22 @@ def _get_accuracy_level(review_count: int, correct_count: int) -> str:
         return "mastered"  # 掌握
 
 
+def _get_consecutive_correct(word_id: int, db: Session) -> int:
+    """获取连续正确次数"""
+    logs = db.query(WordReviewLog).filter(
+        WordReviewLog.word_id == word_id,
+        WordReviewLog.deleted == False
+    ).order_by(WordReviewLog.reviewed_at.desc()).limit(10).all()
+
+    consecutive = 0
+    for log in reversed(logs):
+        if log.is_correct:
+            consecutive += 1
+        else:
+            break
+    return consecutive
+
+
 @router.get("")
 def list_words(
     skip: int = Query(0, ge=0),
@@ -449,16 +465,24 @@ def submit_review(data: ReviewSessionSubmit, db: Session = Depends(get_db)):
         )
         db.add(log)
 
-        # 更新单词复习状态
-        word.review_count = (word.review_count or 0) + 1
+        # 更新间隔和阶段
         if result.is_correct:
             word.correct_count = (word.correct_count or 0) + 1
             correct_count += 1
-            # 更新间隔（艾宾浩斯）
-            word.interval = min((word.interval or 1) * 2, 30)  # 最多30天
+            # 艾宾浩斯间隔：答对则加倍，最多30天
+            word.interval = min((word.interval or 1) * 2, 30)
+            # 更新阶段
+            consecutive_correct = _get_consecutive_correct(word.id, db)
+            if consecutive_correct >= 3 and word.interval >= 7:
+                word.learning_phase = "牢记"
+            elif word.next_review_at and word.next_review_at <= datetime.now():
+                word.learning_phase = "遗忘点"
+            else:
+                word.learning_phase = "在途"
         else:
             error_count += 1
             word.interval = 1  # 错误后重置为1天
+            word.learning_phase = "在途"  # 退回在途
 
         # 计算下次复习时间
         word.last_reviewed_at = now
