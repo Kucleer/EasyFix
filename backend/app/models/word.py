@@ -36,6 +36,7 @@ class Word(Base):
     # 记忆曲线参数（艾宾浩斯）
     ease_factor = Column(Integer, default=250)  # 难度因子（单位：分钟）
     interval = Column(Integer, default=1)  # 当前间隔天数
+    learning_phase = Column(String(20), default="新学")  # 新学/在途/遗忘点/牢记
 
     # 软删除
     deleted = Column(Boolean, default=False, nullable=False)
