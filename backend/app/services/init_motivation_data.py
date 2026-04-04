@@ -21,6 +21,7 @@ PRESET_ACTIONS = [
     {"code": "continuous_14day", "name": "连续14天学习", "star_value": 100},
     {"code": "continuous_30day", "name": "连续30天学习", "star_value": 200},
     {"code": "review_word_accuracy", "name": "单词正确率成就", "star_value": 30},
+    {"code": "manual_adjustment", "name": "手动调整", "star_value": 0},
 ]
 
 
