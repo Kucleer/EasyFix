@@ -82,11 +82,11 @@
         <div class="stat-card stat-card-teal" @click="$router.push('/words')">
           <div class="stat-glow"></div>
           <div class="stat-icon-wrapper">
-            <el-icon class="stat-icon"><Connection /></el-icon>
+            <el-icon class="stat-icon"><Timer /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.word_stats?.total_reviews || 0 }}</div>
-            <div class="stat-label">复习次数</div>
+            <div class="stat-value">{{ stats.word_stats?.to_review_count || 0 }}</div>
+            <div class="stat-label">待复习</div>
           </div>
         </div>
       </el-col>
