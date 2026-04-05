@@ -22,13 +22,16 @@
         <el-select v-model="filters.tag_ids" placeholder="标签" multiple clearable @change="fetchQuestions" style="width: 300px">
           <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
-        <el-input
+        <el-select
           v-model="filters.knowledge_point"
-          placeholder="搜索知识点"
+          placeholder="知识点"
           clearable
+          filterable
           @change="fetchQuestions"
           style="width: 195px"
-        />
+        >
+          <el-option v-for="kp in filterOptions.knowledge_points" :key="kp" :label="kp" :value="kp" />
+        </el-select>
         <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchQuestions" style="width: 150px">
           <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
         </el-select>
