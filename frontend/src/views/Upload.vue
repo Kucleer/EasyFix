@@ -28,7 +28,7 @@
           </el-upload>
           <!-- 已上传图片预览 -->
           <div v-if="uploadImagePaths.length" class="image-preview-list">
-            <div v-for="(img, idx) in uploadImagePaths" :key="idx" class="preview-item">
+            <div v-for="(img, idx) in uploadImagePaths" :key="idx" class="preview-image-item">
               <el-image
                 :src="'/uploads/' + img"
                 :preview-src-list="uploadImagePaths.map(i => '/uploads/' + i)"
@@ -548,7 +548,7 @@ onMounted(() => {
   margin-top: 16px;
 }
 
-.preview-item {
+.preview-image-item {
   position: relative;
   width: 120px;
   height: 120px;
@@ -574,7 +574,7 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.preview-item:hover .remove-btn {
+.preview-image-item:hover .remove-btn {
   opacity: 1;
 }
 
