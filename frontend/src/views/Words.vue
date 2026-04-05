@@ -248,9 +248,11 @@
         <div class="question-header">
           <span class="progress">{{ currentIndex + 1 }} / {{ reviewQuestions.length }}</span>
           <span class="timer">用时: {{ Math.floor(reviewElapsed / 60) }}:{{ String(reviewElapsed % 60).padStart(2, '0') }}</span>
-          <el-tag :type="currentQuestion.correct === undefined ? 'info' : (currentQuestion.correct ? 'success' : 'danger')">
-            {{ currentQuestion.correct === undefined ? '答题中' : (currentQuestion.correct ? '正确' : '错误') }}
-          </el-tag>
+          <!-- 正确/错误结果展示 -->
+          <div v-if="currentQuestion.correct !== undefined" :class="['result-tag', currentQuestion.correct ? 'correct-tag' : 'wrong-tag']">
+            <span>{{ currentQuestion.correct ? '正确' : '错误' }}</span>
+            <span class="result-answer">正确答案: {{ currentQuestion.english }}</span>
+          </div>
         </div>
 
         <div class="question-content">
@@ -267,9 +269,6 @@
               :disabled="currentQuestion.correct !== undefined"
               class="answer-input"
             />
-            <div v-if="currentQuestion.correct !== undefined" :class="['result', currentQuestion.correct ? 'correct-result' : 'wrong-result']">
-              <span class="correct-answer">正确答案: {{ currentQuestion.english }}</span>
-            </div>
           </div>
 
           <div v-else class="choice">
@@ -279,16 +278,12 @@
                 {{ opt }}
               </el-radio>
             </el-radio-group>
-            <div v-if="currentQuestion.correct !== undefined" :class="['result', currentQuestion.correct ? 'correct-result' : 'wrong-result']">
-              <span class="correct-answer">正确答案: {{ currentQuestion.chinese }}</span>
-            </div>
           </div>
         </div>
 
         <div class="question-actions">
           <el-button type="danger" @click="terminateReview">终止答题</el-button>
           <el-button v-if="currentQuestion.correct === undefined" type="primary" @click="submitAnswer">提交</el-button>
-          <el-button v-else-if="currentIndex < reviewQuestions.length - 1" type="primary" @click="nextQuestion">下一题</el-button>
           <el-button v-else type="success" @click="finishReview">完成</el-button>
         </div>
       </div>
@@ -881,6 +876,12 @@ const submitAnswer = () => {
     q.correct = selectedOption.value === q.chinese
     q.userAnswer = selectedOption.value
   }
+  // 显示答案后自动进入下一题
+  if (currentIndex.value < reviewQuestions.value.length - 1) {
+    setTimeout(() => {
+      nextQuestion()
+    }, 1500)
+  }
 }
 
 const nextQuestion = () => {
@@ -1344,6 +1345,33 @@ onMounted(() => {
   color: #909399;
   font-family: monospace;
   font-weight: 600;
+}
+
+.result-tag {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.correct-tag {
+  background: #f0f9eb;
+  color: #67c23a;
+  border: 2px solid #67c23a;
+}
+
+.wrong-tag {
+  background: #fef0f0;
+  color: #f56c6c;
+  border: 2px solid #f56c6c;
+}
+
+.result-answer {
+  font-size: 14px;
+  font-weight: normal;
 }
 
 .question-content {
