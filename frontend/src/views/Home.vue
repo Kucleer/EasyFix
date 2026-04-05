@@ -148,21 +148,6 @@
 
     <!-- 图表区域 -->
     <el-row :gutter="24" style="margin-top: 24px">
-      <!-- 难度分布饼图 -->
-      <el-col :span="12">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">难度分布</span>
-              <el-tag type="warning" size="small">占比分析</el-tag>
-            </div>
-          </template>
-          <div v-if="hasDifficultyData" class="chart-container">
-            <v-chart :option="difficultyPieOption" autoresize style="height: 320px" />
-          </div>
-          <el-empty v-else description="暂无数据" />
-        </el-card>
-      </el-col>
       <!-- 错误类型分布 -->
       <el-col :span="12">
         <el-card class="chart-card" shadow="hover">
@@ -197,19 +182,6 @@
 
     <!-- 按学科统计 - 雷达图和柱状图 -->
     <el-row :gutter="24" style="margin-top: 24px">
-      <el-col :span="12">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">学科难度对比</span>
-            </div>
-          </template>
-          <div v-if="hasSubjectData" class="chart-container">
-            <v-chart :option="subjectRadarOption" autoresize style="height: 360px" />
-          </div>
-          <el-empty v-else description="暂无学科数据" />
-        </el-card>
-      </el-col>
       <el-col :span="12">
         <el-card class="chart-card" shadow="hover">
           <template #header>
@@ -339,7 +311,6 @@ const getTopErrorTypes = (errorTypeCounts) => {
   return Object.fromEntries(Object.entries(errorTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3))
 }
 
-const hasDifficultyData = computed(() => stats.value.difficulty_distribution && Object.keys(stats.value.difficulty_distribution).length > 0)
 const hasErrorTypeData = computed(() => stats.value.error_type_distribution && Object.keys(stats.value.error_type_distribution).length > 0)
 const hasSubjectData = computed(() => stats.value.by_subject && stats.value.by_subject.length > 0)
 const hasKnowledgePointData = computed(() => {
@@ -352,28 +323,6 @@ const hasAccuracyCurve = computed(() => {
 })
 
 const subjectTableData = computed(() => stats.value.by_subject || [])
-
-// 难度分布饼图
-const difficultyPieOption = computed(() => ({
-  tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-  legend: { orient: 'vertical', right: 20, top: 'center' },
-  color: ['#67c23a', '#85ce61', '#e6a23c', '#f56c6c', '#f56c6c'],
-  series: [{
-    type: 'pie',
-    radius: ['40%', '70%'],
-    center: ['35%', '50%'],
-    avoidLabelOverlap: false,
-    itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
-    label: { show: false },
-    emphasis: {
-      label: { show: true, fontSize: 14, fontWeight: 'bold' }
-    },
-    data: Object.entries(stats.value.difficulty_distribution || {}).map(([k, v]) => ({
-      name: `难度${k}`,
-      value: v
-    }))
-  }]
-}))
 
 // 错误类型柱状图
 const errorTypeBarOption = computed(() => ({
@@ -394,32 +343,6 @@ const errorTypeBarOption = computed(() => ({
     data: Object.values(stats.value.error_type_distribution || {})
   }]
 }))
-
-// 学科雷达图
-const subjectRadarOption = computed(() => {
-  const subjects = (stats.value.by_subject || []).slice(0, 4)
-  if (!subjects.length) return {}
-  const indicators = [1, 2, 3, 4, 5].map(i => ({ name: `难度${i}`, max: 10 }))
-  return {
-    tooltip: {},
-    radar: {
-      indicator: indicators,
-      center: ['50%', '55%'],
-      radius: '65%'
-    },
-    legend: {
-      data: subjects.map(s => s.subject_name),
-      bottom: 10
-    },
-    series: [{
-      type: 'radar',
-      data: subjects.map(s => ({
-        name: s.subject_name,
-        value: [1, 2, 3, 4, 5].map(i => s.difficulty_distribution?.[i] || 0)
-      }))
-    }]
-  }
-})
 
 // 学科柱状图
 const subjectBarOption = computed(() => {

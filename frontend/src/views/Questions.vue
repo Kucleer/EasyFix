@@ -598,7 +598,6 @@ watch(() => editForm.knowledge_point, (newVal) => {
     editSelectedKnowledgePoint.value = null
     editFilteredErrorTypes.value = editErrorTypes.value
   }
-  editForm.error_type = []
 })
 
 // 监听errorTypes加载完成，更新filteredErrorTypes
