@@ -94,39 +94,70 @@ class PracticeSetPDF(FPDF):
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, f'第 {self.page_no()} 页', align='C')
 
-    def add_question(self, index: int, question_text: str, difficulty: int):
-        """添加一道题目"""
-        # 题目编号和难度
-        difficulty_labels = {1: "简单", 2: "较简单", 3: "中等", 4: "较难", 5: "困难"}
-        difficulty_text = difficulty_labels.get(difficulty, "中等")
+    def add_question(self, index: int, question_text: str, difficulty: int, question_id: int = None,
+                  knowledge_point: str = None, error_type: str = None):
+        """添加一道题目（新版布局：无答题框，有表头信息）"""
+        # 颜色定义
+        STAR_COLORS = {
+            1: (103, 194, 58),
+            2: (133, 206, 97),
+            3: (230, 162, 60),
+            4: (245, 108, 108),
+            5: (245, 108, 108),
+        }
+        EMPTY_STAR_COLOR = (220, 223, 230)
 
-        # 编号背景
+        # ===== 第一行：[ID:xxx]  第{index}题  ★★★★★ =====
+
+        # ID标签（如果有）
+        if question_id:
+            self.set_font('chinese_b', size=11)
+            self.set_fill_color(100, 100, 100)  # 灰色背景
+            self.set_text_color(255, 255, 255)
+            self.cell(28, 8, f'[ID:{question_id}]', new_x=XPos.RIGHT, new_y=YPos.TOP, align='C', fill=True)
+
+        # 题目编号背景
         self.set_font('chinese_b', size=11)
         self.set_fill_color(78, 205, 196)  # #4ECDC4
         self.set_text_color(255, 255, 255)
-        self.cell(20, 8, f'第{index}题', new_x=XPos.RIGHT, new_y=YPos.TOP, align='C', fill=True)
-        self.set_text_color(128, 128, 128)
-        self.set_font('chinese', size=10)
-        self.cell(0, 8, f'难度: {difficulty_text}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R')
+        self.cell(22, 8, f'第{index}题', new_x=XPos.RIGHT, new_y=YPos.TOP, align='C', fill=True)
+
+        # 难度星级（彩色填充 + 灰色空星）
+        difficulty = max(1, min(5, difficulty))
+        star_color = STAR_COLORS.get(difficulty, (255, 204, 102))
+        self.set_font('chinese', size=11)
+        self.set_text_color(*star_color)
+        stars_str = '★' * difficulty + '☆' * (5 - difficulty)
+        self.cell(60, 8, stars_str, new_x=XPos.LMARGIN, new_y=YPos.TOP, align='L')
+        self.ln(8)
+
+        # ===== 第二行（如果有知识点或错误类型）：知识点: XXX  |  错误类型: XXX =====
+
+        if knowledge_point or error_type:
+            self.set_font('chinese', size=9)
+            self.set_text_color(100, 100, 100)
+
+            if knowledge_point:
+                self.cell(90, 6, f'知识点: {knowledge_point}', new_x=XPos.RIGHT, new_y=YPos.TOP, align='L')
+
+            if error_type:
+                self.cell(0, 6, f'错误类型: {error_type}', new_x=XPos.LMARGIN, new_y=YPos.TOP, align='L')
+
+            self.ln(6)
+
+        # ===== 分隔线 =====
+        self.set_draw_color(78, 205, 196)
+        self.set_line_width(0.3)
+        self.line(10, self.get_y(), 200, self.get_y())
         self.ln(3)
 
-        # 题目内容
+        # ===== 题目内容 =====
         self.set_font('chinese', size=11)
         self.set_text_color(51, 51, 51)
         self.set_fill_color(248, 249, 250)  # #F8F9FA
-        # 多行题目文本（解码HTML实体）
         safe_text = decode_html(question_text) if question_text else '暂无题目内容'
         self.multi_cell(0, 6, safe_text, fill=True)
-        self.ln(5)
-
-        # 答题区域
-        self.set_draw_color(189, 195, 199)  # #BDC3C7
-        self.set_line_width(0.3)
-        self.set_dash_pattern(3, 3)  # dash=3, gap=3
-        self.rect(10, self.get_y(), 190, 60)
-        self.ln(65)
-
-        self.set_dash_pattern()  # 恢复实线
+        self.ln(8)
 
     def generate(self, output_path: str):
         """生成PDF文件"""
@@ -135,12 +166,15 @@ class PracticeSetPDF(FPDF):
         for idx, q in enumerate(self.questions, 1):
             question_text = q.get('question_text', '')
             difficulty = q.get('difficulty', 3)
+            question_id = q.get('id')
+            knowledge_point = q.get('knowledge_point')
+            error_type = q.get('error_type')
 
             # 检查是否需要新页面
             if self.get_y() > 220:
                 self.add_page()
 
-            self.add_question(idx, question_text, difficulty)
+            self.add_question(idx, question_text, difficulty, question_id, knowledge_point, error_type)
 
         # 输出到文件
         self.output(output_path)
