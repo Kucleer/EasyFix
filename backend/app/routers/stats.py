@@ -277,40 +277,37 @@ def get_today_stats(db: Session = Depends(get_db)):
     word_sets = [ps for ps in today_practice_sets if ps.source_type == 'word']
     question_sets = [ps for ps in today_practice_sets if ps.source_type == 'question']
 
-    # 单词统计 - 去重题目数
+    # 单词统计 - 只计入已批改的（is_correct 不为 None）
     word_question_ids = set()
     word_correct_count = 0
     for ps in word_sets:
-        # 获取该练习集中去重的 question_id
-        question_ids = db.query(PracticeSetQuestion.question_id).filter(
+        # 获取该练习集中已批改的去重 question_id
+        questions = db.query(PracticeSetQuestion).filter(
             PracticeSetQuestion.practice_set_id == ps.id,
-            PracticeSetQuestion.question_id.isnot(None)
-        ).distinct().all()
-        word_question_ids.update(qid for (qid,) in question_ids)
-        # 正确数
-        correct = db.query(func.count(PracticeSetQuestion.id)).filter(
-            PracticeSetQuestion.practice_set_id == ps.id,
-            PracticeSetQuestion.is_correct == True
-        ).scalar() or 0
-        word_correct_count += correct
+            PracticeSetQuestion.question_id.isnot(None),
+            PracticeSetQuestion.is_correct.isnot(None)
+        ).all()
+        for q in questions:
+            word_question_ids.add(q.question_id)
+            if q.is_correct:
+                word_correct_count += 1
 
     today_word_review_count = len(word_question_ids)
     today_word_accuracy = round(word_correct_count / today_word_review_count * 100, 1) if today_word_review_count > 0 else 0.0
 
-    # 错题统计 - 去重题目数
+    # 错题统计 - 只计入已批改的（is_correct 不为 None）
     question_ids_set = set()
     question_correct_count = 0
     for ps in question_sets:
-        question_ids = db.query(PracticeSetQuestion.question_id).filter(
+        questions = db.query(PracticeSetQuestion).filter(
             PracticeSetQuestion.practice_set_id == ps.id,
-            PracticeSetQuestion.question_id.isnot(None)
-        ).distinct().all()
-        question_ids_set.update(qid for (qid,) in question_ids)
-        correct = db.query(func.count(PracticeSetQuestion.id)).filter(
-            PracticeSetQuestion.practice_set_id == ps.id,
-            PracticeSetQuestion.is_correct == True
-        ).scalar() or 0
-        question_correct_count += correct
+            PracticeSetQuestion.question_id.isnot(None),
+            PracticeSetQuestion.is_correct.isnot(None)
+        ).all()
+        for q in questions:
+            question_ids_set.add(q.question_id)
+            if q.is_correct:
+                question_correct_count += 1
 
     today_question_review_count = len(question_ids_set)
     today_question_accuracy = round(question_correct_count / today_question_review_count * 100, 1) if today_question_review_count > 0 else 0.0
