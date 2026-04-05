@@ -200,6 +200,9 @@ export const statsApi = {
   getSummary() {
     return api.get('/stats/summary')
   },
+  getTodayStats() {
+    return api.get('/stats/today')
+  },
 }
 
 // 配置API
