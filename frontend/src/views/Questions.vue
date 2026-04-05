@@ -1274,7 +1274,7 @@ onMounted(() => {
 
 /* 卡片内容区 */
 .card-content {
-  padding: 16px;
+  padding: 20px;
 }
 
 /* 题目/答案/解析文字 */
@@ -1282,7 +1282,7 @@ onMounted(() => {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.8;
-  font-size: 15px;
+  font-size: 17px;
   color: #303133;
 }
 

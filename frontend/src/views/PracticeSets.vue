@@ -1309,7 +1309,7 @@ onMounted(() => {
 }
 
 .card-content {
-  padding: 16px;
+  padding: 20px;
 }
 
 /* 题目卡片 */
@@ -1322,7 +1322,7 @@ onMounted(() => {
 .question-card {
   background: #f5f7fa;
   border-radius: 8px;
-  padding: 12px;
+  padding: 16px;
   border-left: 4px solid #67c23a;
 }
 
@@ -1347,17 +1347,17 @@ onMounted(() => {
 }
 
 .info-row {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .info-row .label {
   color: #909399;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .info-row .value {
   color: #303133;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .info-row .value.answer {
@@ -1406,14 +1406,14 @@ onMounted(() => {
 }
 
 .word-english {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
   color: #303133;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .word-chinese {
-  font-size: 14px;
+  font-size: 16px;
   color: #606266;
 }
 
@@ -1422,13 +1422,13 @@ onMounted(() => {
 }
 
 .result-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #909399;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .result-value {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
 }
 
