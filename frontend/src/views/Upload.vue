@@ -153,12 +153,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { uploadApi, questionApi } from '@/api/question'
 
-// 年级选项：一年级到六年级，初一/初二/初三，高一/高二/高三
+// 年级选项
 const gradeOptions = [
   { label: '一年级', value: 1 },
   { label: '二年级', value: 2 },
@@ -175,46 +176,36 @@ const gradeOptions = [
 ]
 
 const router = useRouter()
-const currentStep = ref(0)
-const selectedFiles = ref([])
-const uploading = ref(false)
 const submitting = ref(false)
-const ocrResult = ref(null)
-const batchOcrResults = ref([])
-const ocrFailed = ref(false)
-const ocrProgress = ref(0)
 const submittedQuestion = ref(null)
-const ocrProgressStatus = ref('')
 const uploadRef = ref(null)
+
+// 上传相关
+const selectedFiles = ref([])
 const uploadImagePaths = ref([])
-const isManualEntryMode = ref(false)
-const placeholderImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjE1MCIgaGVpZ2h0PSIxNTAiIGZpbGw9IiNlOGU4ZTgiLz48dGV4dCB4PSIxMjAiIHk9IjgwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOTk5OTk5Ij7lm77niYIiIHRydW5jYXRlPW9mZnNldD0iMCIvPjwvc3ZnPg=='
 
 const subjects = ref([])
 const allTags = ref([])
 const knowledgePoints = ref([])
 const errorTypes = ref([])
-const filteredErrorTypes = ref([]) // 根据知识点过滤后的错误类型
-const selectedKnowledgePoint = ref(null) // 当前选中的知识点对象
+const filteredErrorTypes = ref([])
+const selectedKnowledgePoint = ref(null)
 
+// 表单 - 学科/年级/学期从 localStorage 恢复
 const form = reactive({
-  subject_id: null,
-  original_text: '',
+  subject_id: localStorage.getItem('lastSubjectId') ? parseInt(localStorage.getItem('lastSubjectId')) : null,
   parsed_question: '',
   answer: '',
   analysis: '',
   difficulty: 3,
-  error_type: [],  // 存储错误类型名称列表
-  knowledge_point: '',  // 存储知识点名称
+  error_type: [],
+  knowledge_point: '',
   grade: localStorage.getItem('lastGrade') ? parseInt(localStorage.getItem('lastGrade')) : null,
   semester: localStorage.getItem('lastSemester') ? parseInt(localStorage.getItem('lastSemester')) : null,
   tag_ids: [],
 })
 
-const canProceed = computed(() => {
-  return form.parsed_question || ocrResult.value?.full_text || ocrFailed.value
-})
-
+// 文件选择
 const handleFileChange = (file, fileList) => {
   selectedFiles.value = fileList
 }
@@ -223,146 +214,15 @@ const handleFileRemove = (file, fileList) => {
   selectedFiles.value = fileList
 }
 
-const startOCR = async () => {
-  if (!selectedFiles.value.length) {
-    ElMessage.warning('请先选择图片')
-    return
-  }
-
-  uploading.value = true
-  ocrFailed.value = false
-  ocrProgress.value = 10
-  ocrProgressStatus.value = ''
-  batchOcrResults.value = []
-  uploadImagePaths.value = []
-
-  try {
-    if (selectedFiles.value.length === 1) {
-      // 单张图片
-      ocrProgress.value = 30
-      const { data } = await uploadApi.uploadImage(selectedFiles.value[0].raw)
-      ocrProgress.value = 80
-      ocrResult.value = data.ocr_result
-      form.original_text = data.ocr_result.full_text || ''
-      form.parsed_question = data.ocr_result.full_text || ''
-      uploadImagePaths.value = [data.image_path]
-      ocrProgress.value = 100
-    } else {
-      // 多张图片 - 逐张上传
-      const results = []
-      for (let i = 0; i < selectedFiles.value.length; i++) {
-        ocrProgress.value = 30 + Math.floor((i / selectedFiles.value.length) * 50)
-        try {
-          const { data } = await uploadApi.uploadImage(selectedFiles.value[i].raw)
-          results.push({
-            image_path: data.image_path,
-            ocr_result: data.ocr_result,
-            original_filename: selectedFiles.value[i].name,
-            success: true,
-          })
-          uploadImagePaths.value.push(data.image_path)
-        } catch (e) {
-          results.push({
-            image_path: '',
-            ocr_result: {},
-            original_filename: selectedFiles.value[i].name,
-            success: false,
-            error: e.message,
-          })
-        }
-      }
-      batchOcrResults.value = results
-      // 合并所有OCR结果
-      const allTexts = results.filter(r => r.ocr_result?.full_text).map(r => r.ocr_result.full_text).join('\n\n')
-      ocrResult.value = { full_text: allTexts, blocks: [] }
-      form.original_text = allTexts
-      form.parsed_question = allTexts
-      ocrProgress.value = 100
-    }
-
-    ocrFailed.value = !ocrResult.value?.full_text
-    currentStep.value = 1
-  } catch (error) {
-    console.error('OCR error:', error)
-    ocrFailed.value = true
-    ElMessage.warning('OCR识别超时或失败，您可以手动输入题目信息')
-  } finally {
-    uploading.value = false
-  }
+// 移除已上传图片
+const removeImage = (index) => {
+  uploadImagePaths.value.splice(index, 1)
 }
 
-const retryOCR = () => {
-  currentStep.value = 0
-  selectedFiles.value = []
-  ocrResult.value = null
-  batchOcrResults.value = []
-  ocrFailed.value = false
-  ocrProgress.value = 0
-  uploadImagePaths.value = []
-  isManualEntryMode.value = false
-  uploadRef.value?.clearFiles()
-}
-
-// 跳过图片，直接手动录入
-const skipToManualEntry = () => {
-  isManualEntryMode.value = true
-  ocrFailed.value = true
-  currentStep.value = 1
-}
-
-const submitQuestion = async () => {
-  if (!form.subject_id) {
-    ElMessage.warning('请完善必填信息')
-    return
-  }
-
-  submitting.value = true
-  try {
-    // 处理 error_type 数组转为逗号分隔字符串
-    const submitData = {
-      ...form,
-      error_type: Array.isArray(form.error_type) ? form.error_type.join(',') : form.error_type,
-      original_images: uploadImagePaths.value,
-      original_image: uploadImagePaths.value[0] || null,
-    }
-    const { data } = await questionApi.create(submitData)
-    ElMessage.success('错题保存成功')
-    submittedQuestion.value = data
-    // 保存年级和学期到本地
-    if (form.grade) localStorage.setItem('lastGrade', form.grade)
-    if (form.semester) localStorage.setItem('lastSemester', form.semester)
-    // Reset form for next entry but stay on page
-    currentStep.value = 0
-    selectedFiles.value = []
-    ocrResult.value = null
-    batchOcrResults.value = []
-    ocrFailed.value = false
-    ocrProgress.value = 0
-    uploadImagePaths.value = []
-    uploadRef.value?.clearFiles()
-    // Reset form data
-    form.original_text = ''
-    form.parsed_question = ''
-    form.answer = ''
-    form.analysis = ''
-    form.difficulty = 3
-    form.error_type = []
-    form.knowledge_point = ''
-    form.grade = null
-    form.semester = null
-    form.tag_ids = []
-  } catch (error) {
-    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
-  } finally {
-    submitting.value = false
-  }
-}
-
+// 加载元数据
 const loadMetaData = async () => {
-  // 加载学科列表
   try {
     const { data } = await questionApi.listSubjects()
-    // API返回数组，直接使用
     subjects.value = Array.isArray(data) ? data : (data.items || [])
   } catch (e) {
     console.error('加载学科失败:', e)
@@ -370,14 +230,13 @@ const loadMetaData = async () => {
 
   try {
     const { data } = await questionApi.listTags()
-    // API返回数组，直接使用
     allTags.value = Array.isArray(data) ? data : (data.items || [])
   } catch (e) {
     console.error('加载标签失败:', e)
   }
 }
 
-// 加载知识点（根据学科筛选）
+// 加载知识点
 const fetchKnowledgePoints = async () => {
   if (!form.subject_id) {
     knowledgePoints.value = []
@@ -391,7 +250,7 @@ const fetchKnowledgePoints = async () => {
   }
 }
 
-// 加载错误类型（根据学科筛选，包含通用的）
+// 加载错误类型
 const fetchErrorTypes = async () => {
   if (!form.subject_id) {
     errorTypes.value = []
@@ -405,64 +264,113 @@ const fetchErrorTypes = async () => {
   }
 }
 
-// 监听学科变化，重新加载知识点和错误类型
+// 监听学科变化
 watch(() => form.subject_id, () => {
-  form.knowledge_point = '' // 切换学科时清空知识点
-  form.error_type = [] // 切换学科时清空错误类型
+  form.knowledge_point = ''
+  form.error_type = []
   selectedKnowledgePoint.value = null
   filteredErrorTypes.value = []
   fetchKnowledgePoints()
   fetchErrorTypes()
 })
 
-// 监听知识点变化，联动过滤错误类型
+// 监听知识点变化
 watch(() => form.knowledge_point, (newVal) => {
   if (!newVal) {
     selectedKnowledgePoint.value = null
-    // 如果清空了知识点，显示该学科下的所有错误类型
     filteredErrorTypes.value = errorTypes.value
     return
   }
-  // 查找选中的知识点
   const kp = knowledgePoints.value.find(k => k.name === newVal)
   if (kp && kp.error_types && kp.error_types.length > 0) {
-    // 如果知识点有关联的错误类型，只显示关联的
     selectedKnowledgePoint.value = kp
     filteredErrorTypes.value = kp.error_types.map(et => ({ id: et.id, name: et.name }))
   } else {
-    // 如果没有关联，显示该学科下的所有错误类型
     selectedKnowledgePoint.value = null
     filteredErrorTypes.value = errorTypes.value
   }
-  // 清空已选的错误类型
-  form.error_type = []
 })
 
-// 监听errorTypes加载完成，更新filteredErrorTypes
+// 监听错误类型加载
 watch(errorTypes, (newVal) => {
   if (selectedKnowledgePoint.value) {
-    // 如果有选中的知识点，使用关联的错误类型
     filteredErrorTypes.value = selectedKnowledgePoint.value.error_types.map(et => ({ id: et.id, name: et.name }))
   } else {
-    // 否则使用所有可用错误类型
     filteredErrorTypes.value = newVal
   }
 }, { immediate: true })
 
+// 获取学科名称
 const getSubjectName = (subjectId) => {
   const s = subjects.value.find(o => o.id === subjectId)
   return s ? s.name : '未知学科'
 }
 
+// 上传图片并提交
+const submitQuestion = async () => {
+  if (!form.subject_id) {
+    ElMessage.warning('请选择学科')
+    return
+  }
+
+  submitting.value = true
+
+  // 先上传图片
+  try {
+    for (const file of selectedFiles.value) {
+      const { data } = await uploadApi.uploadImage(file.raw)
+      uploadImagePaths.value.push(data.image_path)
+    }
+  } catch (e) {
+    console.error('图片上传失败:', e)
+  }
+
+  try {
+    const submitData = {
+      ...form,
+      error_type: Array.isArray(form.error_type) ? form.error_type.join(',') : form.error_type,
+      original_images: uploadImagePaths.value,
+      original_image: uploadImagePaths.value[0] || null,
+    }
+    const { data } = await questionApi.create(submitData)
+    ElMessage.success('错题保存成功')
+    submittedQuestion.value = data
+
+    // 保存学科/年级/学期到 localStorage
+    localStorage.setItem('lastSubjectId', form.subject_id)
+    if (form.grade) localStorage.setItem('lastGrade', form.grade)
+    if (form.semester) localStorage.setItem('lastSemester', form.semester)
+
+    // 重置表单（保留基本信息）
+    form.parsed_question = ''
+    form.answer = ''
+    form.analysis = ''
+    form.difficulty = 3
+    form.error_type = []
+    form.knowledge_point = ''
+    form.tag_ids = []
+    selectedFiles.value = []
+    uploadImagePaths.value = []
+    uploadRef.value?.clearFiles()
+  } catch (error) {
+    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+// 继续录入
 const continueAdd = () => {
   submittedQuestion.value = null
 }
 
-const removeImage = (index) => {
-  uploadImagePaths.value.splice(index, 1)
-}
-
-onMounted(loadMetaData)
+onMounted(() => {
+  loadMetaData()
+  if (form.subject_id) {
+    fetchKnowledgePoints()
+    fetchErrorTypes()
+  }
+})
 </script>
 
 <style scoped>
