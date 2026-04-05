@@ -89,10 +89,26 @@
     </div>
   </el-col>
   <el-col :span="12">
-    <!-- 错误类型分布（占位，右边 Task 6 会替换） -->
-    <div class="placeholder-card">
-      <span style="color: #909399; font-size: 14px;">错误类型分布（待实现）</span>
-    </div>
+    <!-- 错误类型分布 -->
+    <el-card class="chart-card" shadow="hover">
+      <template #header>
+        <div class="card-header-modern">
+          <span class="header-title">错误类型分布</span>
+          <el-select v-model="selectedSubject" placeholder="选择学科" size="small" style="width: 140px">
+            <el-option
+              v-for="subject in stats.by_subject"
+              :key="subject.subject_id"
+              :label="subject.subject_name"
+              :value="subject.subject_id"
+            />
+          </el-select>
+        </div>
+      </template>
+      <div v-if="hasFilteredErrorTypeData" class="chart-container">
+        <v-chart :option="errorTypePieOption" autoresize style="height: 260px" />
+      </div>
+      <el-empty v-else description="暂无数据" />
+    </el-card>
   </el-col>
 </el-row>
 
@@ -222,6 +238,8 @@ const stats = ref({
   word_accuracy_curve: []
 })
 
+const selectedSubject = ref('')
+
 const todayStats = ref({
   today_word_review_count: 0,
   today_question_review_count: 0,
@@ -260,6 +278,49 @@ const hasKnowledgePointData = computed(() => {
 
 const hasAccuracyCurve = computed(() => {
   return stats.value.word_accuracy_curve && stats.value.word_accuracy_curve.length > 0
+})
+
+const filteredErrorTypeData = computed(() => {
+  const bySubject = stats.value.by_subject || []
+  if (!selectedSubject.value && bySubject.length > 0) {
+    // 默认选中第一个学科（优先选数学）
+    const mathSubject = bySubject.find(s => s.subject_name.includes('数学'))
+    selectedSubject.value = mathSubject ? mathSubject.subject_id : bySubject[0].subject_id
+  }
+  const subject = bySubject.find(s => s.subject_id === selectedSubject.value)
+  return subject?.error_type_counts || {}
+})
+
+const selectedSubjectName = computed(() => {
+  const subject = stats.value.by_subject?.find(s => s.subject_id === selectedSubject.value)
+  return subject?.subject_name || ''
+})
+
+const hasFilteredErrorTypeData = computed(() => {
+  return Object.keys(filteredErrorTypeData.value).length > 0
+})
+
+const errorTypePieOption = computed(() => {
+  const data = filteredErrorTypeData.value
+  if (!Object.keys(data).length) return {}
+  const colorMap = { '计算': '#f56c6c', '概念': '#e6a23c', '审题': '#909399', '粗心': '#67c23a', '其他': '#409eff' }
+  const pieData = Object.entries(data).map(([name, value]) => ({
+    name,
+    value,
+    itemStyle: { color: colorMap[name] || '#409eff' }
+  }))
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: { bottom: 10, left: 'center' },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: true, formatter: '{b}\n{c}题' },
+      data: pieData,
+    }]
+  }
 })
 
 const subjectTableData = computed(() => stats.value.by_subject || [])
