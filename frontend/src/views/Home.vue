@@ -120,49 +120,93 @@
       </el-col>
     </el-row>
 
-    <!-- 今日学习概览 + 错误类型分布（双列） -->
+    <!-- 学习概览（昨日+今日）+ 错误类型分布（双列） -->
 <el-row :gutter="24" style="margin-top: 24px">
   <el-col :span="12">
-    <!-- 今日学习概览卡片 -->
+    <!-- 学习概览卡片 -->
     <div class="today-overview-card">
       <div class="today-card-header">
-        <span class="today-title">今日学习概览</span>
+        <span class="today-title">学习概览</span>
       </div>
-      <div class="today-card-content">
-        <div class="today-item">
-          <div class="today-item-icon word-icon">
-            <el-icon><Reading /></el-icon>
+      <div class="overview-content">
+        <!-- 左侧：昨日 -->
+        <div class="overview-column">
+          <div class="overview-column-header">昨日</div>
+          <div class="overview-item">
+            <div class="overview-item-icon word-icon">
+              <el-icon><Reading /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.yesterday_word_review_count }}</div>
+              <div class="overview-label">复习单词</div>
+            </div>
           </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_word_review_count }}</div>
-            <div class="today-label">今日复习单词</div>
+          <div class="overview-item">
+            <div class="overview-item-icon question-icon">
+              <el-icon><Document /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.yesterday_question_review_count }}</div>
+              <div class="overview-label">复习错题</div>
+            </div>
+          </div>
+          <div class="overview-item">
+            <div class="overview-item-icon word-accuracy-icon">
+              <el-icon><CircleCheck /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.yesterday_word_accuracy }}%</div>
+              <div class="overview-label">单词正确率</div>
+            </div>
+          </div>
+          <div class="overview-item">
+            <div class="overview-item-icon question-accuracy-icon">
+              <el-icon><SuccessFilled /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.yesterday_question_accuracy }}%</div>
+              <div class="overview-label">错题正确率</div>
+            </div>
           </div>
         </div>
-        <div class="today-item">
-          <div class="today-item-icon question-icon">
-            <el-icon><Document /></el-icon>
+        <!-- 右侧：今日 -->
+        <div class="overview-column">
+          <div class="overview-column-header today-header">今日</div>
+          <div class="overview-item">
+            <div class="overview-item-icon word-icon">
+              <el-icon><Reading /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.today_word_review_count }}</div>
+              <div class="overview-label">复习单词</div>
+            </div>
           </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_question_review_count }}</div>
-            <div class="today-label">今日复习错题</div>
+          <div class="overview-item">
+            <div class="overview-item-icon question-icon">
+              <el-icon><Document /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.today_question_review_count }}</div>
+              <div class="overview-label">复习错题</div>
+            </div>
           </div>
-        </div>
-        <div class="today-item">
-          <div class="today-item-icon word-accuracy-icon">
-            <el-icon><CircleCheck /></el-icon>
+          <div class="overview-item">
+            <div class="overview-item-icon word-accuracy-icon">
+              <el-icon><CircleCheck /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.today_word_accuracy }}%</div>
+              <div class="overview-label">单词正确率</div>
+            </div>
           </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_word_accuracy }}%</div>
-            <div class="today-label">今日单词正确率</div>
-          </div>
-        </div>
-        <div class="today-item">
-          <div class="today-item-icon question-accuracy-icon">
-            <el-icon><SuccessFilled /></el-icon>
-          </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_question_accuracy }}%</div>
-            <div class="today-label">今日错题正确率</div>
+          <div class="overview-item">
+            <div class="overview-item-icon question-accuracy-icon">
+              <el-icon><SuccessFilled /></el-icon>
+            </div>
+            <div class="overview-item-info">
+              <div class="overview-value">{{ learningOverview.today_question_accuracy }}%</div>
+              <div class="overview-label">错题正确率</div>
+            </div>
           </div>
         </div>
       </div>
@@ -284,7 +328,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { statsApi } from '@/api/question'
+import { statsApi, statsOverviewApi } from '@/api/question'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -312,7 +356,11 @@ const stats = ref({
 
 const selectedSubject = ref('')
 
-const todayStats = ref({
+const learningOverview = ref({
+  yesterday_word_review_count: 0,
+  yesterday_question_review_count: 0,
+  yesterday_word_accuracy: 0,
+  yesterday_question_accuracy: 0,
   today_word_review_count: 0,
   today_question_review_count: 0,
   today_word_accuracy: 0,
@@ -496,10 +544,10 @@ onMounted(async () => {
     console.error('获取统计失败:', error)
   }
   try {
-    const todayRes = await statsApi.getTodayStats()
-    todayStats.value = todayRes.data
+    const overviewRes = await statsOverviewApi.getOverview()
+    learningOverview.value = overviewRes.data
   } catch (error) {
-    console.error('获取今日统计失败:', error)
+    console.error('获取学习概览失败:', error)
   }
 })
 </script>
@@ -711,6 +759,68 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+.overview-content {
+  padding: 16px 20px;
+  display: flex;
+  gap: 20px;
+}
+
+.overview-column {
+  flex: 1;
+}
+
+.overview-column-header {
+  color: rgba(255,255,255,0.6);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.today-header {
+  color: rgba(255,255,255,0.9);
+}
+
+.overview-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.overview-item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.word-icon { background: rgba(255,255,255,0.25); color: #fff; }
+.question-icon { background: rgba(255,255,255,0.25); color: #fff; }
+.word-accuracy-icon { background: rgba(103,194,58,0.3); color: #a8e6a3; }
+.question-accuracy-icon { background: rgba(64,158,255,0.3); color: #a0cfff; }
+
+.overview-item-info {
+  flex: 1;
+}
+
+.overview-value {
+  font-size: 20px;
+  font-weight: bold;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.overview-label {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  margin-top: 2px;
 }
 
 .today-item {

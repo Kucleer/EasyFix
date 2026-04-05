@@ -180,6 +180,13 @@ export const questionApi = {
   },
 }
 
+// 学习概览API
+export const statsOverviewApi = {
+  getOverview() {
+    return api.get('/stats/overview')
+  },
+}
+
 // 图片上传API
 export const uploadApi = {
   uploadImage(file) {

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from app.database import get_db
 from app.models import Question, Subject, ErrorBook, Word, WordReviewLog, PracticeSet, PracticeSetQuestion
-from app.schemas import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint, TodayStats
+from app.schemas import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint, TodayStats, LearningOverview
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/stats", tags=["统计"])
@@ -308,4 +308,78 @@ def get_today_stats(db: Session = Depends(get_db)):
         today_question_review_count=today_question_review_count,
         today_word_accuracy=today_word_accuracy,
         today_question_accuracy=today_question_accuracy,
+    )
+
+
+def get_date_stats(db, date_start, date_end):
+    """获取指定日期范围的统计数据"""
+    from app.models import PracticeSet, PracticeSetQuestion, WordReviewSession
+
+    # 查该日期范围所有练习集
+    practice_sets = db.query(PracticeSet).filter(
+        PracticeSet.deleted == False,
+        PracticeSet.created_at >= date_start,
+        PracticeSet.created_at < date_end
+    ).all()
+
+    # 单词统计
+    word_sessions = db.query(WordReviewSession).filter(
+        WordReviewSession.reviewed_at >= date_start,
+        WordReviewSession.reviewed_at < date_end
+    ).all()
+
+    word_review_count = sum(s.total_count for s in word_sessions)
+    word_correct = sum(s.correct_count for s in word_sessions)
+    word_accuracy = round(word_correct / word_review_count * 100, 1) if word_review_count > 0 else 0.0
+
+    # 错题统计
+    question_sets = [ps for ps in practice_sets if ps.source_type == 'question']
+    question_ids_set = set()
+    question_correct_count = 0
+    for ps in question_sets:
+        questions = db.query(PracticeSetQuestion).filter(
+            PracticeSetQuestion.practice_set_id == ps.id,
+            PracticeSetQuestion.question_id.isnot(None),
+            PracticeSetQuestion.is_correct.isnot(None)
+        ).all()
+        for q in questions:
+            question_ids_set.add(q.question_id)
+            if q.is_correct:
+                question_correct_count += 1
+
+    question_review_count = len(question_ids_set)
+    question_accuracy = round(question_correct_count / question_review_count * 100, 1) if question_review_count > 0 else 0.0
+
+    return {
+        'word_review_count': word_review_count,
+        'question_review_count': question_review_count,
+        'word_accuracy': word_accuracy,
+        'question_accuracy': question_accuracy,
+    }
+
+
+@router.get("/overview", response_model=LearningOverview)
+def get_learning_overview(db: Session = Depends(get_db)):
+    """
+    获取学习概览（昨日 + 今日数据）
+    """
+    from datetime import datetime, timedelta
+
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    yesterday_start = today_start - timedelta(days=1)
+    yesterday_end = today_start
+
+    yesterday = get_date_stats(db, yesterday_start, yesterday_end)
+    today = get_date_stats(db, today_start, today_end)
+
+    return LearningOverview(
+        yesterday_word_review_count=yesterday['word_review_count'],
+        yesterday_question_review_count=yesterday['question_review_count'],
+        yesterday_word_accuracy=yesterday['word_accuracy'],
+        yesterday_question_accuracy=yesterday['question_accuracy'],
+        today_word_review_count=today['word_review_count'],
+        today_question_review_count=today['question_review_count'],
+        today_word_accuracy=today['word_accuracy'],
+        today_question_accuracy=today['question_accuracy'],
     )

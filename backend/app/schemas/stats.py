@@ -57,3 +57,16 @@ class TodayStats(BaseModel):
     today_question_review_count: int = 0   # 今日复习错题数（去重）
     today_word_accuracy: float = 0.0       # 今日单词正确率 %
     today_question_accuracy: float = 0.0   # 今日错题正确率 %
+
+
+class LearningOverview(BaseModel):
+    # 昨日数据
+    yesterday_word_review_count: int = 0
+    yesterday_question_review_count: int = 0
+    yesterday_word_accuracy: float = 0.0
+    yesterday_question_accuracy: float = 0.0
+    # 今日数据
+    today_word_review_count: int = 0
+    today_question_review_count: int = 0
+    today_word_accuracy: float = 0.0
+    today_question_accuracy: float = 0.0
