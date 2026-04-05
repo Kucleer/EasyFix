@@ -205,12 +205,12 @@
       </template>
       <el-table :data="subjectTableData" stripe style="width: 100%">
         <el-table-column type="index" label="#" width="60" align="center" />
-        <el-table-column prop="subject_name" label="学科" width="120">
+        <el-table-column prop="subject_name" label="学科" width="80">
           <template #default="{ row }">
             <el-tag type="primary" plain>{{ row.subject_name }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="错题数" width="100" align="center">
+        <el-table-column label="错题数" width="70" align="center">
           <template #default="{ row }">
             <span class="question-count">{{ row.question_count }}</span>
           </template>
