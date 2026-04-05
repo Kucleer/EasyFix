@@ -25,6 +25,7 @@ class QuestionCreate(QuestionBase):
 
 class QuestionUpdate(BaseModel):
     subject_id: Optional[int] = None
+    original_image: Optional[str] = None
     grade: Optional[int] = Field(default=None, ge=1, le=12)
     semester: Optional[int] = Field(default=None, ge=1, le=2)
     answer: Optional[str] = None
