@@ -873,13 +873,14 @@ const submitAnswer = () => {
   }
   // 显示toast提示
   if (q.correct) {
-    ElMessage({ message: '✓ 正确', type: 'success', duration: 1500, showClose: false })
+    ElMessage({ message: '✓ 正确', type: 'success', duration: 3000, showClose: false, customClass: 'toast-large' })
   } else {
     ElMessage({
       message: `✗ 错误 - 正确答案: ${q.english}`,
       type: 'error',
-      duration: 1500,
+      duration: 3000,
       showClose: false,
+      customClass: 'toast-large',
     })
   }
   // 显示答案后自动进入下一题
@@ -1738,5 +1739,16 @@ onMounted(() => {
 .words :deep(.el-card:hover) {
   transform: none;
   box-shadow: var(--shadow-sm) !important;
+}
+</style>
+
+<style>
+.toast-large.el-message {
+  font-size: 24px !important;
+  padding: 20px 30px !important;
+  min-width: 300px !important;
+}
+.toast-large.el-message .el-message__content {
+  font-size: 24px !important;
 }
 </style>
