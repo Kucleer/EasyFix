@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from app.database import get_db
 from app.models import Question, Subject, ErrorBook, Word, WordReviewLog, PracticeSet, PracticeSetQuestion
-from app.schemas import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint
+from app.schemas import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint, TodayStats
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/stats", tags=["统计"])
@@ -242,4 +242,61 @@ def get_stats_summary(db: Session = Depends(get_db)):
         by_semester=by_semester,
         word_stats=word_stats,
         word_accuracy_curve=word_accuracy_curve,
+    )
+
+
+@router.get("/today", response_model=TodayStats)
+def get_today_stats(db: Session = Depends(get_db)):
+    """
+    获取今日学习统计
+
+    从 practice_set 表取今日（created_at 日期 = 今天）的记录进行统计
+    """
+    from datetime import datetime, timedelta
+    from app.models import PracticeSet, PracticeSetQuestion
+    from sqlalchemy import func
+
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    # 查今日所有练习集
+    today_practice_sets = db.query(PracticeSet).filter(
+        PracticeSet.deleted == False,
+        PracticeSet.created_at >= today_start,
+        PracticeSet.created_at < today_end
+    ).all()
+
+    # 按 source_type 分组统计
+    word_sets = [ps for ps in today_practice_sets if ps.source_type == 'word']
+    question_sets = [ps for ps in today_practice_sets if ps.source_type != 'word']
+
+    # 单词统计
+    today_word_review_count = len(word_sets)  # 今日单词复习场次数
+    word_total = sum(ps.total_questions or 0 for ps in word_sets)
+    word_correct = 0
+    for ps in word_sets:
+        correct_count = db.query(func.count(PracticeSetQuestion.id)).filter(
+            PracticeSetQuestion.practice_set_id == ps.id,
+            PracticeSetQuestion.is_correct == True
+        ).scalar() or 0
+        word_correct += correct_count
+    today_word_accuracy = round(word_correct / word_total * 100, 1) if word_total > 0 else 0.0
+
+    # 错题统计
+    today_question_review_count = len(question_sets)
+    question_total = sum(ps.total_questions or 0 for ps in question_sets)
+    question_correct = 0
+    for ps in question_sets:
+        correct_count = db.query(func.count(PracticeSetQuestion.id)).filter(
+            PracticeSetQuestion.practice_set_id == ps.id,
+            PracticeSetQuestion.is_correct == True
+        ).scalar() or 0
+        question_correct += correct_count
+    today_question_accuracy = round(question_correct / question_total * 100, 1) if question_total > 0 else 0.0
+
+    return TodayStats(
+        today_word_review_count=today_word_review_count,
+        today_question_review_count=today_question_review_count,
+        today_word_accuracy=today_word_accuracy,
+        today_question_accuracy=today_question_accuracy,
     )
