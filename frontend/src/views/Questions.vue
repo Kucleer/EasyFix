@@ -95,15 +95,15 @@
               <el-image
                 v-if="row.original_image || row.original_images?.length"
                 :src="'/uploads/' + (row.original_image || row.original_images[0])"
-                :preview-src-list="getImageList(row).map(i => '/uploads/' + i)"
                 fit="contain"
-                style="width: 50px; height: 50px; margin-right: 8px"
+                style="width: 50px; height: 50px; margin-right: 8px; cursor: pointer"
+                @click="previewImage('/uploads/' + (row.original_image || row.original_images[0]))"
               />
               <div class="text-preview" v-html="decodeHTML(row.parsed_question || row.original_text || '无文本')"></div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="difficulty" label="难度" width="80">
+        <el-table-column prop="difficulty" label="难度" width="120">
           <template #default="{ row }">
             <span class="difficulty-stars" :class="'difficulty-' + row.difficulty">{{ getDifficultyStars(row.difficulty) }}</span>
           </template>
@@ -198,9 +198,10 @@
                   v-for="(img, idx) in getImageList(currentQuestion)"
                   :key="idx"
                   :src="'/uploads/' + img"
-                  :preview-src-list="getImageList(currentQuestion).map(i => '/uploads/' + i)"
                   fit="cover"
                   class="gallery-image"
+                  style="cursor: pointer"
+                  @click="previewImage('/uploads/' + img)"
                 />
               </div>
             </div>
@@ -233,9 +234,10 @@
             <div v-if="currentQuestion.analysis_image" class="analysis-image">
               <el-image
                 :src="'/uploads/' + currentQuestion.analysis_image"
-                :preview-src-list="['/uploads/' + currentQuestion.analysis_image]"
                 fit="contain"
                 class="analysis-img"
+                style="cursor: pointer"
+                @click="previewImage('/uploads/' + currentQuestion.analysis_image)"
               />
             </div>
             <span v-if="!currentQuestion.analysis && !currentQuestion.analysis_image" class="text-muted">暂无</span>
@@ -310,7 +312,12 @@
         </el-form-item>
         <el-form-item label="原图">
           <div v-if="editForm.original_image" class="original-image-preview">
-            <el-image :src="'/uploads/' + editForm.original_image" fit="contain" style="width: 100px; height: 100px; margin-right: 10px" />
+            <el-image
+              :src="'/uploads/' + editForm.original_image"
+              fit="contain"
+              style="width: 100px; height: 100px; margin-right: 10px; cursor: pointer"
+              @click="previewImage('/uploads/' + editForm.original_image)"
+            />
             <el-button size="small" @click="editForm.original_image = ''">移除</el-button>
           </div>
           <el-upload
@@ -333,7 +340,12 @@
         </el-form-item>
         <el-form-item label="解析图片">
           <div v-if="editForm.analysis_image" class="analysis-image-preview">
-            <el-image :src="'/uploads/' + editForm.analysis_image" fit="contain" style="width: 100px; height: 100px; margin-right: 10px" />
+            <el-image
+              :src="'/uploads/' + editForm.analysis_image"
+              fit="contain"
+              style="width: 100px; height: 100px; margin-right: 10px; cursor: pointer"
+              @click="previewImage('/uploads/' + editForm.analysis_image)"
+            />
             <el-button size="small" @click="editForm.analysis_image = ''">移除</el-button>
           </div>
           <el-upload
@@ -418,6 +430,13 @@
         <el-button type="primary" :loading="printLoading" @click="createPracticeSet">创建并生成PDF</el-button>
       </template>
     </el-dialog>
+
+    <!-- 图片预览弹层 -->
+    <el-image-viewer
+      v-if="imagePreviewVisible"
+      :url-list="[imagePreviewUrl]"
+      @close="imagePreviewVisible = false"
+    />
   </div>
 </template>
 
@@ -478,6 +497,8 @@ const pagination = reactive({
 const detailVisible = ref(false)
 const editVisible = ref(false)
 const currentQuestion = ref(null)
+const imagePreviewVisible = ref(false)
+const imagePreviewUrl = ref('')
 const editLoading = ref(false)
 
 // 多选相关
@@ -519,6 +540,7 @@ const fetchQuestions = async () => {
     if (filters.grade) params.grade = filters.grade
     if (filters.semester) params.semester = filters.semester
     if (filters.error_type && filters.error_type.length) params.error_type = filters.error_type.join(',')
+    if (filters.accuracy_range) params.accuracy_range = filters.accuracy_range
 
     const { data } = await questionApi.list(params)
     questions.value = data
@@ -660,10 +682,14 @@ const handleAnalysisImageUpload = async (options) => {
 
 const handleOriginalImageUpload = async (options) => {
   const { file } = options
+  console.log('[DEBUG upload] file:', file.name)
   try {
     const formData = new FormData()
     formData.append('file', file)
     const res = await uploadApi.uploadFile(file)
+    console.log('[DEBUG upload] res:', res)
+    console.log('[DEBUG upload] res.data:', res.data)
+    console.log('[DEBUG upload] res.data.path:', res.data?.path)
     if (res.data && res.data.path) {
       editForm.original_image = res.data.path
       ElMessage.success('上传成功')
@@ -686,6 +712,11 @@ const viewDetail = async (row) => {
   const { data } = await questionApi.get(row.id)
   currentQuestion.value = data
   detailVisible.value = true
+}
+
+const previewImage = (url) => {
+  imagePreviewUrl.value = url
+  imagePreviewVisible.value = true
 }
 
 const editQuestion = (row) => {
@@ -716,6 +747,9 @@ const saveEdit = async () => {
       ...editForm,
       error_type: Array.isArray(editForm.error_type) ? editForm.error_type.join(',') : editForm.error_type,
     }
+    console.log('[DEBUG saveEdit] currentQuestion.id:', currentQuestion.value.id)
+    console.log('[DEBUG saveEdit] submitData.original_image:', submitData.original_image)
+    console.log('[DEBUG saveEdit] submitData:', submitData)
     await questionApi.update(currentQuestion.value.id, submitData)
     ElMessage.success('更新成功')
     editVisible.value = false
@@ -1201,41 +1235,41 @@ onMounted(() => {
 .card-header-blue {
   background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-green {
   background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-orange {
   background: linear-gradient(135deg, #e6a23c 0%, #db8b2e 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-gray {
   background: linear-gradient(135deg, #606266 0%, #555558 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-purple {
   background: linear-gradient(135deg, #9c27b0 0%, #862491 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 /* 卡片内容区 */

@@ -1264,41 +1264,41 @@ onMounted(() => {
 .card-header-blue {
   background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-green {
   background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-orange {
   background: linear-gradient(135deg, #e6a23c 0%, #db8b2e 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-purple {
   background: linear-gradient(135deg, #9c27b0 0%, #862491 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-gray {
   background: linear-gradient(135deg, #606266 0%, #555558 100%);
   color: #fff;
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .card-header-small {
