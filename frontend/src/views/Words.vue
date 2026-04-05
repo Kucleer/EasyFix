@@ -249,12 +249,6 @@
           <span class="progress">{{ currentIndex + 1 }} / {{ reviewQuestions.length }}</span>
           <span class="timer">用时: {{ Math.floor(reviewElapsed / 60) }}:{{ String(reviewElapsed % 60).padStart(2, '0') }}</span>
         </div>
-        <!-- 正确/错误结果展示 -->
-        <div v-if="currentQuestion.correct !== undefined" :class="['result-display', currentQuestion.correct ? 'correct-display' : 'wrong-display']">
-          <div class="result-status">{{ currentQuestion.correct ? '✓ 正确' : '✗ 错误' }}</div>
-          <div class="result-answer-large">正确答案: {{ currentQuestion.english }}</div>
-          <div v-if="!currentQuestion.correct" class="your-answer">你的答案: {{ currentQuestion.userAnswer || '(未作答)' }}</div>
-        </div>
 
         <div class="question-content">
           <div v-if="reviewConfig.type === 1" class="dictation">
@@ -876,6 +870,17 @@ const submitAnswer = () => {
     // 选择
     q.correct = selectedOption.value === q.chinese
     q.userAnswer = selectedOption.value
+  }
+  // 显示toast提示
+  if (q.correct) {
+    ElMessage({ message: '✓ 正确', type: 'success', duration: 1500, showClose: false })
+  } else {
+    ElMessage({
+      message: `✗ 错误 - 正确答案: ${q.english}`,
+      type: 'error',
+      duration: 1500,
+      showClose: false,
+    })
   }
   // 显示答案后自动进入下一题
   if (currentIndex.value < reviewQuestions.value.length - 1) {
