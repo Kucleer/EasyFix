@@ -7,7 +7,7 @@ from sqlalchemy import func, desc, or_
 from typing import Optional, List
 from pydantic import BaseModel
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.database import get_db
 from app.models import Word, Tag, WordReviewLog, WordReview
 from app.schemas.word import (
@@ -495,6 +495,9 @@ def submit_review(data: ReviewSessionSubmit, db: Session = Depends(get_db)):
             reviewed_at=now
         )
         db.add(log)
+
+        # 增加复习次数（每次复习都要增加）
+        word.review_count = (word.review_count or 0) + 1
 
         # 更新间隔和阶段
         if result.is_correct:

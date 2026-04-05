@@ -7,7 +7,7 @@ class Question(Base):
     __tablename__ = "question"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    error_book_id = Column(Integer, ForeignKey("error_book.id"), nullable=False)
+    error_book_id = Column(Integer, ForeignKey("error_book.id"), nullable=True)
     subject_id = Column(Integer, ForeignKey("subject.id"), nullable=False)
     original_image = Column(String(500), nullable=True)  # 单个图片路径（兼容）
     original_images = Column(Text, nullable=True)  # JSON数组，多个图片路径

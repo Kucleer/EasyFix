@@ -71,7 +71,7 @@
         <el-tab-pane label="错误类型管理" name="errorTypes">
           <div class="tab-content">
             <div class="action-bar">
-              <el-button type="primary" @click="showErrorTypeDialog = true">
+              <el-button type="primary" @click="openErrorTypeDialog">
                 <el-icon><Plus /></el-icon>
                 新增错误类型
               </el-button>
@@ -79,9 +79,11 @@
             <el-table :data="errorTypes" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="类型名称" />
-              <el-table-column label="操作" width="120">
+              <el-table-column prop="subject_name" label="学科" width="120" />
+              <el-table-column label="操作" width="180">
                 <template #default="{ row }">
-                  <el-button link type="danger" size="small" @click="deleteErrorType(row)">删除</el-button>
+                  <el-button type="primary" size="default" @click="editErrorType(row)">编辑</el-button>
+                  <el-button type="danger" size="default" @click="deleteErrorType(row)">删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -92,7 +94,7 @@
         <el-tab-pane label="知识点管理" name="knowledgePoints">
           <div class="tab-content">
             <div class="action-bar">
-              <el-button type="primary" @click="showKnowledgeDialog = true">
+              <el-button type="primary" @click="openKnowledgeDialog">
                 <el-icon><Plus /></el-icon>
                 新增知识点
               </el-button>
@@ -123,9 +125,10 @@
                   {{ row.semester === 1 ? '上学期' : '下学期' }}
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="120">
+              <el-table-column label="操作" width="180">
                 <template #default="{ row }">
-                  <el-button link type="danger" size="small" @click="deleteKnowledgePoint(row)">删除</el-button>
+                  <el-button type="primary" size="default" @click="editKnowledgePoint(row)">编辑</el-button>
+                  <el-button type="danger" size="default" @click="deleteKnowledgePoint(row)">删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -325,21 +328,26 @@
       </template>
     </el-dialog>
 
-    <!-- 新增错误类型弹窗 -->
-    <el-dialog v-model="showErrorTypeDialog" title="新增错误类型" width="400px">
+    <!-- 新增/编辑错误类型弹窗 -->
+    <el-dialog v-model="showErrorTypeDialog" :title="editErrorTypeData ? '编辑错误类型' : '新增错误类型'" width="400px">
       <el-form :model="errorTypeForm" label-width="80px">
         <el-form-item label="类型名称" required>
           <el-input v-model="errorTypeForm.name" placeholder="请输入错误类型名称" />
         </el-form-item>
+        <el-form-item label="学科">
+          <el-select v-model="errorTypeForm.subject_id" placeholder="选择学科（空表示通用）" clearable style="width: 100%">
+            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showErrorTypeDialog = false">取消</el-button>
-        <el-button type="primary" @click="createErrorType">保存</el-button>
+        <el-button @click="closeErrorTypeDialog">取消</el-button>
+        <el-button type="primary" @click="saveErrorType">保存</el-button>
       </template>
     </el-dialog>
 
-    <!-- 新增知识点弹窗 -->
-    <el-dialog v-model="showKnowledgeDialog" title="新增知识点" width="500px">
+    <!-- 新增/编辑知识点弹窗 -->
+    <el-dialog v-model="showKnowledgeDialog" :title="editKnowledgeData ? '编辑知识点' : '新增知识点'" width="500px">
       <el-form :model="knowledgeForm" label-width="100px">
         <el-form-item label="知识点名称" required>
           <el-input v-model="knowledgeForm.name" placeholder="请输入知识点名称" />
@@ -362,8 +370,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showKnowledgeDialog = false">取消</el-button>
-        <el-button type="primary" @click="createKnowledgePoint">保存</el-button>
+        <el-button @click="closeKnowledgeDialog">取消</el-button>
+        <el-button type="primary" @click="saveKnowledgePoint">保存</el-button>
       </template>
     </el-dialog>
 
@@ -527,14 +535,25 @@ const tagForm = reactive({ name: '', color: '#409eff' })
 
 // 错误类型
 const errorTypes = ref([])
+const etFilters = reactive({ subject_id: null })
 const showErrorTypeDialog = ref(false)
-const errorTypeForm = reactive({ name: '' })
+const editErrorTypeData = ref(null)
+const errorTypeForm = reactive({
+  name: '',
+  subject_id: localStorage.getItem('lastEtSubject') ? parseInt(localStorage.getItem('lastEtSubject')) : null
+})
 
 // 知识点
 const knowledgePoints = ref([])
 const kpFilters = reactive({ subject_id: null, grade: null, semester: null })
 const showKnowledgeDialog = ref(false)
-const knowledgeForm = reactive({ name: '', subject_id: null, grade: null, semester: null })
+const editKnowledgeData = ref(null)
+const knowledgeForm = reactive({
+  name: '',
+  subject_id: localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : null,
+  grade: localStorage.getItem('lastKpGrade') ? parseInt(localStorage.getItem('lastKpGrade')) : null,
+  semester: localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null
+})
 
 // 错题本
 const errorBooks = ref([])
@@ -681,25 +700,79 @@ const deleteTag = async (row) => {
 }
 
 // 获取错误类型列表
-const errorTypeList = ref([
-  { id: 1, name: '计算' },
-  { id: 2, name: '概念' },
-  { id: 3, name: '审题' },
-  { id: 4, name: '其他' },
-])
-
 const fetchErrorTypes = async () => {
-  errorTypes.value = errorTypeList.value
+  try {
+    const params = {}
+    if (etFilters.subject_id) params.subject_id = etFilters.subject_id
+    const { data } = await questionApi.listErrorTypes(params)
+    errorTypes.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    console.error('获取错误类型失败:', e)
+  }
 }
 
-// 创建错误类型（预定义，不允许自定义）
-const createErrorType = async () => {
-  ElMessage.info('错误类型为系统预定义，不可添加')
+// 打开新增错误类型弹窗
+const openErrorTypeDialog = () => {
+  editErrorTypeData.value = null
+  errorTypeForm.name = ''
+  errorTypeForm.subject_id = localStorage.getItem('lastEtSubject') ? parseInt(localStorage.getItem('lastEtSubject')) : null
+  showErrorTypeDialog.value = true
 }
 
-// 删除错误类型（预定义，不允许删除）
+// 关闭错误类型弹窗
+const closeErrorTypeDialog = () => {
+  showErrorTypeDialog.value = false
+  editErrorTypeData.value = null
+  errorTypeForm.name = ''
+  errorTypeForm.subject_id = localStorage.getItem('lastEtSubject') ? parseInt(localStorage.getItem('lastEtSubject')) : null
+}
+
+// 编辑错误类型
+const editErrorType = (row) => {
+  editErrorTypeData.value = row
+  errorTypeForm.name = row.name
+  errorTypeForm.subject_id = row.subject_id
+  showErrorTypeDialog.value = true
+}
+
+// 保存错误类型（新增或编辑）
+const saveErrorType = async () => {
+  if (!errorTypeForm.name.trim()) {
+    ElMessage.warning('请输入类型名称')
+    return
+  }
+  try {
+    if (editErrorTypeData.value) {
+      await questionApi.updateErrorType(editErrorTypeData.value.id, {
+        name: errorTypeForm.name,
+        subject_id: errorTypeForm.subject_id,
+      })
+      ElMessage.success('更新成功')
+    } else {
+      await questionApi.createErrorType({
+        name: errorTypeForm.name,
+        subject_id: errorTypeForm.subject_id,
+      })
+      ElMessage.success('创建成功')
+      localStorage.setItem('lastEtSubject', errorTypeForm.subject_id || '')
+    }
+    closeErrorTypeDialog()
+    fetchErrorTypes()
+  } catch (e) {
+    ElMessage.error(editErrorTypeData.value ? '更新失败' : '创建失败')
+  }
+}
+
+// 删除错误类型
 const deleteErrorType = async (row) => {
-  ElMessage.info('错误类型为系统预定义，不可删除')
+  try {
+    await ElMessageBox.confirm('确定要删除该错误类型吗？', '删除确认', { type: 'warning' })
+    await questionApi.deleteErrorType(row.id)
+    ElMessage.success('删除成功')
+    fetchErrorTypes()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败')
+  }
 }
 
 // 获取知识点列表
@@ -716,7 +789,7 @@ const fetchKnowledgePoints = async () => {
   }
 }
 
-// 创建知识点
+// 创建/编辑知识点
 const createKnowledgePoint = async () => {
   if (!knowledgeForm.name.trim()) {
     ElMessage.warning('请输入知识点名称')
@@ -727,22 +800,69 @@ const createKnowledgePoint = async () => {
     return
   }
   try {
-    await questionApi.createKnowledgePoint({
-      name: knowledgeForm.name,
-      subject_id: knowledgeForm.subject_id,
-      grade: knowledgeForm.grade,
-      semester: knowledgeForm.semester,
-    })
-    ElMessage.success('创建成功')
-    showKnowledgeDialog.value = false
-    knowledgeForm.name = ''
-    knowledgeForm.subject_id = null
-    knowledgeForm.grade = null
-    knowledgeForm.semester = null
+    if (editKnowledgeData.value) {
+      await questionApi.updateKnowledgePoint(editKnowledgeData.value.id, {
+        name: knowledgeForm.name,
+        subject_id: knowledgeForm.subject_id,
+        grade: knowledgeForm.grade,
+        semester: knowledgeForm.semester,
+      })
+      ElMessage.success('更新成功')
+    } else {
+      await questionApi.createKnowledgePoint({
+        name: knowledgeForm.name,
+        subject_id: knowledgeForm.subject_id,
+        grade: knowledgeForm.grade,
+        semester: knowledgeForm.semester,
+      })
+      ElMessage.success('创建成功')
+      // 保存最近使用的值到 localStorage
+      localStorage.setItem('lastKpSubject', knowledgeForm.subject_id)
+      localStorage.setItem('lastKpGrade', knowledgeForm.grade || '')
+      localStorage.setItem('lastKpSemester', knowledgeForm.semester || '')
+    }
+    closeKnowledgeDialog()
     fetchKnowledgePoints()
   } catch (e) {
-    ElMessage.error('创建失败')
+    ElMessage.error(editKnowledgeData.value ? '更新失败' : '创建失败')
   }
+}
+
+// 打开新增知识点弹窗
+const openKnowledgeDialog = () => {
+  editKnowledgeData.value = null
+  knowledgeForm.name = ''
+  // 设置最近使用的值
+  knowledgeForm.subject_id = localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : null
+  knowledgeForm.grade = localStorage.getItem('lastKpGrade') ? parseInt(localStorage.getItem('lastKpGrade')) : null
+  knowledgeForm.semester = localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null
+  showKnowledgeDialog.value = true
+}
+
+// 关闭知识点弹窗
+const closeKnowledgeDialog = () => {
+  showKnowledgeDialog.value = false
+  editKnowledgeData.value = null
+  knowledgeForm.name = ''
+  // 保留最近使用的值
+  knowledgeForm.subject_id = localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : null
+  knowledgeForm.grade = localStorage.getItem('lastKpGrade') ? parseInt(localStorage.getItem('lastKpGrade')) : null
+  knowledgeForm.semester = localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null
+}
+
+// 编辑知识点
+const editKnowledgePoint = (row) => {
+  editKnowledgeData.value = row
+  knowledgeForm.name = row.name
+  knowledgeForm.subject_id = row.subject_id
+  knowledgeForm.grade = row.grade
+  knowledgeForm.semester = row.semester
+  showKnowledgeDialog.value = true
+}
+
+// 保存知识点（新增或编辑）
+const saveKnowledgePoint = async () => {
+  await createKnowledgePoint()
 }
 
 // 删除知识点
@@ -1124,5 +1244,14 @@ onMounted(() => {
   font-size: 18px;
   font-weight: bold;
   color: #409eff;
+}
+
+/* 禁用卡片的hover效果 */
+.management :deep(.el-card) {
+  transition: none;
+}
+.management :deep(.el-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-sm) !important;
 }
 </style>

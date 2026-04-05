@@ -865,6 +865,16 @@ const submitAnswer = () => {
     q.correct = selectedOption.value === q.chinese
     q.userAnswer = selectedOption.value
   }
+  // 自动进入下一题（默写模式）
+  if (reviewConfig.type === 1 && currentIndex.value < reviewQuestions.value.length - 1) {
+    currentIndex.value++
+    currentQuestion.value = reviewQuestions.value[currentIndex.value]
+    userAnswer.value = ''
+    selectedOption.value = ''
+    setTimeout(() => {
+      answerInputRef.value?.focus()
+    }, 50)
+  }
 }
 
 const nextQuestion = () => {
@@ -1608,5 +1618,14 @@ onMounted(() => {
 }
 .history-wrong {
   color: #f56c6c;
+}
+
+/* 禁用卡片的hover效果 */
+.words :deep(.el-card) {
+  transition: none;
+}
+.words :deep(.el-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-sm) !important;
 }
 </style>

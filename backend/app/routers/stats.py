@@ -24,11 +24,11 @@ def get_stats_summary(db: Session = Depends(get_db)):
     """
     # 只统计未删除的记录
     total_questions = db.query(func.count(Question.id)).filter(Question.deleted == False).scalar()
-    # 待复习错题 = review_count = 0 或 (review_count > 0 且 correct_count > error_count)
+    # 待复习错题 = 复习次数=0 或 （复习次数>0 且 正确次数=0）
     to_review_questions = db.query(func.count(Question.id)).filter(
         Question.deleted == False,
         (Question.review_count == 0) | (Question.review_count.is_(None)) |  # 未复习过
-        ((Question.review_count > 0) & (Question.correct_count > Question.error_count))  # 做对了
+        ((Question.review_count > 0) & (Question.correct_count == 0))  # 复习过但全错
     ).scalar() or 0
     total_subjects = db.query(func.count(Subject.id)).filter(Subject.deleted == False).scalar()
     total_error_books = db.query(func.count(ErrorBook.id)).filter(ErrorBook.deleted == False).scalar()

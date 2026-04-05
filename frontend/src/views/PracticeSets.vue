@@ -1144,4 +1144,13 @@ onMounted(() => {
 .grading-upload {
   padding: 10px 0;
 }
+
+/* 禁用卡片的hover效果 */
+.practice-sets :deep(.el-card) {
+  transition: none;
+}
+.practice-sets :deep(.el-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-sm) !important;
+}
 </style>

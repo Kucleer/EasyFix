@@ -1,6 +1,16 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, func, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, func, Boolean, Table
 from sqlalchemy.orm import relationship
 from app.database import Base
+
+
+# 知识点-错误类型关联表
+kp_error_type = Table(
+    "kp_error_type",
+    Base.metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("knowledge_point_id", Integer, ForeignKey("knowledge_point.id", ondelete="CASCADE"), nullable=False),
+    Column("error_type_id", Integer, ForeignKey("error_type.id", ondelete="CASCADE"), nullable=False),
+)
 
 
 class KnowledgePoint(Base):
@@ -16,3 +26,4 @@ class KnowledgePoint(Base):
 
     # Relationships
     subject = relationship("Subject", back_populates="knowledge_points")
+    error_types = relationship("ErrorType", secondary=kp_error_type, back_populates="knowledge_points")

@@ -99,8 +99,25 @@ export const questionApi = {
   createKnowledgePoint(data) {
     return api.post('/knowledge-points', data)
   },
+  updateKnowledgePoint(id, data) {
+    return api.put(`/knowledge-points/${id}`, data)
+  },
   deleteKnowledgePoint(id) {
     return api.delete(`/knowledge-points/${id}`)
+  },
+
+  // 错误类型相关
+  listErrorTypes(params) {
+    return api.get('/error-types', { params })
+  },
+  createErrorType(data) {
+    return api.post('/error-types', data)
+  },
+  updateErrorType(id, data) {
+    return api.put(`/error-types/${id}`, data)
+  },
+  deleteErrorType(id) {
+    return api.delete(`/error-types/${id}`)
   },
 
   // 批量生成相似题

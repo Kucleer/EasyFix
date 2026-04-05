@@ -11,6 +11,7 @@ from app.routers.practice_set import router as practice_set_router
 from app.routers.word import router as word_router
 from app.routers.learning_report import router as learning_report_router
 from app.routers.motivation import router as motivation_router
+from app.routers.error_type import router as error_type_router
 
 __all__ = [
     "question_router",
@@ -26,4 +27,5 @@ __all__ = [
     "word_router",
     "learning_report_router",
     "motivation_router",
+    "error_type_router",
 ]

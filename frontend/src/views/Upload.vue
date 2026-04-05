@@ -152,16 +152,6 @@
       <!-- 步骤3: 完善信息 -->
       <div v-show="currentStep === 2" class="step-content">
         <el-form :model="form" label-width="100px" style="max-width: 600px">
-          <el-form-item label="错题本" required>
-            <el-select v-model="form.error_book_id" placeholder="选择错题本" style="width: 100%">
-              <el-option
-                v-for="eb in errorBooks"
-                :key="eb.id"
-                :label="eb.name"
-                :value="eb.id"
-              />
-            </el-select>
-          </el-form-item>
           <el-form-item label="学科" required>
             <el-select v-model="form.subject_id" placeholder="选择学科" style="width: 100%">
               <el-option
@@ -197,15 +187,30 @@
           </el-form-item>
           <el-form-item label="错误类型">
             <el-select v-model="form.error_type" multiple placeholder="选择错误类型" style="width: 100%">
-              <el-option label="计算错误" value="计算" />
-              <el-option label="概念错误" value="概念" />
-              <el-option label="审题错误" value="审题" />
-              <el-option label="粗心错误" value="粗心" />
-              <el-option label="其他错误" value="其他" />
+              <el-option
+                v-for="et in filteredErrorTypes"
+                :key="et.id"
+                :label="et.name"
+                :value="et.name"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="知识点">
-            <el-input v-model="form.knowledge_point" placeholder="输入知识点" />
+            <el-select
+              v-model="form.knowledge_point"
+              placeholder="选择知识点"
+              clearable
+              filterable
+              allow-create
+              style="width: 100%"
+            >
+              <el-option
+                v-for="kp in knowledgePoints"
+                :key="kp.id"
+                :label="kp.name"
+                :value="kp.name"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item label="标签">
             <el-select v-model="form.tag_ids" multiple placeholder="选择标签" style="width: 100%">
@@ -249,7 +254,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { uploadApi, questionApi } from '@/api/question'
@@ -286,20 +291,22 @@ const uploadImagePaths = ref([])
 const isManualEntryMode = ref(false)
 const placeholderImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjE1MCIgaGVpZ2h0PSIxNTAiIGZpbGw9IiNlOGU4ZTgiLz48dGV4dCB4PSIxMjAiIHk9IjgwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOTk5OTk5Ij7lm77niYIiIHRydW5jYXRlPW9mZnNldD0iMCIvPjwvc3ZnPg=='
 
-const errorBooks = ref([])
 const subjects = ref([])
 const allTags = ref([])
+const knowledgePoints = ref([])
+const errorTypes = ref([])
+const filteredErrorTypes = ref([]) // 根据知识点过滤后的错误类型
+const selectedKnowledgePoint = ref(null) // 当前选中的知识点对象
 
 const form = reactive({
-  error_book_id: null,
   subject_id: null,
   original_text: '',
   parsed_question: '',
   answer: '',
   analysis: '',
   difficulty: 3,
-  error_type: [],
-  knowledge_point: '',
+  error_type: [],  // 存储错误类型名称列表
+  knowledge_point: '',  // 存储知识点名称
   grade: localStorage.getItem('lastGrade') ? parseInt(localStorage.getItem('lastGrade')) : null,
   semester: localStorage.getItem('lastSemester') ? parseInt(localStorage.getItem('lastSemester')) : null,
   tag_ids: [],
@@ -405,7 +412,7 @@ const skipToManualEntry = () => {
 }
 
 const submitQuestion = async () => {
-  if (!form.error_book_id || !form.subject_id) {
+  if (!form.subject_id) {
     ElMessage.warning('请完善必填信息')
     return
   }
@@ -453,14 +460,7 @@ const submitQuestion = async () => {
 }
 
 const loadMetaData = async () => {
-  // 加载错题本和学科列表
-  try {
-    const { data: ebData } = await questionApi.listErrorBooks()
-    errorBooks.value = ebData.items || []
-  } catch (e) {
-    console.error('加载错题本失败:', e)
-  }
-
+  // 加载学科列表
   try {
     const { data } = await questionApi.listSubjects()
     // API返回数组，直接使用
@@ -478,6 +478,78 @@ const loadMetaData = async () => {
   }
 }
 
+// 加载知识点（根据学科筛选）
+const fetchKnowledgePoints = async () => {
+  if (!form.subject_id) {
+    knowledgePoints.value = []
+    return
+  }
+  try {
+    const { data } = await questionApi.listKnowledgePoints({ subject_id: form.subject_id })
+    knowledgePoints.value = Array.isArray(data) ? data : (data.items || [])
+  } catch (e) {
+    console.error('加载知识点失败:', e)
+  }
+}
+
+// 加载错误类型（根据学科筛选，包含通用的）
+const fetchErrorTypes = async () => {
+  if (!form.subject_id) {
+    errorTypes.value = []
+    return
+  }
+  try {
+    const { data } = await questionApi.listErrorTypes({ subject_id: form.subject_id })
+    errorTypes.value = Array.isArray(data) ? data : (data.items || [])
+  } catch (e) {
+    console.error('加载错误类型失败:', e)
+  }
+}
+
+// 监听学科变化，重新加载知识点和错误类型
+watch(() => form.subject_id, () => {
+  form.knowledge_point = '' // 切换学科时清空知识点
+  form.error_type = [] // 切换学科时清空错误类型
+  selectedKnowledgePoint.value = null
+  filteredErrorTypes.value = []
+  fetchKnowledgePoints()
+  fetchErrorTypes()
+})
+
+// 监听知识点变化，联动过滤错误类型
+watch(() => form.knowledge_point, (newVal) => {
+  if (!newVal) {
+    selectedKnowledgePoint.value = null
+    // 如果清空了知识点，显示该学科下的所有错误类型
+    filteredErrorTypes.value = errorTypes.value
+    return
+  }
+  // 查找选中的知识点
+  const kp = knowledgePoints.value.find(k => k.name === newVal)
+  if (kp && kp.error_types && kp.error_types.length > 0) {
+    // 如果知识点有关联的错误类型，只显示关联的
+    selectedKnowledgePoint.value = kp
+    filteredErrorTypes.value = kp.error_types.map(et => ({ id: et.id, name: et.name }))
+  } else {
+    // 如果没有关联，显示该学科下的所有错误类型
+    selectedKnowledgePoint.value = null
+    filteredErrorTypes.value = errorTypes.value
+  }
+  // 清空已选的错误类型
+  form.error_type = []
+})
+
+// 监听errorTypes加载完成，更新filteredErrorTypes
+watch(errorTypes, (newVal) => {
+  if (selectedKnowledgePoint.value) {
+    // 如果有选中的知识点，使用关联的错误类型
+    filteredErrorTypes.value = selectedKnowledgePoint.value.error_types.map(et => ({ id: et.id, name: et.name }))
+  } else {
+    // 否则使用所有可用错误类型
+    filteredErrorTypes.value = newVal
+  }
+}, { immediate: true })
+
 const getSubjectName = (subjectId) => {
   const s = subjects.value.find(o => o.id === subjectId)
   return s ? s.name : '未知学科'
@@ -490,6 +562,15 @@ onMounted(loadMetaData)
 .upload {
   max-width: 900px;
   margin: 0 auto;
+}
+
+/* 禁用上传页面卡片的hover效果 */
+.upload :deep(.el-card) {
+  transition: none;
+}
+.upload :deep(.el-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .step-content {

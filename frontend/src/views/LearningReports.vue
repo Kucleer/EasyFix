@@ -601,4 +601,13 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
 }
+
+/* 禁用卡片的hover效果 */
+.learning-reports :deep(.el-card) {
+  transition: none;
+}
+.learning-reports :deep(.el-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-sm) !important;
+}
 </style>

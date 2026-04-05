@@ -11,6 +11,7 @@ from app.models.learning_report import LearningReport
 from app.models.star import StarAction, StarBalance, StarRecord
 from app.models.achievement import Achievement, AchievementProgress
 from app.models.reward import Reward, Redemption
+from app.models.error_type import ErrorType
 
 __all__ = [
     "Subject",
@@ -37,4 +38,5 @@ __all__ = [
     "AchievementProgress",
     "Reward",
     "Redemption",
+    "ErrorType",
 ]

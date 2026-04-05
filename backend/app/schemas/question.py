@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class QuestionBase(BaseModel):
-    error_book_id: int
+    error_book_id: Optional[int] = None
     subject_id: int
     grade: Optional[int] = Field(default=None, ge=1, le=12)  # 年级 1-12
     semester: Optional[int] = Field(default=None, ge=1, le=2)  # 学期 1-2
@@ -24,6 +24,7 @@ class QuestionCreate(QuestionBase):
 
 
 class QuestionUpdate(BaseModel):
+    subject_id: Optional[int] = None
     grade: Optional[int] = Field(default=None, ge=1, le=12)
     semester: Optional[int] = Field(default=None, ge=1, le=2)
     answer: Optional[str] = None
@@ -38,7 +39,7 @@ class QuestionUpdate(BaseModel):
 # 批量创建错题
 class QuestionBatchCreate(BaseModel):
     """批量创建错题（用于OCR后一道图生成多题）"""
-    error_book_id: int
+    error_book_id: Optional[int] = None
     subject_id: int
     grade: Optional[int] = Field(default=None, ge=1, le=12)
     semester: Optional[int] = Field(default=None, ge=1, le=2)
@@ -68,7 +69,7 @@ class SimilarQuestionResponse(BaseModel):
 
 class QuestionResponse(BaseModel):
     id: int
-    error_book_id: int
+    error_book_id: Optional[int] = None
     subject_id: int
     original_image: Optional[str] = None  # 单个图片
     original_images: Optional[List[str]] = None  # 多个图片
