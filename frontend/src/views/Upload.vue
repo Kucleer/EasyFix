@@ -2,228 +2,127 @@
   <div class="upload">
     <el-card>
       <template #header>
-        <span>上传错题</span>
+        <span class="page-title">新增错题</span>
       </template>
 
-      <el-steps :active="currentStep" finish-status="success" style="margin-bottom: 30px">
-        <el-step title="上传图片" />
-        <el-step title="OCR识别" />
-        <el-step title="完善信息" />
-      </el-steps>
-
-      <!-- 步骤1: 上传图片 -->
-      <div v-show="currentStep === 0" class="step-content">
-        <el-upload
-          ref="uploadRef"
-          class="upload-demo"
-          drag
-          :auto-upload="false"
-          :limit="10"
-          :on-change="handleFileChange"
-          :on-remove="handleFileRemove"
-          accept="image/*"
-          multiple
-        >
-          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-          <div class="el-upload__text">拖拽图片到此处或点击上传（可上传多张）</div>
-          <template #tip>
-            <div class="el-upload__tip">支持 JPEG/PNG/WEBP 格式，每张大小不超过 10MB</div>
-          </template>
-        </el-upload>
-        <div style="margin-top: 20px">
-          <el-button type="primary" :disabled="!selectedFiles.length" @click="startOCR" :loading="uploading">
-            开始OCR识别
-          </el-button>
-          <el-button type="info" @click="skipToManualEntry">跳过图片，直接手动录入</el-button>
-        </div>
-
-        <!-- 手动录入模式时的缺省图片 -->
-        <div v-if="isManualEntryMode" class="manual-entry-placeholder">
-          <el-image :src="placeholderImage" fit="contain" />
-          <p class="placeholder-tip">图片缺省页（仅展示，无交互功能）</p>
-        </div>
-      </div>
-
-      <!-- 步骤2: OCR识别结果 -->
-      <div v-show="currentStep === 1" class="step-content">
-        <!-- 加载状态 -->
-        <div v-if="uploading" class="loading">
-          <el-icon class="is-loading loading-icon"><Loading /></el-icon>
-          <span>正在识别中，请稍候...</span>
-          <el-progress
-            :percentage="ocrProgress"
-            :status="ocrProgressStatus"
-            style="width: 300px; margin-top: 20px"
-          />
-          <div class="loading-tips">
-            <p v-if="ocrProgress < 30">正在上传图片...</p>
-            <p v-else-if="ocrProgress < 80">正在识别文字...</p>
-            <p v-else>识别完成，处理中...</p>
-          </div>
-        </div>
-
-        <!-- OCR失败/超时，支持手动录入 -->
-        <div v-else-if="ocrFailed" class="ocr-failed">
-          <el-alert
-            type="warning"
-            title="OCR识别超时或失败"
-            description="您可以手动输入题目信息，或重新上传图片"
-            :closable="false"
-            show-icon
-          />
-          <div class="manual-entry">
-            <el-form :model="form" label-width="100px" style="max-width: 600px">
-              <el-form-item label="题目">
-                <el-input v-model="form.parsed_question" type="textarea" :rows="3" placeholder="请手动输入题目" />
-              </el-form-item>
-              <el-form-item label="答案">
-                <el-input v-model="form.answer" type="textarea" :rows="2" placeholder="请输入答案" />
-              </el-form-item>
-              <el-form-item label="解析">
-                <el-input v-model="form.analysis" type="textarea" :rows="2" placeholder="请输入解析" />
-              </el-form-item>
-            </el-form>
-          </div>
-          <div style="margin-top: 20px">
-            <el-button @click="retryOCR">重新上传</el-button>
-            <el-button type="primary" @click="currentStep = 2">下一步</el-button>
-          </div>
-        </div>
-
-        <!-- OCR成功 -->
-        <div v-else-if="ocrResult" class="ocr-result">
-          <el-card shadow="never">
-            <template #header>
-              <span>识别结果</span>
-              <el-button size="small" type="primary" @click="retryOCR" style="float: right">
-                重新识别
-              </el-button>
+      <!-- 图片上传卡片 -->
+      <div class="detail-card" style="margin-bottom: 16px;">
+        <div class="card-header-blue">📷 图片上传</div>
+        <div class="card-content">
+          <el-upload
+            ref="uploadRef"
+            class="upload-demo"
+            drag
+            :auto-upload="false"
+            :limit="10"
+            :on-change="handleFileChange"
+            :on-remove="handleFileRemove"
+            accept="image/*"
+            multiple
+          >
+            <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+            <div class="el-upload__text">拖拽图片到此处或点击上传（可上传多张）</div>
+            <template #tip>
+              <div class="el-upload__tip">支持 JPEG/PNG/WEBP 格式，每张大小不超过 10MB</div>
             </template>
-            <el-input
-              v-model="ocrResult.full_text"
-              type="textarea"
-              :rows="8"
-              placeholder="识别结果"
-            />
-            <div class="ocr-info" v-if="ocrResult.provider">
-              <el-tag size="small" type="info">
-                提供商: {{ ocrResult.provider }} | 字数: {{ ocrResult.full_text?.length || 0 }}
-              </el-tag>
+          </el-upload>
+          <!-- 已上传图片预览 -->
+          <div v-if="uploadImagePaths.length" class="image-preview-list">
+            <div v-for="(img, idx) in uploadImagePaths" :key="idx" class="preview-item">
+              <el-image
+                :src="'/uploads/' + img"
+                :preview-src-list="uploadImagePaths.map(i => '/uploads/' + i)"
+                fit="cover"
+                class="preview-image"
+              />
+              <el-button type="danger" size="small" circle @click="removeImage(idx)" class="remove-btn">✕</el-button>
             </div>
-          </el-card>
-
-          <!-- 批量OCR结果列表 -->
-          <el-card shadow="never" style="margin-top: 20px" v-if="batchOcrResults && batchOcrResults.length">
-            <template #header>
-              <span>多图识别结果 ({{ batchOcrResults.length }}张)</span>
-            </template>
-            <el-collapse>
-              <el-collapse-item
-                v-for="(item, idx) in batchOcrResults"
-                :key="idx"
-                :title="'图片 ' + (idx + 1) + ': ' + (item.original_filename || '')"
-              >
-                <div class="batch-item">
-                  <el-image
-                    v-if="item.image_path"
-                    :src="'/uploads/' + item.image_path"
-                    :preview-src-list="['/uploads/' + item.image_path]"
-                    fit="contain"
-                    style="max-width: 200px; max-height: 150px"
-                  />
-                  <div class="batch-text">
-                    <p v-if="item.ocr_result?.full_text">{{ item.ocr_result.full_text }}</p>
-                    <p v-else class="no-text">未识别到文字</p>
-                  </div>
-                </div>
-              </el-collapse-item>
-            </el-collapse>
-          </el-card>
-
-          <div style="margin-top: 20px">
-            <el-button @click="currentStep = 0">上一步</el-button>
-            <el-button type="primary" :disabled="!canProceed" @click="currentStep = 2">
-              下一步
-            </el-button>
           </div>
         </div>
       </div>
 
-      <!-- 步骤3: 完善信息 -->
-      <div v-show="currentStep === 2" class="step-content">
-        <el-form :model="form" label-width="100px" style="max-width: 600px">
-          <el-form-item label="学科" required>
-            <el-select v-model="form.subject_id" placeholder="选择学科" style="width: 100%">
-              <el-option
-                v-for="s in subjects"
-                :key="s.id"
-                :label="s.name"
-                :value="s.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="年级">
-            <el-select v-model="form.grade" placeholder="选择年级" clearable style="width: 100%">
-              <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="学期">
-            <el-select v-model="form.semester" placeholder="选择学期" clearable style="width: 100%">
-              <el-option label="上学期" :value="1" />
-              <el-option label="下学期" :value="2" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="题目">
-            <el-input v-model="form.parsed_question" type="textarea" :rows="6" />
-          </el-form-item>
-          <el-form-item label="答案">
-            <el-input v-model="form.answer" type="textarea" :rows="4" />
-          </el-form-item>
-          <el-form-item label="解析">
-            <el-input v-model="form.analysis" type="textarea" :rows="4" />
-          </el-form-item>
-          <el-form-item label="难度">
-            <el-rate v-model="form.difficulty" :max="5" show-text :texts="['很简单', '简单', '一般', '较难', '很难']" />
-          </el-form-item>
-          <el-form-item label="错误类型">
-            <el-select v-model="form.error_type" multiple placeholder="选择错误类型" style="width: 100%">
-              <el-option
-                v-for="et in filteredErrorTypes"
-                :key="et.id"
-                :label="et.name"
-                :value="et.name"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="知识点">
-            <el-select
-              v-model="form.knowledge_point"
-              placeholder="选择知识点"
-              clearable
-              filterable
-              allow-create
-              style="width: 100%"
-            >
-              <el-option
-                v-for="kp in knowledgePoints"
-                :key="kp.id"
-                :label="kp.name"
-                :value="kp.name"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="标签">
-            <el-select v-model="form.tag_ids" multiple placeholder="选择标签" style="width: 100%">
-              <el-option v-for="tag in allTags" :key="tag.id" :label="tag.name" :value="tag.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button @click="currentStep = 1">上一步</el-button>
-            <el-button type="primary" :loading="submitting" @click="submitQuestion">
-              保存错题
-            </el-button>
-          </el-form-item>
-        </el-form>
+      <!-- 基本信息卡片 -->
+      <div class="detail-card" style="margin-bottom: 16px;">
+        <div class="card-header-blue">📝 基本信息</div>
+        <div class="card-content">
+          <el-form :model="form" label-width="80px" style="max-width: 600px">
+            <el-form-item label="学科" required>
+              <el-select v-model="form.subject_id" placeholder="选择学科" style="width: 100%">
+                <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="年级">
+              <el-select v-model="form.grade" placeholder="选择年级" clearable style="width: 100%">
+                <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="学期">
+              <el-select v-model="form.semester" placeholder="选择学期" clearable style="width: 100%">
+                <el-option label="上学期" :value="1" />
+                <el-option label="下学期" :value="2" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <!-- 题目内容卡片 -->
+      <div class="detail-card" style="margin-bottom: 16px;">
+        <div class="card-header-green">📖 题目内容</div>
+        <div class="card-content">
+          <el-form :model="form" label-width="80px" style="max-width: 800px">
+            <el-form-item label="题目">
+              <el-input v-model="form.parsed_question" type="textarea" :rows="6" placeholder="请输入题目" />
+            </el-form-item>
+            <el-form-item label="答案">
+              <el-input v-model="form.answer" type="textarea" :rows="4" placeholder="请输入答案" />
+            </el-form-item>
+            <el-form-item label="解析">
+              <el-input v-model="form.analysis" type="textarea" :rows="4" placeholder="请输入解析" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <!-- 难度与分类卡片 -->
+      <div class="detail-card" style="margin-bottom: 16px;">
+        <div class="card-header-orange">⭐ 难度与分类</div>
+        <div class="card-content">
+          <el-form :model="form" label-width="80px" style="max-width: 600px">
+            <el-form-item label="难度">
+              <el-rate v-model="form.difficulty" :max="5" show-text :texts="['很简单', '简单', '一般', '较难', '很难']" />
+            </el-form-item>
+            <el-form-item label="错误类型">
+              <el-select v-model="form.error_type" multiple placeholder="选择错误类型" style="width: 100%">
+                <el-option v-for="et in filteredErrorTypes" :key="et.id" :label="et.name" :value="et.name" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="知识点">
+              <el-select
+                v-model="form.knowledge_point"
+                placeholder="选择知识点"
+                clearable
+                filterable
+                allow-create
+                style="width: 100%"
+              >
+                <el-option v-for="kp in knowledgePoints" :key="kp.id" :label="kp.name" :value="kp.name" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="标签">
+              <el-select v-model="form.tag_ids" multiple placeholder="选择标签" style="width: 100%">
+                <el-option v-for="tag in allTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <!-- 提交按钮 -->
+      <div class="submit-area">
+        <el-button type="primary" size="large" :loading="submitting" @click="submitQuestion">
+          保存错题
+        </el-button>
       </div>
 
       <!-- 已提交的错题预览 -->
@@ -244,7 +143,7 @@
             <span>{{ getSubjectName(submittedQuestion.subject_id) }}</span>
           </div>
           <div class="preview-actions">
-            <el-button type="primary" size="small" @click="submittedQuestion = null">继续录入</el-button>
+            <el-button type="primary" size="small" @click="continueAdd">继续录入</el-button>
             <el-button size="small" @click="router.push('/questions')">查看列表</el-button>
           </div>
         </el-card>
@@ -555,6 +454,14 @@ const getSubjectName = (subjectId) => {
   return s ? s.name : '未知学科'
 }
 
+const continueAdd = () => {
+  submittedQuestion.value = null
+}
+
+const removeImage = (index) => {
+  uploadImagePaths.value.splice(index, 1)
+}
+
 onMounted(loadMetaData)
 </script>
 
@@ -677,5 +584,83 @@ onMounted(loadMetaData)
   margin-top: 10px;
   color: #909399;
   font-size: 12px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.detail-card {
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.card-header-blue {
+  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
+  color: white;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.card-header-green {
+  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
+  color: white;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.card-header-orange {
+  background: linear-gradient(135deg, #e6a23c 0%, #ebb563 100%);
+  color: white;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.card-content {
+  padding: 16px;
+}
+
+.submit-area {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.image-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.preview-item {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #e4e7ed;
+}
+
+.preview-image {
+  width: 100%;
+  height: 100%;
+}
+
+.remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.preview-item:hover .remove-btn {
+  opacity: 1;
 }
 </style>
