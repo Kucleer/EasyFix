@@ -260,7 +260,7 @@ def get_today_stats(db: Session = Depends(get_db)):
     从 practice_set 表取今日（created_at 日期 = 今天）的记录进行统计
     """
     from datetime import datetime, timedelta
-    from app.models import PracticeSet, PracticeSetQuestion
+    from app.models import PracticeSet, PracticeSetQuestion, WordReviewSession
     from sqlalchemy import func, distinct
 
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -274,26 +274,17 @@ def get_today_stats(db: Session = Depends(get_db)):
     ).all()
 
     # 按 source_type 分组
-    word_sets = [ps for ps in today_practice_sets if ps.source_type == 'word']
     question_sets = [ps for ps in today_practice_sets if ps.source_type == 'question']
 
-    # 单词统计 - 只计入已批改的（is_correct 不为 None）
-    word_question_ids = set()
-    word_correct_count = 0
-    for ps in word_sets:
-        # 获取该练习集中已批改的去重 question_id
-        questions = db.query(PracticeSetQuestion).filter(
-            PracticeSetQuestion.practice_set_id == ps.id,
-            PracticeSetQuestion.question_id.isnot(None),
-            PracticeSetQuestion.is_correct.isnot(None)
-        ).all()
-        for q in questions:
-            word_question_ids.add(q.question_id)
-            if q.is_correct:
-                word_correct_count += 1
+    # 单词统计 - 从 WordReviewSession 表获取（今日的）
+    today_word_sessions = db.query(WordReviewSession).filter(
+        WordReviewSession.reviewed_at >= today_start,
+        WordReviewSession.reviewed_at < today_end
+    ).all()
 
-    today_word_review_count = len(word_question_ids)
-    today_word_accuracy = round(word_correct_count / today_word_review_count * 100, 1) if today_word_review_count > 0 else 0.0
+    today_word_review_count = sum(s.total_count for s in today_word_sessions)
+    today_word_correct = sum(s.correct_count for s in today_word_sessions)
+    today_word_accuracy = round(today_word_correct / today_word_review_count * 100, 1) if today_word_review_count > 0 else 0.0
 
     # 错题统计 - 只计入已批改的（is_correct 不为 None）
     question_ids_set = set()
