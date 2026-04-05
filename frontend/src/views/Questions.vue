@@ -188,86 +188,112 @@
     <!-- 详情弹窗 -->
     <el-dialog v-model="detailVisible" title="错题详情" width="900px">
       <div v-if="currentQuestion" class="question-detail">
-        <!-- 原图展示 -->
+        <!-- 原图展示区 -->
         <div v-if="getImageList(currentQuestion).length" class="detail-images">
-          <p class="section-label">原图：</p>
-          <div class="image-gallery">
-            <el-image
-              v-for="(img, idx) in getImageList(currentQuestion)"
-              :key="idx"
-              :src="'/uploads/' + img"
-              :preview-src-list="getImageList(currentQuestion).map(i => '/uploads/' + i)"
-              fit="contain"
-              style="width: 200px; height: 200px; margin-right: 10px; margin-bottom: 10px"
-            />
+          <div class="detail-card">
+            <div class="card-header-blue">原图</div>
+            <div class="card-content">
+              <div class="image-gallery">
+                <el-image
+                  v-for="(img, idx) in getImageList(currentQuestion)"
+                  :key="idx"
+                  :src="'/uploads/' + img"
+                  :preview-src-list="getImageList(currentQuestion).map(i => '/uploads/' + i)"
+                  fit="cover"
+                  class="gallery-image"
+                />
+              </div>
+            </div>
           </div>
         </div>
-        <el-divider />
-        <div class="detail-item">
-          <label>题目：</label>
-          <div class="question-text" v-html="decodeHTML(currentQuestion.parsed_question || currentQuestion.original_text || '暂无')"></div>
-        </div>
-        <div class="detail-item">
-          <label>答案：</label>
-          <div class="question-text" v-html="decodeHTML(currentQuestion.answer || '暂无')"></div>
-        </div>
-        <div class="detail-item">
-          <label>解析：</label>
-          <div class="question-text" v-html="decodeHTML(currentQuestion.analysis || '暂无')"></div>
-        </div>
-        <div v-if="currentQuestion.analysis_image" class="detail-item">
-          <label>解析图片：</label>
-          <el-image
-            :src="'/uploads/' + currentQuestion.analysis_image"
-            :preview-src-list="['/uploads/' + currentQuestion.analysis_image]"
-            fit="contain"
-            style="width: 200px; height: 200px; cursor: pointer"
-          />
-        </div>
+
+        <!-- 题目和答案并排 -->
         <div class="detail-row">
-          <div class="detail-item half">
-            <label>难度：</label>
-            <el-tag :type="getDifficultyType(currentQuestion.difficulty)">{{ currentQuestion.difficulty }}</el-tag>
+          <!-- 题目卡片 -->
+          <div class="detail-card flex-1">
+            <div class="card-header-blue">题目</div>
+            <div class="card-content">
+              <div class="question-text" v-html="decodeHTML(currentQuestion.parsed_question || currentQuestion.original_text || '暂无')"></div>
+            </div>
           </div>
-          <div class="detail-item half">
-            <label>年级/学期：</label>
-            <span>{{ getGradeLabel(currentQuestion.grade) }} / {{ currentQuestion.semester ? (currentQuestion.semester === 1 ? '上学期' : '下学期') : '未设置' }}</span>
-          </div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-item half">
-            <label>错误类型：</label>
-            <el-tag v-if="currentQuestion.error_type" :type="getErrorTypeType(currentQuestion.error_type)" size="small">
-              {{ currentQuestion.error_type }}
-            </el-tag>
-            <span v-else>暂无</span>
-          </div>
-          <div class="detail-item half">
-            <label>知识点：</label>
-            <el-tag v-if="currentQuestion.knowledge_point" size="small" type="info">
-              {{ currentQuestion.knowledge_point }}
-            </el-tag>
-            <span v-else>暂无</span>
+          <!-- 答案卡片 -->
+          <div class="detail-card flex-1">
+            <div class="card-header-green">答案</div>
+            <div class="card-content">
+              <div class="question-text" v-html="decodeHTML(currentQuestion.answer || '暂无')"></div>
+            </div>
           </div>
         </div>
-        <div class="detail-item">
-          <label>标签：</label>
+
+        <!-- 解析卡片 -->
+        <div class="detail-card">
+          <div class="card-header-orange">解析</div>
+          <div class="card-content">
+            <div v-if="currentQuestion.analysis" class="question-text" v-html="decodeHTML(currentQuestion.analysis)"></div>
+            <div v-if="currentQuestion.analysis_image" class="analysis-image">
+              <el-image
+                :src="'/uploads/' + currentQuestion.analysis_image"
+                :preview-src-list="['/uploads/' + currentQuestion.analysis_image]"
+                fit="contain"
+                class="analysis-img"
+              />
+            </div>
+            <span v-if="!currentQuestion.analysis && !currentQuestion.analysis_image" class="text-muted">暂无</span>
+          </div>
+        </div>
+
+        <!-- 元数据卡片 -->
+        <div class="detail-card">
+          <div class="card-header-gray">信息</div>
+          <div class="card-content">
+            <div class="meta-row">
+              <div class="meta-item">
+                <label>难度：</label>
+                <span class="difficulty-stars-yellow">{{ getYellowStars(currentQuestion.difficulty) }}</span>
+              </div>
+              <div class="meta-item">
+                <label>年级/学期：</label>
+                <span>{{ getGradeLabel(currentQuestion.grade) }} / {{ currentQuestion.semester ? (currentQuestion.semester === 1 ? '上学期' : '下学期') : '未设置' }}</span>
+              </div>
+            </div>
+            <div class="meta-row">
+              <div class="meta-item">
+                <label>错误类型：</label>
+                <el-tag v-if="currentQuestion.error_type" :type="getErrorTypeType(currentQuestion.error_type)" size="small">
+                  {{ currentQuestion.error_type }}
+                </el-tag>
+                <span v-else class="text-muted">暂无</span>
+              </div>
+              <div class="meta-item">
+                <label>知识点：</label>
+                <el-tag v-if="currentQuestion.knowledge_point" size="small" type="info">
+                  {{ currentQuestion.knowledge_point }}
+                </el-tag>
+                <span v-else class="text-muted">暂无</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 标签区域 -->
+        <div class="tags-area">
+          <label class="tags-label">标签：</label>
           <el-tag
             v-for="tag in currentQuestion.tags"
             :key="tag.id"
             size="small"
-            :style="{ marginRight: '5px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff' }"
+            :style="{ marginRight: '8px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff' }"
           >{{ tag.name }}</el-tag>
-          <span v-if="!currentQuestion.tags?.length">暂无</span>
+          <span v-if="!currentQuestion.tags?.length" class="text-muted">暂无</span>
         </div>
-        <!-- 相似题 -->
-        <div v-if="currentQuestion.similar_questions?.length" class="detail-item">
-          <label>相似题：</label>
-          <div class="similar-list">
+
+        <!-- 相似题卡片 -->
+        <div v-if="currentQuestion.similar_questions?.length" class="detail-card">
+          <div class="card-header-purple">相似题</div>
+          <div class="card-content">
             <div v-for="sq in currentQuestion.similar_questions" :key="sq.id" class="similar-item">
               <p><strong>题目：</strong><span v-html="decodeHTML(sq.similar_text)"></span></p>
               <p><strong>答案：</strong><span v-html="decodeHTML(sq.similar_answer)"></span></p>
-              <el-divider />
             </div>
           </div>
         </div>
@@ -277,6 +303,25 @@
     <!-- 编辑弹窗 -->
     <el-dialog v-model="editVisible" title="编辑错题" width="700px">
       <el-form :model="editForm" label-width="100px" style="max-width: 600px">
+        <el-form-item label="学科" required>
+          <el-select v-model="editForm.subject_id" placeholder="选择学科" style="width: 100%">
+            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="原图">
+          <div v-if="editForm.original_image" class="original-image-preview">
+            <el-image :src="'/uploads/' + editForm.original_image" fit="contain" style="width: 100px; height: 100px; margin-right: 10px" />
+            <el-button size="small" @click="editForm.original_image = ''">移除</el-button>
+          </div>
+          <el-upload
+            v-if="!editForm.original_image"
+            :show-file-list="false"
+            accept="image/*"
+            :http-request="handleOriginalImageUpload"
+          >
+            <el-button size="small" type="primary">上传图片</el-button>
+          </el-upload>
+        </el-form-item>
         <el-form-item label="题目">
           <el-input v-model="editForm.parsed_question" type="textarea" :rows="6" />
         </el-form-item>
@@ -305,11 +350,12 @@
         </el-form-item>
         <el-form-item label="错误类型">
           <el-select v-model="editForm.error_type" multiple placeholder="选择错误类型">
-            <el-option label="计算错误" value="计算" />
-            <el-option label="概念错误" value="概念" />
-            <el-option label="审题错误" value="审题" />
-            <el-option label="粗心错误" value="粗心" />
-            <el-option label="其他错误" value="其他" />
+            <el-option
+              v-for="et in editFilteredErrorTypes"
+              :key="et.id"
+              :label="et.name"
+              :value="et.name"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="年级">
@@ -324,7 +370,21 @@
           </el-select>
         </el-form-item>
         <el-form-item label="知识点">
-          <el-input v-model="editForm.knowledge_point" placeholder="输入知识点" />
+          <el-select
+            v-model="editForm.knowledge_point"
+            placeholder="选择知识点"
+            clearable
+            filterable
+            allow-create
+            style="width: 100%"
+          >
+            <el-option
+              v-for="kp in editKnowledgePoints"
+              :key="kp.id"
+              :label="kp.name"
+              :value="kp.name"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="标签">
           <el-select v-model="editForm.tag_ids" multiple placeholder="选择标签" style="width: 100%">
@@ -362,7 +422,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi } from '@/api/question'
 
@@ -393,6 +453,13 @@ const decodeHTML = (html) => {
 const questions = ref({ total: 0, items: [] })
 const subjects = ref([])
 const allTags = ref([])
+
+// 编辑弹窗中的知识点和错误类型
+const editKnowledgePoints = ref([])
+const editErrorTypes = ref([])
+const editFilteredErrorTypes = ref([])
+const editSelectedKnowledgePoint = ref(null)
+
 const filters = reactive({
   subject_id: null,
   difficulty: null,
@@ -423,6 +490,8 @@ const printForm = reactive({
 })
 
 const editForm = reactive({
+  subject_id: null,
+  original_image: '',
   parsed_question: '',
   answer: '',
   analysis: '',
@@ -476,6 +545,85 @@ const fetchTags = async () => {
   }
 }
 
+// 编辑弹窗中根据学科获取知识点
+const fetchEditKnowledgePoints = async () => {
+  if (!editForm.subject_id) {
+    editKnowledgePoints.value = []
+    return
+  }
+  try {
+    const { data } = await questionApi.listKnowledgePoints({ subject_id: editForm.subject_id })
+    editKnowledgePoints.value = Array.isArray(data) ? data : (data.items || [])
+  } catch (e) {
+    console.error('加载知识点失败:', e)
+  }
+}
+
+// 编辑弹窗中根据学科获取错误类型
+const fetchEditErrorTypes = async () => {
+  if (!editForm.subject_id) {
+    editErrorTypes.value = []
+    return
+  }
+  try {
+    const { data } = await questionApi.listErrorTypes({ subject_id: editForm.subject_id })
+    editErrorTypes.value = Array.isArray(data) ? data : (data.items || [])
+  } catch (e) {
+    console.error('加载错误类型失败:', e)
+  }
+}
+
+// 监听编辑弹窗中学科变化，重新加载知识点和错误类型
+watch(() => editForm.subject_id, () => {
+  editForm.knowledge_point = ''
+  editForm.error_type = []
+  editSelectedKnowledgePoint.value = null
+  editFilteredErrorTypes.value = []
+  fetchEditKnowledgePoints()
+  fetchEditErrorTypes()
+})
+
+// 监听知识点变化，联动过滤错误类型
+watch(() => editForm.knowledge_point, (newVal) => {
+  if (!newVal) {
+    editSelectedKnowledgePoint.value = null
+    editFilteredErrorTypes.value = editErrorTypes.value
+    return
+  }
+  const kp = editKnowledgePoints.value.find(k => k.name === newVal)
+  if (kp && kp.error_types && kp.error_types.length > 0) {
+    editSelectedKnowledgePoint.value = kp
+    editFilteredErrorTypes.value = kp.error_types.map(et => ({ id: et.id, name: et.name }))
+  } else {
+    editSelectedKnowledgePoint.value = null
+    editFilteredErrorTypes.value = editErrorTypes.value
+  }
+  editForm.error_type = []
+})
+
+// 监听errorTypes加载完成，更新filteredErrorTypes
+watch(editErrorTypes, (newVal) => {
+  if (editSelectedKnowledgePoint.value) {
+    editFilteredErrorTypes.value = editSelectedKnowledgePoint.value.error_types.map(et => ({ id: et.id, name: et.name }))
+  } else {
+    editFilteredErrorTypes.value = newVal
+  }
+}, { immediate: true })
+
+// 监听知识点加载完成，重新触发知识点→错误类型联动
+watch(editKnowledgePoints, () => {
+  if (editForm.knowledge_point) {
+    const kp = editKnowledgePoints.value.find(k => k.name === editForm.knowledge_point)
+    if (kp && kp.error_types && kp.error_types.length > 0) {
+      editSelectedKnowledgePoint.value = kp
+      editFilteredErrorTypes.value = kp.error_types.map(et => ({ id: et.id, name: et.name }))
+    } else {
+      editSelectedKnowledgePoint.value = null
+      editFilteredErrorTypes.value = editErrorTypes.value
+    }
+  }
+})
+
 const getImageList = (row) => {
   if (!row) return []
   if (row.original_images && Array.isArray(row.original_images)) {
@@ -511,6 +659,30 @@ const handleAnalysisImageUpload = async (options) => {
   }
 }
 
+const handleOriginalImageUpload = async (options) => {
+  const { file } = options
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await questionApi.uploadFile(file)
+    if (res.data && res.data.path) {
+      editForm.original_image = res.data.path
+      ElMessage.success('上传成功')
+    } else if (res.data && res.data.image_path) {
+      editForm.original_image = res.data.image_path
+      ElMessage.success('上传成功')
+    } else if (res.data && res.data.file_path) {
+      editForm.original_image = res.data.file_path
+      ElMessage.success('上传成功')
+    } else {
+      ElMessage.error('上传失败')
+    }
+  } catch (error) {
+    console.error('上传失败:', error)
+    ElMessage.error('上传失败')
+  }
+}
+
 const viewDetail = async (row) => {
   const { data } = await questionApi.get(row.id)
   currentQuestion.value = data
@@ -519,6 +691,8 @@ const viewDetail = async (row) => {
 
 const editQuestion = (row) => {
   currentQuestion.value = row
+  editForm.subject_id = row.subject_id || null
+  editForm.original_image = row.original_image || ''
   editForm.parsed_question = row.parsed_question || ''
   editForm.answer = row.answer || ''
   editForm.analysis = row.analysis || ''
@@ -529,6 +703,9 @@ const editQuestion = (row) => {
   editForm.grade = row.grade || null
   editForm.semester = row.semester || null
   editForm.tag_ids = row.tags ? row.tags.map(t => t.id) : []
+  // 先加载知识点和错误类型，再设置知识点（触发联动）
+  fetchEditKnowledgePoints()
+  fetchEditErrorTypes()
   editVisible.value = true
 }
 
@@ -956,6 +1133,12 @@ onMounted(() => {
   gap: 10px;
 }
 
+.original-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* 难度星级样式 */
 .difficulty-stars {
   font-size: 14px;
@@ -1005,5 +1188,14 @@ onMounted(() => {
 
 :deep(.el-table td) {
   font-size: 15px;
+}
+
+/* 禁用卡片的hover效果 */
+.questions :deep(.el-card) {
+  transition: none;
+}
+.questions :deep(.el-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-sm) !important;
 }
 </style>
