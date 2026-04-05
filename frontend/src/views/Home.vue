@@ -256,10 +256,27 @@
     </el-card>
   </el-col>
   <el-col :span="12">
-    <!-- 准确率曲线图（占位，Task 8会填充） -->
-    <div class="placeholder-card">
-      <span style="color: #909399; font-size: 14px;">准确率曲线图（待实现）</span>
-    </div>
+    <!-- 准确率曲线图 -->
+    <el-card class="chart-card" shadow="hover">
+      <template #header>
+        <div class="card-header-modern">
+          <span class="header-title">准确率曲线</span>
+          <div class="curve-tabs">
+            <el-radio-group v-model="curveRange" size="small">
+              <el-radio-button label="week">最近一周</el-radio-button>
+              <el-radio-button label="month">最近一月</el-radio-button>
+              <el-radio-button label="3months">最近3月</el-radio-button>
+              <el-radio-button label="halfyear">最近半年</el-radio-button>
+              <el-radio-button label="all">全部</el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
+      </template>
+      <div v-if="hasAccuracyCurve" class="chart-container">
+        <v-chart :option="dualAccuracyCurveOption" autoresize style="height: 300px" />
+      </div>
+      <el-empty v-else description="暂无准确率数据" />
+    </el-card>
   </el-col>
 </el-row>
   </div>
@@ -479,20 +496,30 @@ const filteredCurveData = computed(() => {
   return curve.filter(p => new Date(p.date) >= startDate)
 })
 
-const accuracyCurveOption = computed(() => {
+const dualAccuracyCurveOption = computed(() => {
   const data = filteredCurveData.value
   if (!data.length) return {}
 
   return {
     tooltip: {
       trigger: 'axis',
-      formatter: '{b}: {c}%'
+      formatter: function(params) {
+        let result = params[0].name + '<br/>'
+        params.forEach(p => {
+          result += '<span style="display:inline-block;margin-right:4px;border-radius:10px;width:10px;height:10px;background-color:' + p.color + '"></span>'
+          result += p.seriesName + ': ' + p.value + '%<br/>'
+        })
+        return result
+      }
     },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
+    legend: {
+      data: ['单词正确率', '错题正确率'],
+      bottom: 0,
+    },
+    grid: { left: '3%', right: '4%', bottom: '15%', top: '10px', containLabel: true },
     xAxis: {
       type: 'category',
       data: data.map(p => p.date),
-      axisLabel: { rotate: 0 }
     },
     yAxis: {
       type: 'value',
@@ -501,25 +528,46 @@ const accuracyCurveOption = computed(() => {
       max: 100,
       axisLabel: { formatter: '{value}%' }
     },
-    series: [{
-      type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 8,
-      lineStyle: { color: '#409eff', width: 2 },
-      itemStyle: { color: '#409eff' },
-      areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
-            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
-          ]
-        }
+    series: [
+      {
+        name: '单词正确率',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: { color: '#67c23a', width: 2 },
+        itemStyle: { color: '#67c23a' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(103, 194, 58, 0.25)' },
+              { offset: 1, color: 'rgba(103, 194, 58, 0.05)' }
+            ]
+          }
+        },
+        data: data.map(p => p.accuracy)
       },
-      data: data.map(p => p.accuracy)
-    }]
+      {
+        name: '错题正确率',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(64, 158, 255, 0.25)' },
+              { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+            ]
+          }
+        },
+        data: data.map(p => p.accuracy) // TODO: 后端新增错题准确率曲线后替换此数据
+      }
+    ]
   }
 })
 
