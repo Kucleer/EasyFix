@@ -80,7 +80,14 @@ def get_stats_summary(db: Session = Depends(get_db)):
             .group_by(Question.error_type)
             .all()
         )
-        error_type_counts = {k: v for k, v in error_counts}
+        # 各错误类型统计（拆分逗号分隔的多类型）
+        error_type_counts = {}
+        for (et, count) in error_counts:
+            if et:
+                for single_et in et.split(','):
+                    single_et = single_et.strip()
+                    if single_et:
+                        error_type_counts[single_et] = error_type_counts.get(single_et, 0) + count
 
         # 各难度统计
         difficulty_counts = (
