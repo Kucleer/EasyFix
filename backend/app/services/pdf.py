@@ -132,9 +132,14 @@ class PracticeSetPDF(FPDF):
         difficulty = max(1, min(5, difficulty))
         star_color = self.STAR_COLORS.get(difficulty, (255, 204, 102))
         self.set_font('chinese', size=11)
+        # Filled stars
         self.set_text_color(*star_color)
-        stars_str = '★' * difficulty + '☆' * (5 - difficulty)
-        self.cell(60, 8, stars_str, new_x=XPos.LMARGIN, new_y=YPos.TOP, align='L')
+        self.cell(30, 8, '★' * difficulty, new_x=XPos.RIGHT, new_y=YPos.TOP, align='C')
+        # Empty stars
+        self.set_text_color(*self.EMPTY_STAR_COLOR)
+        self.cell(30, 8, '☆' * (5 - difficulty), new_x=XPos.LMARGIN, new_y=YPos.TOP, align='C')
+        # Reset to default text color
+        self.set_text_color(*self.TEXT_COLOR)
         self.ln(8)
 
         # ===== 第二行（如果有知识点或错误类型）：知识点: XXX  |  错误类型: XXX =====
