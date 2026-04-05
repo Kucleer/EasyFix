@@ -195,10 +195,65 @@
     <!-- 学科详细数据表格 + 准确率曲线（双列） -->
 <el-row :gutter="24" style="margin-top: 24px">
   <el-col :span="12">
-    <!-- 学科详细数据表格（占位，Task 7会填充） -->
-    <div class="placeholder-card">
-      <span style="color: #909399; font-size: 14px;">学科详细数据表格（待实现）</span>
-    </div>
+    <!-- 学科详细数据表格 -->
+    <el-card class="subject-table-card" shadow="hover">
+      <template #header>
+        <div class="card-header-modern">
+          <span class="header-title">学科详细数据</span>
+          <el-button type="primary" size="small" @click="$router.push('/questions')">查看全部</el-button>
+        </div>
+      </template>
+      <el-table :data="subjectTableData" stripe style="width: 100%">
+        <el-table-column type="index" label="#" width="60" align="center" />
+        <el-table-column prop="subject_name" label="学科" width="120">
+          <template #default="{ row }">
+            <el-tag type="primary" plain>{{ row.subject_name }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="错题数" width="100" align="center">
+          <template #default="{ row }">
+            <span class="question-count">{{ row.question_count }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="难度分布" min-width="240">
+          <template #default="{ row }">
+            <div class="difficulty-bars">
+              <div v-for="i in 5" :key="i" class="diff-bar-item">
+                <span class="diff-label">难度{{ i }}</span>
+                <el-progress
+                  :percentage="getPercentage(row.difficulty_distribution?.[i] || 0, row.question_count)"
+                  :stroke-width="8"
+                  :color="getDifficultyColor(i)"
+                  :show-text="false"
+                  style="flex:1"
+                />
+                <span class="diff-count">{{ row.difficulty_distribution?.[i] || 0 }}</span>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="主要错误类型" min-width="180">
+          <template #default="{ row }">
+            <div class="error-tags">
+              <el-tag
+                v-for="(count, type) in getTopErrorTypes(row.error_type_counts)"
+                :key="type"
+                :type="getErrorTagType(type)"
+                size="small"
+                style="margin-right: 4px"
+              >
+                {{ type }} {{ count }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="practice_count" label="练习次数" width="100" align="center">
+          <template #default="{ row }">
+            <span class="practice-count">{{ row.practice_count || 0 }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </el-col>
   <el-col :span="12">
     <!-- 准确率曲线图（占位，Task 8会填充） -->
@@ -741,5 +796,87 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   border: 2px dashed #dcdfe6;
+}
+
+/* 学科详细数据表格 */
+.subject-table-card {
+  border-radius: 16px;
+  border: none;
+  background: linear-gradient(145deg, #ffffff 0%, #f5f7fa 100%);
+}
+
+.subject-table-card :deep(.el-card__header) {
+  border-bottom: 1px solid #ebeef5;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px 16px 0 0;
+}
+
+.subject-table-card :deep(.el-card__body) {
+  padding: 0;
+}
+
+.subject-table-card .header-title {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.subject-table-card .el-table {
+  border-radius: 0 0 16px 16px;
+}
+
+.subject-table-card :deep(.el-table__header-wrapper th) {
+  background: #f5f7fa !important;
+  color: #303133;
+  font-weight: 600;
+}
+
+.subject-table-card :deep(.el-table__row:hover td) {
+  background: #f0f4ff !important;
+}
+
+.question-count {
+  font-weight: bold;
+  color: #409eff;
+  font-size: 15px;
+}
+
+.practice-count {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.difficulty-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.diff-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.diff-label {
+  width: 40px;
+  color: #909399;
+  flex-shrink: 0;
+}
+
+.diff-count {
+  width: 22px;
+  text-align: right;
+  color: #666;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.error-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 </style>
