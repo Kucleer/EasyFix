@@ -771,6 +771,12 @@ const getDifficultyStars = (difficulty) => {
   return '★'.repeat(difficulty)
 }
 
+// 获取黄色星星（统一黄色）
+const getYellowStars = (difficulty) => {
+  if (!difficulty) return '☆☆☆☆☆'
+  return '★'.repeat(difficulty) + '☆'.repeat(5 - difficulty)
+}
+
 const getErrorTypeType = (errorType) => {
   const typeMap = {
     '计算': 'danger',
