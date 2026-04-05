@@ -174,6 +174,10 @@ export const questionApi = {
   batchDownloadPracticeSetsPdf(ids) {
     return api.post('/practice-sets/batch-download-pdf', { ids })
   },
+  // 获取学科的错误类型和知识点筛选选项
+  getFilterOptions(subjectId) {
+    return api.get(`/questions/filter-options/${subjectId}`)
+  },
 }
 
 // 图片上传API

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional, List
 import json
@@ -125,6 +125,40 @@ def list_questions(
     return {"total": total, "items": result_items}
 
 
+@router.get("/filter-options/{subject_id}")
+def get_filter_options(subject_id: int, db: Session = Depends(get_db)):
+    """获取指定学科的错误类型和知识点列表（去重）"""
+    # 获取该学科下所有去重的错误类型
+    error_types = db.query(Question.error_type).filter(
+        Question.deleted == False,
+        Question.subject_id == subject_id,
+        Question.error_type.isnot(None),
+        Question.error_type != ''
+    ).distinct().all()
+
+    # 获取该学科下所有去重的知识点
+    knowledge_points = db.query(Question.knowledge_point).filter(
+        Question.deleted == False,
+        Question.subject_id == subject_id,
+        Question.knowledge_point.isnot(None),
+        Question.knowledge_point != ''
+    ).distinct().all()
+
+    # 拆分合并的错误类型（如 "计算错误,审题不清" 拆分为 ["计算错误", "审题不清"]）
+    split_error_types = set()
+    for (et,) in error_types:
+        if et:
+            for single_et in et.split(','):
+                single_et = single_et.strip()
+                if single_et:
+                    split_error_types.add(single_et)
+
+    return {
+        "error_types": sorted(list(split_error_types)),
+        "knowledge_points": sorted([kp for (kp,) in knowledge_points if kp])
+    }
+
+
 @router.get("/{question_id}", response_model=QuestionResponse)
 def get_question(question_id: int, db: Session = Depends(get_db)):
     # 只获取未删除的记录
@@ -241,6 +275,17 @@ def create_question(data: QuestionCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"创建错题失败: {str(e)}")
 
 
+# 临时调试端点
+@router.put("/debug/{question_id}")
+def debug_update(
+    question_id: int,
+    request: Request,
+):
+    body = request.body()
+    print(f"[DEBUG PUT /debug/{question_id}] body: {body}")
+    return {"received": True}
+
+
 @router.put("/{question_id}", response_model=QuestionResponse)
 def update_question(
     question_id: int,
@@ -254,6 +299,11 @@ def update_question(
 
         update_data = data.model_dump(exclude_unset=True)
         tag_ids = update_data.pop("tag_ids", None)
+
+        # 调试日志
+        print(f"[DEBUG] update_data: {update_data}")
+        print(f"[DEBUG] original_image in update_data: {'original_image' in update_data}")
+        print(f"[DEBUG] original_image value: {update_data.get('original_image')}")
 
         # 解码HTML实体
         for key in ["parsed_question", "answer", "analysis"]:

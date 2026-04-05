@@ -33,11 +33,7 @@
           <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
         </el-select>
         <el-select v-model="filters.error_type" placeholder="错误类型" multiple clearable @change="fetchQuestions" style="width: 330px">
-          <el-option label="计算错误" value="计算" />
-          <el-option label="概念错误" value="概念" />
-          <el-option label="审题错误" value="审题" />
-          <el-option label="粗心错误" value="粗心" />
-          <el-option label="其他错误" value="其他" />
+          <el-option v-for="et in filterOptions.error_types" :key="et" :label="et" :value="et" />
         </el-select>
         <el-select v-model="filters.semester" placeholder="学期" clearable @change="fetchQuestions" style="width: 135px">
           <el-option label="上学期" :value="1" />
@@ -89,6 +85,7 @@
       <!-- 错题列表 -->
       <el-table v-model:selection="selectedQuestions" :data="questions.items" stripe style="width: 100%; margin-top: 20px" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="50" />
+        <el-table-column prop="id" label="ID" width="80" />
         <el-table-column label="题目" min-width="250">
           <template #default="{ row }">
             <div class="question-cell">
@@ -489,6 +486,37 @@ const filters = reactive({
   grade: null,
   semester: null,
   accuracy_range: null,
+})
+
+// 动态筛选选项
+const filterOptions = reactive({
+  error_types: [],
+  knowledge_points: [],
+})
+
+// 获取筛选选项（按学科）
+const fetchFilterOptions = async (subjectId) => {
+  if (!subjectId) {
+    filterOptions.error_types = []
+    filterOptions.knowledge_points = []
+    return
+  }
+  try {
+    const { data } = await questionApi.getFilterOptions(subjectId)
+    filterOptions.error_types = data.error_types || []
+    filterOptions.knowledge_points = data.knowledge_points || []
+  } catch (error) {
+    console.error('获取筛选选项失败:', error)
+  }
+}
+
+// 监听学科变化，获取对应的错误类型和知识点选项
+watch(() => filters.subject_id, (newVal, oldVal) => {
+  if (newVal !== oldVal) {
+    filters.knowledge_point = ''
+    filters.error_type = null
+    fetchFilterOptions(newVal)
+  }
 })
 const pagination = reactive({
   page: 1,
