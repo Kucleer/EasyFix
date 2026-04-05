@@ -12,7 +12,7 @@ from app.schemas.error_book import (
     ErrorBookResponse,
     ErrorBookListResponse,
 )
-from app.schemas.stats import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint
+from app.schemas.stats import StatsResponse, SubjectStats, GradeStats, SemesterStats, WordStats, AccuracyCurvePoint, TodayStats
 from app.schemas.learning_report import (
     ReportGenerateRequest,
     ReportGenerateResponse,
@@ -60,6 +60,7 @@ __all__ = [
     "SemesterStats",
     "WordStats",
     "AccuracyCurvePoint",
+    "TodayStats",
     "ReportGenerateRequest",
     "ReportGenerateResponse",
     "ReportListItem",
