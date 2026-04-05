@@ -50,3 +50,10 @@ class StatsResponse(BaseModel):
     by_semester: List[SemesterStats] = []
     word_stats: WordStats = WordStats()
     word_accuracy_curve: List[AccuracyCurvePoint] = []
+
+
+class TodayStats(BaseModel):
+    today_word_review_count: int = 0      # 今日复习单词数（去重）
+    today_question_review_count: int = 0   # 今日复习错题数（去重）
+    today_word_accuracy: float = 0.0       # 今日单词正确率 %
+    today_question_accuracy: float = 0.0   # 今日错题正确率 %
