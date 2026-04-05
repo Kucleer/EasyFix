@@ -248,11 +248,12 @@
         <div class="question-header">
           <span class="progress">{{ currentIndex + 1 }} / {{ reviewQuestions.length }}</span>
           <span class="timer">用时: {{ Math.floor(reviewElapsed / 60) }}:{{ String(reviewElapsed % 60).padStart(2, '0') }}</span>
-          <!-- 正确/错误结果展示 -->
-          <div v-if="currentQuestion.correct !== undefined" :class="['result-tag', currentQuestion.correct ? 'correct-tag' : 'wrong-tag']">
-            <span>{{ currentQuestion.correct ? '正确' : '错误' }}</span>
-            <span class="result-answer">正确答案: {{ currentQuestion.english }}</span>
-          </div>
+        </div>
+        <!-- 正确/错误结果展示 -->
+        <div v-if="currentQuestion.correct !== undefined" :class="['result-display', currentQuestion.correct ? 'correct-display' : 'wrong-display']">
+          <div class="result-status">{{ currentQuestion.correct ? '✓ 正确' : '✗ 错误' }}</div>
+          <div class="result-answer-large">正确答案: {{ currentQuestion.english }}</div>
+          <div v-if="!currentQuestion.correct" class="your-answer">你的答案: {{ currentQuestion.userAnswer || '(未作答)' }}</div>
         </div>
 
         <div class="question-content">
@@ -889,9 +890,14 @@ const nextQuestion = () => {
   currentQuestion.value = reviewQuestions.value[currentIndex.value]
   userAnswer.value = ''
   selectedOption.value = ''
-  nextTick(() => {
-    answerInputRef.value?.focus()
-  })
+  setTimeout(() => {
+    const input = answerInputRef.value?.$el?.querySelector('input')
+    if (input) {
+      input.focus()
+    } else {
+      answerInputRef.value?.focus()
+    }
+  }, 100)
 }
 
 // 终止答题，结算已答题目
@@ -1328,10 +1334,16 @@ onMounted(() => {
 
 .question-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
+  gap: 40px;
   margin-bottom: 30px;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 10;
+  padding: 10px 0;
 }
 
 .progress {
@@ -1347,31 +1359,38 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.result-tag {
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+.result-display {
+  text-align: center;
+  padding: 24px 48px;
+  border-radius: 16px;
+  margin-bottom: 30px;
 }
 
-.correct-tag {
-  background: #f0f9eb;
-  color: #67c23a;
-  border: 2px solid #67c23a;
+.correct-display {
+  background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
+  color: #fff;
 }
 
-.wrong-tag {
-  background: #fef0f0;
-  color: #f56c6c;
-  border: 2px solid #f56c6c;
+.wrong-display {
+  background: linear-gradient(135deg, #f56c6c 0%, #e64242 100%);
+  color: #fff;
 }
 
-.result-answer {
-  font-size: 14px;
-  font-weight: normal;
+.result-status {
+  font-size: 32px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.result-answer-large {
+  font-size: 36px;
+  font-weight: bold;
+}
+
+.your-answer {
+  font-size: 24px;
+  margin-top: 8px;
+  opacity: 0.9;
 }
 
 .question-content {
