@@ -1048,63 +1048,6 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
-.question-detail {
-  padding: 10px;
-}
-
-.detail-images {
-  margin-bottom: 15px;
-}
-
-.section-label {
-  font-weight: bold;
-  color: #666;
-  margin-bottom: 10px;
-}
-
-.image-gallery {
-  display: flex;
-  flex-wrap: wrap;
-}
-
-.detail-item {
-  margin-bottom: 15px;
-}
-
-.detail-item label {
-  font-weight: bold;
-  color: #666;
-  margin-right: 10px;
-}
-
-.detail-row {
-  display: flex;
-  gap: 20px;
-}
-
-.detail-item.half {
-  flex: 1;
-}
-
-.question-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.6;
-  max-height: none;
-  overflow: visible;
-}
-
-.similar-list {
-  margin-top: 10px;
-}
-
-.similar-item {
-  padding: 10px;
-  background: #f5f7fa;
-  border-radius: 4px;
-  margin-bottom: 10px;
-}
-
 .batch-actions {
   position: fixed;
   bottom: 0;
