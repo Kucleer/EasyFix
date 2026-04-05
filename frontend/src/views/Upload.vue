@@ -496,37 +496,40 @@ onMounted(() => {
 
 .page-title {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: bold;
+  color: #303133;
 }
 
 .detail-card {
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  margin-bottom: 16px;
   overflow: hidden;
 }
 
 .card-header-blue {
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
-  color: white;
+  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
+  color: #fff;
   padding: 12px 16px;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: bold;
+  font-size: 15px;
 }
 
 .card-header-green {
-  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
-  color: white;
+  background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
+  color: #fff;
   padding: 12px 16px;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: bold;
+  font-size: 15px;
 }
 
 .card-header-orange {
-  background: linear-gradient(135deg, #e6a23c 0%, #ebb563 100%);
-  color: white;
+  background: linear-gradient(135deg, #e6a23c 0%, #db8b2e 100%);
+  color: #fff;
   padding: 12px 16px;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: bold;
+  font-size: 15px;
 }
 
 .card-content {
@@ -534,9 +537,8 @@ onMounted(() => {
 }
 
 .submit-area {
-  display: flex;
-  justify-content: center;
-  padding: 20px 0;
+  text-align: center;
+  padding: 16px 0;
 }
 
 .image-preview-list {
@@ -556,19 +558,29 @@ onMounted(() => {
 }
 
 .preview-image {
-  width: 100%;
-  height: 100%;
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  cursor: pointer;
 }
 
 .remove-btn {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  opacity: 0;
-  transition: opacity 0.3s;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 12px;
 }
 
 .preview-item:hover .remove-btn {
   opacity: 1;
+}
+
+.el-upload__tip {
+  color: #909399;
+  font-size: 12px;
+  margin-top: 8px;
 }
 </style>
