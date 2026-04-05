@@ -254,7 +254,7 @@ def get_today_stats(db: Session = Depends(get_db)):
     """
     from datetime import datetime, timedelta
     from app.models import PracticeSet, PracticeSetQuestion
-    from sqlalchemy import func
+    from sqlalchemy import func, distinct
 
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
@@ -266,33 +266,47 @@ def get_today_stats(db: Session = Depends(get_db)):
         PracticeSet.created_at < today_end
     ).all()
 
-    # 按 source_type 分组统计
+    # 按 source_type 分组
     word_sets = [ps for ps in today_practice_sets if ps.source_type == 'word']
-    question_sets = [ps for ps in today_practice_sets if ps.source_type != 'word']
+    question_sets = [ps for ps in today_practice_sets if ps.source_type == 'question']
 
-    # 单词统计
-    today_word_review_count = len(word_sets)  # 今日单词复习场次数
-    word_total = sum(ps.total_questions or 0 for ps in word_sets)
-    word_correct = 0
+    # 单词统计 - 去重题目数
+    word_question_ids = set()
+    word_correct_count = 0
     for ps in word_sets:
-        correct_count = db.query(func.count(PracticeSetQuestion.id)).filter(
+        # 获取该练习集中去重的 question_id
+        question_ids = db.query(PracticeSetQuestion.question_id).filter(
+            PracticeSetQuestion.practice_set_id == ps.id,
+            PracticeSetQuestion.question_id.isnot(None)
+        ).distinct().all()
+        word_question_ids.update(qid for (qid,) in question_ids)
+        # 正确数
+        correct = db.query(func.count(PracticeSetQuestion.id)).filter(
             PracticeSetQuestion.practice_set_id == ps.id,
             PracticeSetQuestion.is_correct == True
         ).scalar() or 0
-        word_correct += correct_count
-    today_word_accuracy = round(word_correct / word_total * 100, 1) if word_total > 0 else 0.0
+        word_correct_count += correct
 
-    # 错题统计
-    today_question_review_count = len(question_sets)
-    question_total = sum(ps.total_questions or 0 for ps in question_sets)
-    question_correct = 0
+    today_word_review_count = len(word_question_ids)
+    today_word_accuracy = round(word_correct_count / today_word_review_count * 100, 1) if today_word_review_count > 0 else 0.0
+
+    # 错题统计 - 去重题目数
+    question_ids_set = set()
+    question_correct_count = 0
     for ps in question_sets:
-        correct_count = db.query(func.count(PracticeSetQuestion.id)).filter(
+        question_ids = db.query(PracticeSetQuestion.question_id).filter(
+            PracticeSetQuestion.practice_set_id == ps.id,
+            PracticeSetQuestion.question_id.isnot(None)
+        ).distinct().all()
+        question_ids_set.update(qid for (qid,) in question_ids)
+        correct = db.query(func.count(PracticeSetQuestion.id)).filter(
             PracticeSetQuestion.practice_set_id == ps.id,
             PracticeSetQuestion.is_correct == True
         ).scalar() or 0
-        question_correct += correct_count
-    today_question_accuracy = round(question_correct / question_total * 100, 1) if question_total > 0 else 0.0
+        question_correct_count += correct
+
+    today_question_review_count = len(question_ids_set)
+    today_question_accuracy = round(question_correct_count / today_question_review_count * 100, 1) if today_question_review_count > 0 else 0.0
 
     return TodayStats(
         today_word_review_count=today_word_review_count,
