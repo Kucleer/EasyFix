@@ -341,13 +341,6 @@ const getTopErrorTypes = (errorTypeCounts) => {
   return Object.fromEntries(Object.entries(errorTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3))
 }
 
-const hasErrorTypeData = computed(() => stats.value.error_type_distribution && Object.keys(stats.value.error_type_distribution).length > 0)
-const hasSubjectData = computed(() => stats.value.by_subject && stats.value.by_subject.length > 0)
-const hasKnowledgePointData = computed(() => {
-  const kpCounts = stats.value.by_subject?.[0]?.knowledge_point_counts
-  return kpCounts && Object.keys(kpCounts).length > 0
-})
-
 const hasAccuracyCurve = computed(() => {
   return stats.value.word_accuracy_curve && stats.value.word_accuracy_curve.length > 0
 })
@@ -396,81 +389,6 @@ const errorTypePieOption = computed(() => {
 })
 
 const subjectTableData = computed(() => stats.value.by_subject || [])
-
-// 错误类型柱状图
-const errorTypeBarOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
-  xAxis: { type: 'category', data: Object.keys(stats.value.error_type_distribution || {}), axisLabel: { rotate: 0 } },
-  yAxis: { type: 'value', name: '数量' },
-  series: [{
-    type: 'bar',
-    barWidth: '50%',
-    itemStyle: {
-      color: (params) => {
-        const colors = { '计算': '#f56c6c', '概念': '#e6a23c', '审题': '#909399', '粗心': '#67c23a', '其他': '#409eff' }
-        return colors[params.name] || '#409eff'
-      },
-      borderRadius: [4, 4, 0, 0]
-    },
-    data: Object.values(stats.value.error_type_distribution || {})
-  }]
-}))
-
-// 学科柱状图
-const subjectBarOption = computed(() => {
-  const subjects = stats.value.by_subject || []
-  return {
-    tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
-    xAxis: { type: 'category', data: subjects.map(s => s.subject_name), axisLabel: { rotate: 15 } },
-    yAxis: { type: 'value', name: '题目数' },
-    series: [{
-      type: 'bar',
-      barWidth: '40%',
-      itemStyle: {
-        color: {
-          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: '#409eff' },
-            { offset: 1, color: '#67c23a' }
-          ]
-        },
-        borderRadius: [8, 8, 0, 0]
-      },
-      data: subjects.map(s => s.question_count)
-    }]
-  }
-})
-
-// 知识点柱状图
-const knowledgePointCloudOption = computed(() => {
-  const kpCounts = stats.value.by_subject?.[0]?.knowledge_point_counts || {}
-  const entries = Object.entries(kpCounts).sort((a, b) => b[1] - a[1]).slice(0, 10)
-  if (!entries.length) return {}
-
-  return {
-    tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
-    xAxis: { type: 'category', data: entries.map(([name]) => name.length > 8 ? name.slice(0, 8) + '...' : name), axisLabel: { rotate: 30 } },
-    yAxis: { type: 'value', name: '题目数' },
-    series: [{
-      type: 'bar',
-      barWidth: '50%',
-      itemStyle: {
-        color: {
-          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: '#e6a23c' },
-            { offset: 1, color: '#f56c6c' }
-          ]
-        },
-        borderRadius: [4, 4, 0, 0]
-      },
-      data: entries.map(([, value]) => value)
-    }]
-  }
-})
 
 // 单词准确率曲线
 const filteredCurveData = computed(() => {
