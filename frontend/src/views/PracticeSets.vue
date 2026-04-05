@@ -140,8 +140,28 @@
           <span class="grading-accuracy">正确率: {{ getGradingAccuracy() }}%</span>
         </div>
         <div class="grading-question-item">
-          <p class="question-text">{{ currentPsQuestions[gradingCurrentIndex]?.question_text || currentPsQuestions[gradingCurrentIndex]?.original_question_text }}</p>
-          <p class="question-answer">答案: {{ currentPsQuestions[gradingCurrentIndex]?.answer || currentPsQuestions[gradingCurrentIndex]?.original_answer }}</p>
+          <!-- 原题 -->
+          <div class="original-question-block">
+            <div class="block-label">原题</div>
+            <div class="block-content">
+              <p v-if="currentPsQuestions[gradingCurrentIndex]?.original_question_text" class="question-text">{{ currentPsQuestions[gradingCurrentIndex].original_question_text }}</p>
+              <el-image
+                v-if="currentPsQuestions[gradingCurrentIndex]?.original_image"
+                :src="'/uploads/' + currentPsQuestions[gradingCurrentIndex].original_image"
+                fit="contain"
+                style="max-width: 200px; max-height: 150px; cursor: pointer;"
+                @click="previewImage(currentPsQuestions[gradingCurrentIndex].original_image)"
+              />
+              <span v-if="!currentPsQuestions[gradingCurrentIndex]?.original_question_text && !currentPsQuestions[gradingCurrentIndex]?.original_image" class="text-muted">无</span>
+            </div>
+          </div>
+          <!-- 原题答案 -->
+          <div class="original-answer-block">
+            <div class="block-label">答案</div>
+            <div class="block-content">
+              <span class="answer-text">{{ currentPsQuestions[gradingCurrentIndex]?.original_answer || '-' }}</span>
+            </div>
+          </div>
         </div>
         <div class="grading-question-buttons">
           <el-button type="success" size="large" @click="handleQuestionGrading(currentPsQuestions[gradingCurrentIndex].question_id, true)">正确</el-button>
@@ -311,27 +331,25 @@
               <span>用时：{{ formatDuration(detailData.word_review_stats?.duration || 0) }}</span>
             </div>
             <div class="word-list">
-              <div v-for="(q, idx) in detailData.questions" :key="q.id" class="word-item" :class="{'is-correct': q.is_correct, 'is-wrong': !q.is_correct}">
-                <div class="word-header">
-                  <span class="word-index">{{ idx + 1 }}</span>
-                  <span class="word-english">{{ q.question_text }}</span>
-                  <span v-if="q.phonetic" class="word-phonetic">{{ q.phonetic }}</span>
-                  <el-tag v-for="tag in q.tags" :key="tag.id" size="small" type="info" style="margin-left: 8px;">{{ tag.name }}</el-tag>
-                  <span class="word-result" :class="q.is_correct ? 'correct' : 'wrong'">
-                    {{ q.is_correct ? '✓ 正确' : '✗ 错误' }}
-                  </span>
-                </div>
-                <div class="word-content">
-                  <div class="word-answer">
-                    <span class="label">答案：</span>
-                    <span class="value">{{ q.answer }}</span>
-                  </div>
-                  <div v-if="!q.is_correct && q.user_answer" class="word-user-answer">
-                    <span class="label">你的答案：</span>
-                    <span class="value wrong">{{ q.user_answer }}</span>
-                  </div>
-                </div>
-              </div>
+              <el-table :data="detailData.questions" size="small" style="width: 100%">
+                <el-table-column type="index" label="#" width="50" align="center" />
+                <el-table-column label="英文" prop="question_text" width="150" />
+                <el-table-column label="中文" prop="answer" min-width="150" />
+                <el-table-column label="实际默写" width="150">
+                  <template #default="{ row }">
+                    <span :class="row.is_correct ? 'text-success' : 'text-danger'">
+                      {{ row.user_answer || '-' }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="结果" width="80" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="row.is_correct ? 'success' : 'danger'" size="small">
+                      {{ row.is_correct ? '正确' : '错误' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
           </div>
         </el-tab-pane>
@@ -1135,6 +1153,35 @@ onMounted(() => {
   color: #67c23a;
 }
 
+.original-question-block,
+.original-answer-block {
+  margin-bottom: 16px;
+}
+
+.original-question-block:last-child,
+.original-answer-block:last-child {
+  margin-bottom: 0;
+}
+
+.block-label {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 6px;
+  font-weight: bold;
+}
+
+.block-content {
+  background: #fff;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.answer-text {
+  font-size: 16px;
+  color: #67c23a;
+  font-weight: bold;
+}
+
 .grading-question-buttons {
   display: flex;
   gap: 20px;
@@ -1152,5 +1199,13 @@ onMounted(() => {
 .practice-sets :deep(.el-card:hover) {
   transform: none;
   box-shadow: var(--shadow-sm) !important;
+}
+
+.text-success {
+  color: #67c23a;
+}
+
+.text-danger {
+  color: #f56c6c;
 }
 </style>

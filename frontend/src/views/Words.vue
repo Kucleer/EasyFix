@@ -304,6 +304,22 @@
           <div>错误: {{ reviewResult.error }}</div>
           <div>用时: {{ Math.floor(reviewResult.duration / 60) }}:{{ String(reviewResult.duration % 60).padStart(2, '0') }}</div>
         </div>
+        <!-- 错误单词列表 -->
+        <div v-if="reviewResult.error > 0" class="error-word-list">
+          <h4>需要复习的单词</h4>
+          <div class="error-words">
+            <div v-for="(q, idx) in reviewQuestions.filter(q => !q.correct)" :key="idx" class="error-word-item">
+              <div class="error-word-info">
+                <span class="word-english">{{ q.english }}</span>
+                <span class="word-chinese">{{ q.chinese }}</span>
+              </div>
+              <div class="error-word-user">
+                <span class="label">你的答案：</span>
+                <span class="user-answer wrong">{{ q.userAnswer || '(未作答)' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <el-button type="primary" @click="reviewVisible = false" style="width: 100%">完成</el-button>
       </div>
     </el-dialog>
@@ -864,16 +880,6 @@ const submitAnswer = () => {
     // 选择
     q.correct = selectedOption.value === q.chinese
     q.userAnswer = selectedOption.value
-  }
-  // 自动进入下一题（默写模式）
-  if (reviewConfig.type === 1 && currentIndex.value < reviewQuestions.value.length - 1) {
-    currentIndex.value++
-    currentQuestion.value = reviewQuestions.value[currentIndex.value]
-    userAnswer.value = ''
-    selectedOption.value = ''
-    setTimeout(() => {
-      answerInputRef.value?.focus()
-    }, 50)
   }
 }
 
@@ -1526,6 +1532,59 @@ onMounted(() => {
 .label {
   font-size: 36px;
   color: #909399;
+}
+
+.error-word-list {
+  margin-top: 20px;
+  padding: 16px;
+  background: #fef0f0;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.error-word-list h4 {
+  margin: 0 0 12px 0;
+  color: #f56c6c;
+}
+
+.error-words {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.error-word-item {
+  background: #fff;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 3px solid #f56c6c;
+}
+
+.error-word-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.error-word-info .word-english {
+  font-weight: bold;
+  color: #303133;
+}
+
+.error-word-info .word-chinese {
+  color: #606266;
+}
+
+.error-word-user {
+  font-size: 13px;
+}
+
+.error-word-user .label {
+  color: #909399;
+}
+
+.error-word-user .user-answer {
+  color: #f56c6c;
 }
 
 .result-detail {
