@@ -1205,4 +1205,195 @@ onMounted(() => {
   transform: none;
   box-shadow: var(--shadow-sm) !important;
 }
+
+/* ========== 详情页卡片式布局 ========== */
+.question-detail {
+  padding: 8px;
+}
+
+/* 原图展示区 */
+.detail-images {
+  margin-bottom: 16px;
+}
+
+.image-gallery {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.gallery-image {
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.gallery-image:hover {
+  transform: scale(1.05);
+}
+
+/* 卡片通用样式 */
+.detail-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.detail-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+/* 卡片标题栏 */
+.card-header-blue {
+  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
+  color: #fff;
+  padding: 12px 16px;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.card-header-green {
+  background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
+  color: #fff;
+  padding: 12px 16px;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.card-header-orange {
+  background: linear-gradient(135deg, #e6a23c 0%, #db8b2e 100%);
+  color: #fff;
+  padding: 12px 16px;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.card-header-gray {
+  background: linear-gradient(135deg, #606266 0%, #555558 100%);
+  color: #fff;
+  padding: 12px 16px;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.card-header-purple {
+  background: linear-gradient(135deg, #9c27b0 0%, #862491 100%);
+  color: #fff;
+  padding: 12px 16px;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+/* 卡片内容区 */
+.card-content {
+  padding: 16px;
+}
+
+/* 题目/答案/解析文字 */
+.question-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.8;
+  font-size: 15px;
+  color: #303133;
+}
+
+/* 解析图片 */
+.analysis-image {
+  margin-top: 12px;
+}
+
+.analysis-img {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* 元数据行 */
+.meta-row {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 12px;
+}
+
+.meta-row:last-child {
+  margin-bottom: 0;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-item label {
+  color: #909399;
+  font-size: 14px;
+}
+
+.meta-item span {
+  color: #303133;
+  font-size: 14px;
+}
+
+/* 黄色星星难度 */
+.difficulty-stars-yellow {
+  font-size: 18px;
+  letter-spacing: 3px;
+  color: #f5c518;
+}
+
+/* 标签区域 */
+.tags-area {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tags-label {
+  color: #909399;
+  font-size: 14px;
+}
+
+/* 相似题 */
+.similar-item {
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.similar-item:last-child {
+  margin-bottom: 0;
+}
+
+.similar-item p {
+  margin: 0 0 8px 0;
+  line-height: 1.6;
+}
+
+.similar-item p:last-child {
+  margin-bottom: 0;
+}
+
+/* 文字辅助 */
+.text-muted {
+  color: #c0c4cc;
+  font-size: 14px;
+}
 </style>
