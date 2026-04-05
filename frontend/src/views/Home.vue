@@ -176,144 +176,21 @@
       </el-col>
     </el-row>
 
-    <!-- 单词准确率曲线 -->
-    <el-row style="margin-top: 24px">
-      <el-col :span="24">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">单词准确率曲线</span>
-              <div class="curve-tabs">
-                <el-radio-group v-model="curveRange" size="small">
-                  <el-radio-button label="week">最近一周</el-radio-button>
-                  <el-radio-button label="month">最近一月</el-radio-button>
-                  <el-radio-button label="3months">最近3月</el-radio-button>
-                  <el-radio-button label="halfyear">最近半年</el-radio-button>
-                  <el-radio-button label="all">全部</el-radio-button>
-                </el-radio-group>
-              </div>
-            </div>
-          </template>
-          <div v-if="hasAccuracyCurve" class="chart-container">
-            <v-chart :option="accuracyCurveOption" autoresize style="height: 280px" />
-          </div>
-          <el-empty v-else description="暂无准确率数据" />
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 图表区域 -->
-    <el-row :gutter="24" style="margin-top: 24px">
-      <!-- 错误类型分布 -->
-      <el-col :span="12">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">错误类型分布</span>
-              <el-tag type="danger" size="small">分类统计</el-tag>
-            </div>
-          </template>
-          <div v-if="hasErrorTypeData" class="chart-container">
-            <v-chart :option="errorTypeBarOption" autoresize style="height: 320px" />
-          </div>
-          <el-empty v-else description="暂无数据" />
-        </el-card>
-      </el-col>
-      <!-- 知识点分布 -->
-      <el-col :span="12">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">知识点分布</span>
-              <el-tag type="success" size="small">高频考点</el-tag>
-            </div>
-          </template>
-          <div v-if="hasKnowledgePointData" class="chart-container">
-            <v-chart :option="knowledgePointCloudOption" autoresize style="height: 320px" />
-          </div>
-          <el-empty v-else description="暂无知识点数据" />
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 按学科统计 - 雷达图和柱状图 -->
-    <el-row :gutter="24" style="margin-top: 24px">
-      <el-col :span="12">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">学科题目数量</span>
-            </div>
-          </template>
-          <div v-if="hasSubjectData" class="chart-container">
-            <v-chart :option="subjectBarOption" autoresize style="height: 360px" />
-          </div>
-          <el-empty v-else description="暂无学科数据" />
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 详细数据表格 -->
-    <el-row style="margin-top: 24px">
-      <el-col :span="24">
-        <el-card class="chart-card" shadow="hover">
-          <template #header>
-            <div class="card-header-modern">
-              <span class="header-title">学科详细数据</span>
-              <el-button type="primary" size="small" @click="$router.push('/questions')">查看全部</el-button>
-            </div>
-          </template>
-          <el-table :data="subjectTableData" stripe style="width: 100%" :header-cell-style="{ background: '#f5f7fa', color: '#303133' }">
-            <el-table-column prop="subject_name" label="学科" width="150">
-              <template #default="{ row }">
-                <el-tag type="primary" plain>{{ row.subject_name }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="question_count" label="题目数量" width="120" sortable>
-              <template #default="{ row }">
-                <span class="stat-num">{{ row.question_count }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="难度分布" min-width="300">
-              <template #default="{ row }">
-                <div class="mini-bars">
-                  <div v-for="i in 5" :key="i" class="mini-bar-item">
-                    <span class="mini-label">难度{{ i }}</span>
-                    <el-progress
-                      :percentage="getPercentage(row.difficulty_distribution?.[i] || 0, row.question_count)"
-                      :stroke-width="10"
-                      :color="getDifficultyColor(i)"
-                      :show-text="false"
-                    />
-                    <span class="mini-count">{{ row.difficulty_distribution?.[i] || 0 }}</span>
-                  </div>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="主要错误类型" min-width="200">
-              <template #default="{ row }">
-                <div class="error-tags">
-                  <el-tag
-                    v-for="(count, type) in getTopErrorTypes(row.error_type_counts)"
-                    :key="type"
-                    :type="getErrorTagType(type)"
-                    size="small"
-                    style="margin-right: 4px"
-                  >
-                    {{ type }} {{ count }}
-                  </el-tag>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="practice_count" label="练习次数" width="100" sortable>
-              <template #default="{ row }">
-                <span class="stat-num">{{ row.practice_count || 0 }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- 学科详细数据表格 + 准确率曲线（双列） -->
+<el-row :gutter="24" style="margin-top: 24px">
+  <el-col :span="12">
+    <!-- 学科详细数据表格（占位，Task 7会填充） -->
+    <div class="placeholder-card">
+      <span style="color: #909399; font-size: 14px;">学科详细数据表格（待实现）</span>
+    </div>
+  </el-col>
+  <el-col :span="12">
+    <!-- 准确率曲线图（占位，Task 8会填充） -->
+    <div class="placeholder-card">
+      <span style="color: #909399; font-size: 14px;">准确率曲线图（待实现）</span>
+    </div>
+  </el-col>
+</el-row>
   </div>
 </template>
 
@@ -798,7 +675,7 @@ onMounted(async () => {
 .placeholder-card {
   background: #f5f7fa;
   border-radius: 16px;
-  height: 200px;
+  height: 280px;
   display: flex;
   align-items: center;
   justify-content: center;
