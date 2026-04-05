@@ -229,7 +229,7 @@
         </div>
       </template>
       <div v-if="hasFilteredErrorTypeData" class="chart-container">
-        <v-chart :option="errorTypeBarOption" autoresize style="height: 260px" />
+        <v-chart :option="errorTypePieOption" autoresize style="height: 280px" />
       </div>
       <el-empty v-else description="暂无数据" />
     </el-card>
@@ -333,9 +333,10 @@ import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
-import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, GraphicComponent } from 'echarts/components'
+import 'echarts-gl'
 
-use([CanvasRenderer, PieChart, BarChart, LineChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
+use([CanvasRenderer, PieChart, BarChart, LineChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, GraphicComponent])
 
 const stats = ref({
   total_questions: 0,
@@ -351,7 +352,8 @@ const stats = ref({
     total_reviews: 0,
     accuracy: 0
   },
-  word_accuracy_curve: []
+  word_accuracy_curve: [],
+  question_accuracy_curve: []
 })
 
 const selectedSubject = ref('')
@@ -377,6 +379,15 @@ const getPercentage = (count, total) => {
 const getDifficultyColor = (level) => {
   const colors = ['', '#67c23a', '#85ce61', '#e6a23c', '#f56c6c', '#f56c6c']
   return colors[level] || '#909399'
+}
+
+// 颜色加深/变浅工具
+const adjustColor = (hex, amount) => {
+  const num = parseInt(hex.replace('#', ''), 16)
+  const r = Math.min(255, Math.max(0, (num >> 16) + amount))
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amount))
+  const b = Math.min(255, Math.max(0, (num & 0x0000FF) + amount))
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')
 }
 
 const getErrorTagType = (type) => {
@@ -413,24 +424,61 @@ const hasFilteredErrorTypeData = computed(() => {
   return Object.keys(filteredErrorTypeData.value).length > 0
 })
 
-const errorTypeBarOption = computed(() => {
+const errorTypePieOption = computed(() => {
   const data = filteredErrorTypeData.value
   if (!Object.keys(data).length) return {}
-  const colorMap = { '计算': '#f56c6c', '概念': '#e6a23c', '审题': '#909399', '粗心': '#67c23a', '其他': '#409eff' }
+  const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1])
+  const total = entries.reduce((sum, [, v]) => sum + v, 0)
   return {
-    tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
-    xAxis: { type: 'category', data: entries.map(([name]) => name) },
-    yAxis: { type: 'value', name: '数量' },
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: {
+      orient: 'vertical',
+      right: 16,
+      top: 'center',
+      itemWidth: 14,
+      itemHeight: 14,
+      itemGap: 16,
+      textStyle: { color: '#606266', fontSize: 14, lineHeight: 24 },
+      formatter: (name) => {
+        const item = entries.find(([n]) => n === name)
+        if (!item) return name
+        const pct = ((item[1] / total) * 100).toFixed(1)
+        return `${name}  ${item[1]}  ${pct}%`
+      }
+    },
     series: [{
-      type: 'bar',
-      barWidth: '50%',
+      type: 'pie',
+      radius: ['30%', '70%'],
+      center: ['35%', '50%'],
+      avoidLabelOverlap: true,
       itemStyle: {
-        color: (params) => colorMap[params.name] || '#409eff',
-        borderRadius: [4, 4, 0, 0]
+        borderRadius: 6,
+        borderColor: '#fff',
+        borderWidth: 2,
+        shadowBlur: 20,
+        shadowColor: 'rgba(0, 0, 0, 0.15)',
       },
-      data: entries.map(([, value]) => value),
+      label: { show: false },
+      emphasis: {
+        scaleSize: 8,
+        itemStyle: { shadowBlur: 20, shadowColor: 'rgba(0, 0, 0, 0.3)' }
+      },
+      labelLine: { show: false },
+      data: entries.map(([name, value], i) => ({
+        name,
+        value,
+        itemStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 1, y2: 1,
+            colorStops: [
+              { offset: 0, color: colors[i % colors.length] },
+              { offset: 1, color: adjustColor(colors[i % colors.length], -30) }
+            ]
+          }
+        }
+      }))
     }]
   }
 })
@@ -462,8 +510,17 @@ const filteredCurveData = computed(() => {
 })
 
 const dualAccuracyCurveOption = computed(() => {
-  const data = filteredCurveData.value
-  if (!data.length) return {}
+  const wordCurve = filteredCurveData.value
+  const questionCurve = stats.value.question_accuracy_curve || []
+
+  // 合并两条曲线的日期（去重排序）
+  const allDates = [...new Set([...wordCurve.map(p => p.date), ...questionCurve.map(p => p.date)])].sort()
+
+  if (!allDates.length) return {}
+
+  // 将每条曲线的数据按日期对齐，没有数据的日期填 null
+  const wordMap = new Map(wordCurve.map(p => [p.date, p.accuracy]))
+  const questionMap = new Map(questionCurve.map(p => [p.date, p.accuracy]))
 
   return {
     tooltip: {
@@ -471,8 +528,10 @@ const dualAccuracyCurveOption = computed(() => {
       formatter: function(params) {
         let result = params[0].name + '<br/>'
         params.forEach(p => {
-          result += '<span style="display:inline-block;margin-right:4px;border-radius:10px;width:10px;height:10px;background-color:' + p.color + '"></span>'
-          result += p.seriesName + ': ' + p.value + '%<br/>'
+          if (p.value !== null) {
+            result += '<span style="display:inline-block;margin-right:4px;border-radius:10px;width:10px;height:10px;background-color:' + p.color + '"></span>'
+            result += p.seriesName + ': ' + p.value + '%<br/>'
+          }
         })
         return result
       }
@@ -484,7 +543,7 @@ const dualAccuracyCurveOption = computed(() => {
     grid: { left: '3%', right: '4%', bottom: '15%', top: '10px', containLabel: true },
     xAxis: {
       type: 'category',
-      data: data.map(p => p.date),
+      data: allDates,
     },
     yAxis: {
       type: 'value',
@@ -498,6 +557,7 @@ const dualAccuracyCurveOption = computed(() => {
         name: '单词正确率',
         type: 'line',
         smooth: true,
+        connectNulls: true,
         symbol: 'circle',
         symbolSize: 8,
         lineStyle: { color: '#67c23a', width: 2 },
@@ -511,12 +571,13 @@ const dualAccuracyCurveOption = computed(() => {
             ]
           }
         },
-        data: data.map(p => p.accuracy)
+        data: allDates.map(date => wordMap.get(date) ?? null)
       },
       {
         name: '错题正确率',
         type: 'line',
         smooth: true,
+        connectNulls: true,
         symbol: 'circle',
         symbolSize: 8,
         lineStyle: { color: '#409eff', width: 2 },
@@ -530,7 +591,7 @@ const dualAccuracyCurveOption = computed(() => {
             ]
           }
         },
-        data: data.map(p => p.accuracy) // TODO: 后端新增错题准确率曲线后替换此数据
+        data: allDates.map(date => questionMap.get(date) ?? null)
       }
     ]
   }
@@ -671,6 +732,12 @@ onMounted(async () => {
 .chart-card :deep(.el-card__header) {
   border-bottom: 1px solid #ebeef5;
   padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px 16px 0 0;
+}
+
+.chart-card .card-header-modern .header-title {
+  color: #fff;
 }
 
 .card-header-modern {
@@ -895,6 +962,19 @@ onMounted(async () => {
   color: #fff;
   font-size: 15px;
   font-weight: 600;
+}
+
+.chart-card .card-header-modern .header-title,
+.subject-table-card .card-header-modern .header-title {
+  color: #fff;
+}
+
+.chart-card :deep(.el-card__header) {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.chart-card .card-header-modern .header-title {
+  color: #fff;
 }
 
 .subject-table-card .el-table {

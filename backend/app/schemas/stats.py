@@ -50,6 +50,7 @@ class StatsResponse(BaseModel):
     by_semester: List[SemesterStats] = []
     word_stats: WordStats = WordStats()
     word_accuracy_curve: List[AccuracyCurvePoint] = []
+    question_accuracy_curve: List[AccuracyCurvePoint] = []
 
 
 class TodayStats(BaseModel):

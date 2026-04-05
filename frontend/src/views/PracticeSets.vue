@@ -218,7 +218,7 @@
     </el-dialog>
 
     <!-- 练习集详情弹窗 -->
-    <el-dialog v-model="detailDialogVisible" :title="detailData.name || '练习集详情'" width="1200px" @opened="onDetailDialogOpened">
+    <el-dialog v-model="detailDialogVisible" :title="detailData.name || '练习集详情'" width="1200px" class="practice-detail-dialog" @opened="onDetailDialogOpened">
       <el-tabs v-model="detailActiveTab">
         <!-- 详情页 -->
         <el-tab-pane label="详情" name="detail">
@@ -1252,6 +1252,14 @@ onMounted(() => {
   color: #f56c6c;
 }
 
+.el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__cell {
+  font-size: 16px !important;
+}
+.el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__label,
+.el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__content {
+  font-size: 16px !important;
+}
+
 /* 卡片通用样式 */
 .detail-card {
   background: #fff;
@@ -1352,7 +1360,7 @@ onMounted(() => {
 
 .info-row .label {
   color: #909399;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .info-row .value {
@@ -1435,5 +1443,14 @@ onMounted(() => {
 /* 统计摘要 */
 .word-stats-summary {
   margin-bottom: 0;
+}
+</style>
+<style>
+.practice-detail-dialog .el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__cell {
+  font-size: 16px !important;
+}
+.practice-detail-dialog .el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__label,
+.practice-detail-dialog .el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__content {
+  font-size: 16px !important;
 }
 </style>

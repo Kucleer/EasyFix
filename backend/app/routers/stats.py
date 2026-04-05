@@ -236,6 +236,39 @@ def get_stats_summary(db: Session = Depends(get_db)):
     if earliest_date:
         active_days = (datetime.now() - earliest_date).days + 1
 
+    # 错题准确率曲线（累计到当天的正确率，只取已复习的数据）
+    # 日期和practice_set_id从practice_set表取，关联practice_set_question表查询批改结果
+    question_logs = (
+        db.query(
+            func.date(PracticeSet.created_at).label('date'),
+            func.sum(func.cast(PracticeSetQuestion.is_correct, Integer)).label('correct'),
+            func.count(PracticeSetQuestion.id).label('total')
+        )
+        .join(PracticeSetQuestion, PracticeSet.id == PracticeSetQuestion.practice_set_id)
+        .filter(
+            PracticeSet.deleted == False,
+            PracticeSet.source_type == 'question',
+            PracticeSet.reviewed == True,
+            PracticeSetQuestion.is_correct.isnot(None)
+        )
+        .group_by(func.date(PracticeSet.created_at))
+        .order_by(func.date(PracticeSet.created_at))
+        .all()
+    )
+
+    # 计算累计正确率
+    cumulative_correct = 0
+    cumulative_total = 0
+    question_accuracy_curve = []
+    for log in question_logs:
+        cumulative_correct += log.correct or 0
+        cumulative_total += log.total or 0
+        accuracy = (cumulative_correct / cumulative_total * 100) if cumulative_total > 0 else 0
+        question_accuracy_curve.append(AccuracyCurvePoint(
+            date=log.date.strftime('%Y-%m-%d') if hasattr(log.date, 'strftime') else str(log.date),
+            accuracy=round(accuracy, 1)
+        ))
+
     return StatsResponse(
         total_questions=total_questions or 0,
         total_subjects=total_subjects or 0,
@@ -249,6 +282,7 @@ def get_stats_summary(db: Session = Depends(get_db)):
         by_semester=by_semester,
         word_stats=word_stats,
         word_accuracy_curve=word_accuracy_curve,
+        question_accuracy_curve=question_accuracy_curve,
     )
 
 
