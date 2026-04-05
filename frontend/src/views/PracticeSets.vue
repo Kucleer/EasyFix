@@ -223,64 +223,81 @@
         <!-- 详情页 -->
         <el-tab-pane label="详情" name="detail">
           <div class="detail-info">
-            <el-descriptions :column="2" border>
-              <el-descriptions-item label="名称">{{ detailData.name }}</el-descriptions-item>
-              <el-descriptions-item label="学科">{{ detailData.subject_name }}</el-descriptions-item>
-              <el-descriptions-item label="类型">{{ detailData.source_type === 'word' ? '单词复习' : '错题练习' }}</el-descriptions-item>
-              <el-descriptions-item label="题目数">{{ detailData.total_questions }}</el-descriptions-item>
-              <el-descriptions-item label="复习次数">{{ detailData.review_count }}</el-descriptions-item>
-              <el-descriptions-item label="备注" :span="2">{{ detailData.notes || '无' }}</el-descriptions-item>
-            </el-descriptions>
+            <div class="detail-card">
+              <div class="card-header-gray">基本信息</div>
+              <div class="card-content">
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="名称">{{ detailData.name }}</el-descriptions-item>
+                  <el-descriptions-item label="学科">{{ detailData.subject_name }}</el-descriptions-item>
+                  <el-descriptions-item label="类型">{{ detailData.source_type === 'word' ? '单词复习' : '错题练习' }}</el-descriptions-item>
+                  <el-descriptions-item label="题目数">{{ detailData.total_questions }}</el-descriptions-item>
+                  <el-descriptions-item label="复习次数">{{ detailData.review_count }}</el-descriptions-item>
+                  <el-descriptions-item label="备注" :span="2">{{ detailData.notes || '无' }}</el-descriptions-item>
+                </el-descriptions>
+              </div>
+            </div>
 
             <!-- 单词复习统计 -->
             <div v-if="detailData.source_type === 'word' && detailData.word_review_stats" class="word-stats">
-              <h4>单词复习统计</h4>
-              <el-descriptions :column="3" border>
-                <el-descriptions-item label="总单词数">{{ detailData.word_review_stats.total_count }}</el-descriptions-item>
-                <el-descriptions-item label="正确数">{{ detailData.word_review_stats.correct_count }}</el-descriptions-item>
-                <el-descriptions-item label="准确率">{{ detailData.word_review_stats.accuracy }}%</el-descriptions-item>
-                <el-descriptions-item label="用时" :span="2">{{ formatDuration(detailData.word_review_stats?.duration ?? 0) }}</el-descriptions-item>
-              </el-descriptions>
+              <div class="detail-card">
+                <div class="card-header-green">单词复习统计</div>
+                <div class="card-content">
+                  <el-descriptions :column="4" border size="small">
+                    <el-descriptions-item label="总单词数">{{ detailData.word_review_stats.total_count }}</el-descriptions-item>
+                    <el-descriptions-item label="正确数">{{ detailData.word_review_stats.correct_count }}</el-descriptions-item>
+                    <el-descriptions-item label="错误数">{{ (detailData.word_review_stats.total_count || 0) - (detailData.word_review_stats.correct_count || 0) }}</el-descriptions-item>
+                    <el-descriptions-item label="准确率">{{ detailData.word_review_stats.accuracy }}%</el-descriptions-item>
+                  </el-descriptions>
+                </div>
+              </div>
             </div>
 
             <!-- 错题练习集复习图片 -->
             <div v-if="detailData.source_type !== 'word'" class="review-images">
-              <h4>
-                复习完成图片
-                <el-button v-if="!isEditingImages" type="primary" size="small" style="margin-left: 12px;" @click="startEditImages">编辑图片</el-button>
-                <template v-else>
-                  <el-button type="primary" size="small" @click="saveEditImages" :loading="imageEditLoading">保存</el-button>
-                  <el-button size="small" @click="cancelEditImages">取消</el-button>
-                </template>
-              </h4>
-              <div v-if="!isEditingImages" class="image-grid">
-                <template v-if="detailData.review_images && detailData.review_images.length > 0">
-                  <div v-for="(img, idx) in detailData.review_images" :key="idx" class="image-item">
-                    <el-image
-                      :src="'/uploads/' + img"
-                      :preview-src-list="detailData.review_images.map(i => '/uploads/' + i)"
-                      fit="cover"
-                      style="width: 120px; height: 120px; border-radius: 8px; cursor: pointer;"
-                    />
+              <div class="detail-card">
+                <div class="card-header-orange">
+                  <span>复习完成图片</span>
+                  <div>
+                    <template v-if="!isEditingImages">
+                      <el-button type="primary" size="small" @click="startEditImages">编辑图片</el-button>
+                    </template>
+                    <template v-else>
+                      <el-button type="primary" size="small" @click="saveEditImages" :loading="imageEditLoading">保存</el-button>
+                      <el-button size="small" @click="cancelEditImages">取消</el-button>
+                    </template>
                   </div>
-                </template>
-                <el-empty v-else description="暂无复习图片" :image-size="60" />
-              </div>
-              <!-- 编辑模式 -->
-              <div v-else class="image-edit-grid">
-                <el-upload
-                  ref="imageEditUploadRef"
-                  :auto-upload="false"
-                  :multiple="true"
-                  :limit="9"
-                  accept="image/*"
-                  list-type="picture-card"
-                  :on-change="handleEditImageChange"
-                  :on-remove="handleEditImageRemove"
-                  :file-list="editImagesFileList"
-                >
-                  <el-icon><Plus /></el-icon>
-                </el-upload>
+                </div>
+                <div class="card-content">
+                  <div v-if="!isEditingImages" class="image-grid">
+                    <template v-if="detailData.review_images && detailData.review_images.length > 0">
+                      <div v-for="(img, idx) in detailData.review_images" :key="idx" class="image-item">
+                        <el-image
+                          :src="'/uploads/' + img"
+                          :preview-src-list="detailData.review_images.map(i => '/uploads/' + i)"
+                          fit="cover"
+                          style="width: 120px; height: 120px; border-radius: 8px; cursor: pointer;"
+                        />
+                      </div>
+                    </template>
+                    <el-empty v-else description="暂无复习图片" :image-size="60" />
+                  </div>
+                  <!-- 编辑模式 -->
+                  <div v-else class="image-edit-grid">
+                    <el-upload
+                      ref="imageEditUploadRef"
+                      :auto-upload="false"
+                      :multiple="true"
+                      :limit="9"
+                      accept="image/*"
+                      list-type="picture-card"
+                      :on-change="handleEditImageChange"
+                      :on-remove="handleEditImageRemove"
+                      :file-list="editImagesFileList"
+                    >
+                      <el-icon><Plus /></el-icon>
+                    </el-upload>
+                  </div>
+                </div>
               </div>
             </div>
 
