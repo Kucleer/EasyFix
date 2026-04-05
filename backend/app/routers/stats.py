@@ -42,14 +42,21 @@ def get_stats_summary(db: Session = Depends(get_db)):
     )
     difficulty_distribution = {str(k): v for k, v in difficulty_query}
 
-    # 错误类型分布（只统计未删除的错题）
+    # 错误类型分布（只统计未删除的错题，每个错误类型单独计数）
     error_type_query = (
-        db.query(Question.error_type, func.count(Question.id))
+        db.query(Question.error_type)
         .filter(Question.deleted == False, Question.error_type.isnot(None))
-        .group_by(Question.error_type)
         .all()
     )
-    error_type_distribution = {k: v for k, v in error_type_query}
+    # 拆分逗号分隔的错误类型，分别计数
+    error_type_counts = {}
+    for (et,) in error_type_query:
+        if et:
+            for single_et in et.split(','):
+                single_et = single_et.strip()
+                if single_et:
+                    error_type_counts[single_et] = error_type_counts.get(single_et, 0) + 1
+    error_type_distribution = error_type_counts
 
     # 按学科统计（只统计未删除的学科和错题）
     subject_query = (
