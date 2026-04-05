@@ -40,7 +40,63 @@
       </el-col>
     </el-row>
 
-    <!-- 单词统计卡片 -->
+<!-- 今日学习概览 + 错误类型分布（双列） -->
+<el-row :gutter="24" style="margin-top: 24px">
+  <el-col :span="12">
+    <!-- 今日学习概览卡片 -->
+    <div class="today-overview-card">
+      <div class="today-card-header">
+        <span class="today-title">今日学习概览</span>
+      </div>
+      <div class="today-card-content">
+        <div class="today-item">
+          <div class="today-item-icon word-icon">
+            <el-icon><Reading /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_word_review_count }}</div>
+            <div class="today-label">今日复习单词</div>
+          </div>
+        </div>
+        <div class="today-item">
+          <div class="today-item-icon question-icon">
+            <el-icon><Document /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_question_review_count }}</div>
+            <div class="today-label">今日复习错题</div>
+          </div>
+        </div>
+        <div class="today-item">
+          <div class="today-item-icon word-accuracy-icon">
+            <el-icon><CircleCheck /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_word_accuracy }}%</div>
+            <div class="today-label">今日单词正确率</div>
+          </div>
+        </div>
+        <div class="today-item">
+          <div class="today-item-icon question-accuracy-icon">
+            <el-icon><SuccessFilled /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_question_accuracy }}%</div>
+            <div class="today-label">今日错题正确率</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </el-col>
+  <el-col :span="12">
+    <!-- 错误类型分布（占位，右边 Task 6 会替换） -->
+    <div class="placeholder-card">
+      <span style="color: #909399; font-size: 14px;">错误类型分布（待实现）</span>
+    </div>
+  </el-col>
+</el-row>
+
+<!-- 单词统计卡片 -->
     <el-row :gutter="24" style="margin-top: 24px">
       <el-col :span="8">
         <div class="stat-card stat-card-green" @click="$router.push('/questions')">
@@ -289,6 +345,13 @@ const stats = ref({
   word_accuracy_curve: []
 })
 
+const todayStats = ref({
+  today_word_review_count: 0,
+  today_question_review_count: 0,
+  today_word_accuracy: 0,
+  today_question_accuracy: 0,
+})
+
 const curveRange = ref('month')
 
 const getPercentage = (count, total) => {
@@ -474,6 +537,12 @@ onMounted(async () => {
   } catch (error) {
     console.error('获取统计失败:', error)
   }
+  try {
+    const todayRes = await statsApi.getTodayStats()
+    todayStats.value = todayRes.data
+  } catch (error) {
+    console.error('获取今日统计失败:', error)
+  }
 })
 </script>
 
@@ -658,5 +727,81 @@ onMounted(async () => {
 .error-tags {
   display: flex;
   flex-wrap: wrap;
+}
+
+/* 今日学习概览卡片 */
+.today-overview-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+}
+
+.today-card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.today-title {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.today-card-content {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.today-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.today-item-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.word-icon { background: rgba(255,255,255,0.25); color: #fff; }
+.question-icon { background: rgba(255,255,255,0.25); color: #fff; }
+.word-accuracy-icon { background: rgba(103,194,58,0.3); color: #a8e6a3; }
+.question-accuracy-icon { background: rgba(64,158,255,0.3); color: #a0cfff; }
+
+.today-item-info {
+  flex: 1;
+}
+
+.today-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.today-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  margin-top: 2px;
+}
+
+/* 占位卡片 */
+.placeholder-card {
+  background: #f5f7fa;
+  border-radius: 16px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #dcdfe6;
 }
 </style>
