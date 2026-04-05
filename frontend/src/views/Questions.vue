@@ -774,7 +774,8 @@ const getDifficultyStars = (difficulty) => {
 // 获取黄色星星（统一黄色）
 const getYellowStars = (difficulty) => {
   if (!difficulty) return '☆☆☆☆☆'
-  return '★'.repeat(difficulty) + '☆'.repeat(5 - difficulty)
+  const d = Math.max(0, Math.min(5, difficulty)) // clamp to [0, 5]
+  return '★'.repeat(d) + '☆'.repeat(5 - d)
 }
 
 const getErrorTypeType = (errorType) => {
