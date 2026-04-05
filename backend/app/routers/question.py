@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional, List
 import json
 from app.database import get_db
@@ -28,8 +28,11 @@ def list_questions(
     accuracy_range: Optional[str] = Query(None, description="正确率区间筛选，如 '0-30','30-60','60-80','80-100'"),
     db: Session = Depends(get_db),
 ):
-    # 过滤已删除的记录
-    query = db.query(Question).filter(Question.deleted == False)
+    # 过滤已删除的记录，使用 eager loading 避免 N+1 查询
+    query = db.query(Question).options(
+        joinedload(Question.tags),
+        joinedload(Question.similar_questions)
+    ).filter(Question.deleted == False)
 
     if error_book_id:
         query = query.filter(Question.error_book_id == error_book_id)

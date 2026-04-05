@@ -424,7 +424,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { questionApi } from '@/api/question'
+import { questionApi, uploadApi } from '@/api/question'
 
 // 年级选项：一年级到六年级，初一/初二/初三，高一/高二/高三
 const gradeOptions = [
@@ -639,7 +639,7 @@ const handleAnalysisImageUpload = async (options) => {
   try {
     const formData = new FormData()
     formData.append('file', file)
-    const res = await questionApi.uploadFile(file)
+    const res = await uploadApi.uploadFile(file)
     if (res.data && res.data.path) {
       editForm.analysis_image = res.data.path
       ElMessage.success('上传成功')
@@ -663,7 +663,7 @@ const handleOriginalImageUpload = async (options) => {
   try {
     const formData = new FormData()
     formData.append('file', file)
-    const res = await questionApi.uploadFile(file)
+    const res = await uploadApi.uploadFile(file)
     if (res.data && res.data.path) {
       editForm.original_image = res.data.path
       ElMessage.success('上传成功')
