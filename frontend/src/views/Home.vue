@@ -40,78 +40,6 @@
       </el-col>
     </el-row>
 
-<!-- 今日学习概览 + 错误类型分布（双列） -->
-<el-row :gutter="24" style="margin-top: 24px">
-  <el-col :span="12">
-    <!-- 今日学习概览卡片 -->
-    <div class="today-overview-card">
-      <div class="today-card-header">
-        <span class="today-title">今日学习概览</span>
-      </div>
-      <div class="today-card-content">
-        <div class="today-item">
-          <div class="today-item-icon word-icon">
-            <el-icon><Reading /></el-icon>
-          </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_word_review_count }}</div>
-            <div class="today-label">今日复习单词</div>
-          </div>
-        </div>
-        <div class="today-item">
-          <div class="today-item-icon question-icon">
-            <el-icon><Document /></el-icon>
-          </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_question_review_count }}</div>
-            <div class="today-label">今日复习错题</div>
-          </div>
-        </div>
-        <div class="today-item">
-          <div class="today-item-icon word-accuracy-icon">
-            <el-icon><CircleCheck /></el-icon>
-          </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_word_accuracy }}%</div>
-            <div class="today-label">今日单词正确率</div>
-          </div>
-        </div>
-        <div class="today-item">
-          <div class="today-item-icon question-accuracy-icon">
-            <el-icon><SuccessFilled /></el-icon>
-          </div>
-          <div class="today-item-info">
-            <div class="today-value">{{ todayStats.today_question_accuracy }}%</div>
-            <div class="today-label">今日错题正确率</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </el-col>
-  <el-col :span="12">
-    <!-- 错误类型分布 -->
-    <el-card class="chart-card" shadow="hover">
-      <template #header>
-        <div class="card-header-modern">
-          <span class="header-title">错误类型分布</span>
-          <el-select v-model="selectedSubject" placeholder="选择学科" size="small" style="width: 140px">
-            <el-option
-              v-for="subject in stats.by_subject"
-              :key="subject.subject_id"
-              :label="subject.subject_name"
-              :value="subject.subject_id"
-            />
-          </el-select>
-        </div>
-      </template>
-      <div v-if="hasFilteredErrorTypeData" class="chart-container">
-        <v-chart :option="errorTypePieOption" autoresize style="height: 260px" />
-      </div>
-      <el-empty v-else description="暂无数据" />
-    </el-card>
-  </el-col>
-</el-row>
-
 <!-- 单词统计卡片 -->
     <el-row :gutter="24" style="margin-top: 24px">
       <el-col :span="8">
@@ -192,6 +120,78 @@
       </el-col>
     </el-row>
 
+    <!-- 今日学习概览 + 错误类型分布（双列） -->
+<el-row :gutter="24" style="margin-top: 24px">
+  <el-col :span="12">
+    <!-- 今日学习概览卡片 -->
+    <div class="today-overview-card">
+      <div class="today-card-header">
+        <span class="today-title">今日学习概览</span>
+      </div>
+      <div class="today-card-content">
+        <div class="today-item">
+          <div class="today-item-icon word-icon">
+            <el-icon><Reading /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_word_review_count }}</div>
+            <div class="today-label">今日复习单词</div>
+          </div>
+        </div>
+        <div class="today-item">
+          <div class="today-item-icon question-icon">
+            <el-icon><Document /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_question_review_count }}</div>
+            <div class="today-label">今日复习错题</div>
+          </div>
+        </div>
+        <div class="today-item">
+          <div class="today-item-icon word-accuracy-icon">
+            <el-icon><CircleCheck /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_word_accuracy }}%</div>
+            <div class="today-label">今日单词正确率</div>
+          </div>
+        </div>
+        <div class="today-item">
+          <div class="today-item-icon question-accuracy-icon">
+            <el-icon><SuccessFilled /></el-icon>
+          </div>
+          <div class="today-item-info">
+            <div class="today-value">{{ todayStats.today_question_accuracy }}%</div>
+            <div class="today-label">今日错题正确率</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </el-col>
+  <el-col :span="12">
+    <!-- 错误类型分布 -->
+    <el-card class="chart-card" shadow="hover">
+      <template #header>
+        <div class="card-header-modern">
+          <span class="header-title">错误类型分布</span>
+          <el-select v-model="selectedSubject" placeholder="选择学科" size="small" style="width: 140px">
+            <el-option
+              v-for="subject in stats.by_subject"
+              :key="subject.subject_id"
+              :label="subject.subject_name"
+              :value="subject.subject_id"
+            />
+          </el-select>
+        </div>
+      </template>
+      <div v-if="hasFilteredErrorTypeData" class="chart-container">
+        <v-chart :option="errorTypeBarOption" autoresize style="height: 260px" />
+      </div>
+      <el-empty v-else description="暂无数据" />
+    </el-card>
+  </el-col>
+</el-row>
+
     <!-- 学科详细数据表格 + 准确率曲线（双列） -->
 <el-row :gutter="24" style="margin-top: 24px">
   <el-col :span="12">
@@ -247,7 +247,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="practice_count" label="练习次数" width="100" align="center">
+        <el-table-column prop="practice_count" label="练习次数" width="120" align="center">
           <template #default="{ row }">
             <span class="practice-count">{{ row.practice_count || 0 }}</span>
           </template>
@@ -365,25 +365,24 @@ const hasFilteredErrorTypeData = computed(() => {
   return Object.keys(filteredErrorTypeData.value).length > 0
 })
 
-const errorTypePieOption = computed(() => {
+const errorTypeBarOption = computed(() => {
   const data = filteredErrorTypeData.value
   if (!Object.keys(data).length) return {}
   const colorMap = { '计算': '#f56c6c', '概念': '#e6a23c', '审题': '#909399', '粗心': '#67c23a', '其他': '#409eff' }
-  const pieData = Object.entries(data).map(([name, value]) => ({
-    name,
-    value,
-    itemStyle: { color: colorMap[name] || '#409eff' }
-  }))
+  const entries = Object.entries(data).sort((a, b) => b[1] - a[1])
   return {
-    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { bottom: 10, left: 'center' },
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
+    xAxis: { type: 'category', data: entries.map(([name]) => name) },
+    yAxis: { type: 'value', name: '数量' },
     series: [{
-      type: 'pie',
-      radius: ['40%', '70%'],
-      avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
-      label: { show: true, formatter: '{b}\n{c}题' },
-      data: pieData,
+      type: 'bar',
+      barWidth: '50%',
+      itemStyle: {
+        color: (params) => colorMap[params.name] || '#409eff',
+        borderRadius: [4, 4, 0, 0]
+      },
+      data: entries.map(([, value]) => value),
     }]
   }
 })
