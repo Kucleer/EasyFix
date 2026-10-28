@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import html
 from pathlib import Path
+import re
 import threading
 import uuid
 
@@ -45,6 +46,8 @@ def build_document(title, questions):
         for letter in 'abcd':
             option = question.get('option_' + letter)
             if option:
+                # 与旧导出器一致：已有 A. / A、/ (A) / A) 前缀时不重复添加。
+                option = re.sub(r'^(?:[A-Da-d]\s*[.、．)]|\([A-Da-d]\))\s*', '', str(option).strip())
                 body += field(f'{letter.upper()}. {option}', f'题目 {identity} 选项 {letter.upper()}')
         # 默认不打印答案，沿用现有练习集行为；专项验证可显式带答案解析。
         if question.get('include_solution'):

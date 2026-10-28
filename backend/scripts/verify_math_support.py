@@ -16,10 +16,13 @@ def main():
     os.chdir(BACKEND)
     from playwright.sync_api import sync_playwright
     from app.config import get_settings
-    from app.services.math_pdf import ASSETS, RENDERER, generate_math_practice_pdf
+    from app.services.math_pdf import ASSETS, RENDERER, build_document, generate_math_practice_pdf
     from import_math_formula_photos import QUESTIONS
     settings = get_settings()
     results = {}
+    _, reading_fields = build_document('阅读选项兼容', [{'question_text': 'Choose one.', 'option_a': 'A. Reading', 'option_b': '(B) Music', 'option_c': 'C、Sports', 'option_d': 'D) Travel'}])
+    assert [item['text'] for item in reading_fields[1:]] == ['A. Reading', 'B. Music', 'C. Sports', 'D. Travel']
+    results['reading_option_prefixes'] = 'passed'
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True, **({'channel': settings.PDF_BROWSER_CHANNEL} if settings.PDF_BROWSER_CHANNEL else {}))
         try:
