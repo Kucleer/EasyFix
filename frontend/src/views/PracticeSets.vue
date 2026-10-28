@@ -161,7 +161,7 @@
           <div class="question-number">{{ index + 1 }}</div>
           <div class="question-content">
             <div class="question-text">
-              <template v-if="question.original_question_text">{{ question.original_question_text }}</template>
+              <template v-if="question.original_question_text"><MathText :text="question.original_question_text" /></template>
               <template v-else-if="question.original_image">
                 <el-image
                   :src="'/uploads/' + question.original_image"
@@ -174,7 +174,7 @@
             </div>
             <div class="question-answer">
               <span class="answer-label">答案：</span>
-              <span class="answer-badge">{{ question.original_answer || '-' }}</span>
+              <span class="answer-badge"><MathText :text="question.original_answer || '-'" /></span>
             </div>
           </div>
           <div class="question-actions">
@@ -218,7 +218,7 @@
             <div class="detail-block">
               <div class="detail-label">原题</div>
               <div class="detail-value">
-                <p v-if="gradingQuestionDetail.original_question_text">{{ gradingQuestionDetail.original_question_text }}</p>
+                <p v-if="gradingQuestionDetail.original_question_text"><MathText :text="gradingQuestionDetail.original_question_text" /></p>
                 <el-image
                   v-if="gradingQuestionDetail.original_image"
                   :src="'/uploads/' + gradingQuestionDetail.original_image"
@@ -234,7 +234,7 @@
             <div class="detail-block">
               <div class="detail-label">答案</div>
               <div class="detail-value answer-value">
-                {{ gradingQuestionDetail.original_answer || '-' }}
+                <MathText :text="gradingQuestionDetail.original_answer || '-'" />
               </div>
             </div>
             <!-- 阅读理解选项 -->
@@ -260,7 +260,7 @@
       <div v-if="gradingQuestionDetail && isEditingGradingQuestion" class="question-edit-content">
         <el-form :model="gradingQuestionEditForm" label-width="80px">
           <el-form-item label="题目内容">
-            <el-input v-model="gradingQuestionEditForm.original_question_text" type="textarea" :rows="3" placeholder="请输入题目内容" />
+            <MathEditor v-model="gradingQuestionEditForm.original_question_text" :rows="3" placeholder="请输入题目内容" />
           </el-form-item>
           <el-form-item label="题目图片">
             <div v-if="gradingQuestionDetail.original_image" class="mb-2">
@@ -273,7 +273,7 @@
             <el-input v-model="gradingQuestionEditForm.original_image" placeholder="图片路径（可选）" />
           </el-form-item>
           <el-form-item label="答案">
-            <el-input v-model="gradingQuestionEditForm.original_answer" type="textarea" :rows="3" placeholder="请输入答案" />
+            <MathEditor v-model="gradingQuestionEditForm.original_answer" :rows="3" placeholder="请输入答案" />
           </el-form-item>
           <el-form-item label="知识点">
             <el-input v-model="gradingQuestionEditForm.knowledge_point" placeholder="请输入知识点" />
@@ -414,19 +414,19 @@
                     <div
                       v-for="(row, idx) in detailData.questions"
                       :key="row.id"
-                      :class="['question-card', row.is_correct ? 'card-correct' : 'card-wrong']"
+                      :class="['question-card', row.is_correct === true ? 'card-correct' : row.is_correct === false ? 'card-wrong' : 'card-pending', { 'math-question': hasMathFormula(row.original_question_text) }]"
                     >
                       <div class="card-header-small">
                         <span class="card-index">{{ idx + 1 }}</span>
-                        <el-tag :type="row.is_correct ? 'success' : 'danger'" size="small">
-                          {{ row.is_correct ? '正确' : '错误' }}
+                        <el-tag :type="row.is_correct === true ? 'success' : row.is_correct === false ? 'danger' : 'info'" size="small">
+                          {{ row.is_correct === true ? '正确' : row.is_correct === false ? '错误' : '未批改' }}
                         </el-tag>
                       </div>
                       <div class="card-body">
                         <div class="question-info">
                           <div class="info-row">
                             <span class="label">原题：</span>
-                            <span class="value">{{ row.original_question_text?.substring(0, 100) || '无' }}</span>
+                            <span class="value"><MathText :text="row.original_question_text || '无'" /></span>
                           </div>
                           <!-- 阅读理解选项 -->
                           <div v-if="row.is_reading_question" class="reading-options">
@@ -437,11 +437,11 @@
                           </div>
                           <div class="info-row">
                             <span class="label">答案：</span>
-                            <span class="value answer">{{ row.original_answer || '-' }}</span>
+                            <span class="value answer"><MathText :text="row.original_answer || '-'" /></span>
                           </div>
                           <div v-if="row.explanation" class="info-row">
                             <span class="label">解析：</span>
-                            <span class="value explanation">{{ row.explanation }}</span>
+                            <span class="value explanation"><MathText :text="row.explanation" /></span>
                           </div>
                         </div>
                         <div v-if="row.original_image" class="question-image">
@@ -532,10 +532,14 @@
 </template>
 
 <script setup>
+import MathText from '@/components/MathText.vue'
+import MathEditor from '@/components/MathEditor.vue'
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
+
+const hasMathFormula = (text = '') => ['\\(', '\\[', '$$'].some(boundary => (text || '').includes(boundary))
 
 const practiceSets = ref([])
 const subjects = ref([])
@@ -1559,7 +1563,14 @@ onMounted(() => {
 
 .question-info {
   flex: 1;
+  min-width: 0;
 }
+
+.question-card { min-width: 0; }
+.question-card.math-question { grid-column: 1 / -1; }
+.math-question .info-row .value { display: block; max-width: 100%; }
+.question-image { flex: 0 0 60px; }
+.question-card.card-pending { border-left-color: #909399; }
 
 .info-row {
   margin-bottom: 10px;

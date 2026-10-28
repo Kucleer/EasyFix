@@ -10,6 +10,11 @@ backend/.env
 *.pem
 
 # DB dumps / local sqlite
+backups/
+tmp/math-feasibility/
+tmp/pg18/
+tmp/postgresql-*.zip
+output/pdf/
 backend/easyfix.db
 *.sqlite3
 

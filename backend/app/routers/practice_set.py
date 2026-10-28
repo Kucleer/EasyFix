@@ -822,12 +822,12 @@ def generate_pdf(practice_set_id: int, db: Session = Depends(get_db)):
         ).order_by(PracticeSetQuestion.display_order).all()
 
         for psq in ps_questions:
-            question = db.query(Question).filter(Question.id == psq.question_id).first()
+            question = db.query(Question).filter(Question.id == psq.question_id, Question.deleted == False).first()
             if not question:
                 continue
 
             if ps.question_type == "similar" and psq.similar_question_id:
-                similar = db.query(SimilarQuestion).filter(SimilarQuestion.id == psq.similar_question_id).first()
+                similar = db.query(SimilarQuestion).filter(SimilarQuestion.id == psq.similar_question_id, SimilarQuestion.deleted == False).first()
                 question_text = similar.similar_text if similar else ""
             else:
                 question_text = question.parsed_question or question.original_text or ""
@@ -862,6 +862,7 @@ def generate_pdf(practice_set_id: int, db: Session = Depends(get_db)):
 
         return {"pdf_url": f"/uploads/{pdf_path}"}
     except Exception as e:
+        db.rollback()
         logger_service.log_operation(
             operation_type="generate_pdf",
             target_type="practice_set",

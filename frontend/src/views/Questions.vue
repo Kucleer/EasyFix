@@ -105,7 +105,7 @@
                 style="width: 50px; height: 50px; margin-right: 8px; cursor: pointer"
                 @click="previewImage('/uploads/' + (row.original_image || row.original_images[0]))"
               />
-              <div class="text-preview" v-html="decodeHTML(row.parsed_question || row.original_text || '无文本')"></div>
+              <div class="text-preview"><MathText :text="row.parsed_question || row.original_text || '无文本'" /></div>
             </div>
           </template>
         </el-table-column>
@@ -204,7 +204,7 @@
                   v-for="(img, idx) in getImageList(currentQuestion)"
                   :key="idx"
                   :src="'/uploads/' + img"
-                  fit="cover"
+                  fit="contain"
                   class="gallery-image"
                   style="cursor: pointer"
                   @click="previewImage('/uploads/' + img)"
@@ -220,14 +220,14 @@
           <div class="detail-card flex-1">
             <div class="card-header-blue">题目</div>
             <div class="card-content">
-              <div class="question-text" v-html="decodeHTML(currentQuestion.parsed_question || currentQuestion.original_text || '暂无')"></div>
+              <div class="question-text"><MathText :text="currentQuestion.parsed_question || currentQuestion.original_text || '暂无'" /></div>
             </div>
           </div>
           <!-- 答案卡片 -->
           <div class="detail-card flex-1">
             <div class="card-header-green">答案</div>
             <div class="card-content">
-              <div class="question-text" v-html="decodeHTML(currentQuestion.answer || '暂无')"></div>
+              <div class="question-text"><MathText :text="currentQuestion.answer || '暂无'" /></div>
             </div>
           </div>
         </div>
@@ -236,7 +236,7 @@
         <div class="detail-card">
           <div class="card-header-orange">解析</div>
           <div class="card-content">
-            <div v-if="currentQuestion.analysis" class="question-text" v-html="decodeHTML(currentQuestion.analysis)"></div>
+            <div v-if="currentQuestion.analysis" class="question-text"><MathText :text="currentQuestion.analysis" /></div>
             <div v-if="currentQuestion.analysis_image" class="analysis-image">
               <el-image
                 :src="'/uploads/' + currentQuestion.analysis_image"
@@ -315,8 +315,8 @@
           <div class="card-header-purple">相似题</div>
           <div class="card-content">
             <div v-for="sq in currentQuestion.similar_questions" :key="sq.id" class="similar-item">
-              <p><strong>题目：</strong><span v-html="decodeHTML(sq.similar_text)"></span></p>
-              <p><strong>答案：</strong><span v-html="decodeHTML(sq.similar_answer)"></span></p>
+              <p><strong>题目：</strong><MathText :text="sq.similar_text" /></p>
+              <p><strong>答案：</strong><MathText :text="sq.similar_answer" /></p>
             </div>
           </div>
         </div>
@@ -351,13 +351,13 @@
           </el-upload>
         </el-form-item>
         <el-form-item label="题目">
-          <el-input v-model="editForm.parsed_question" type="textarea" :rows="6" />
+          <MathEditor v-model="editForm.parsed_question" :rows="6" />
         </el-form-item>
         <el-form-item label="答案">
-          <el-input v-model="editForm.answer" type="textarea" :rows="4" />
+          <MathEditor v-model="editForm.answer" :rows="4" />
         </el-form-item>
         <el-form-item label="解析">
-          <el-input v-model="editForm.analysis" type="textarea" :rows="4" />
+          <MathEditor v-model="editForm.analysis" :rows="4" />
         </el-form-item>
         <el-form-item label="解析图片">
           <div v-if="editForm.analysis_image" class="analysis-image-preview">
@@ -493,6 +493,8 @@
 </template>
 
 <script setup>
+import MathText from '@/components/MathText.vue'
+import MathEditor from '@/components/MathEditor.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -519,13 +521,6 @@ const gradeOptions = [
   { label: '高三', value: 12 },
 ]
 
-// 解码HTML实体（将 &times; 转为 × 等）
-const decodeHTML = (html) => {
-  if (!html) return ''
-  const textarea = document.createElement('textarea')
-  textarea.innerHTML = html
-  return textarea.value
-}
 
 const questions = ref({ total: 0, items: [] })
 const subjects = ref([])

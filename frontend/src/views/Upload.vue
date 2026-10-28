@@ -72,13 +72,13 @@
         <div class="card-content">
           <el-form :model="form" label-width="80px" style="max-width: 800px">
             <el-form-item label="题目">
-              <el-input v-model="form.parsed_question" type="textarea" :rows="6" placeholder="请输入题目" />
+              <MathEditor v-model="form.parsed_question" :rows="6" placeholder="请输入题目" />
             </el-form-item>
             <el-form-item label="答案">
-              <el-input v-model="form.answer" type="textarea" :rows="4" placeholder="请输入答案" />
+              <MathEditor v-model="form.answer" :rows="4" placeholder="请输入答案" />
             </el-form-item>
             <el-form-item label="解析">
-              <el-input v-model="form.analysis" type="textarea" :rows="4" placeholder="请输入解析" />
+              <MathEditor v-model="form.analysis" :rows="4" placeholder="请输入解析" />
             </el-form-item>
           </el-form>
         </div>
@@ -132,11 +132,11 @@
         <el-card shadow="never" class="preview-card">
           <div class="preview-item">
             <label>题目：</label>
-            <span>{{ submittedQuestion.parsed_question || submittedQuestion.original_text }}</span>
+            <span><MathText :text="submittedQuestion.parsed_question || submittedQuestion.original_text" /></span>
           </div>
           <div class="preview-item">
             <label>答案：</label>
-            <span>{{ submittedQuestion.answer || '暂无' }}</span>
+            <span><MathText :text="submittedQuestion.answer || '暂无'" /></span>
           </div>
           <div class="preview-item">
             <label>学科：</label>
@@ -153,6 +153,8 @@
 </template>
 
 <script setup>
+import MathText from '@/components/MathText.vue'
+import MathEditor from '@/components/MathEditor.vue'
 import { ref, reactive, onMounted, watch } from 'vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { useRouter } from 'vue-router'

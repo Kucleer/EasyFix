@@ -15,6 +15,7 @@
     "echarts-gl": "^2.0.9",
     "echarts-wordcloud": "^2.1.0",
     "element-plus": "^2.6.1",
+    "katex": "0.19.0",
     "pinia": "^2.1.7",
     "vue": "^3.4.21",
     "vue-echarts": "^8.0.1",

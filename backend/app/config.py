@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Upload - 图片存储在 backend/uploads/images
     UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads", "images")
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
+    PDF_BROWSER_CHANNEL: str = ""  # 默认使用 Playwright Chromium；本机可配置 msedge
+    PDF_FONT_PATH: str = ""  # 可选：部署环境中的可分发中文字体绝对路径
+    PDF_TIMEOUT_MS: int = 30000
 
     # LLM
     OPENAI_API_KEY: str = ""

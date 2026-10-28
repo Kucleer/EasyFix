@@ -58,3 +58,11 @@ npm run build                   # 生产构建，输出到 dist/
 - 前端：Vue 3 Composition API + `<script setup>`，UI 组件用 Element Plus。
 - 数据库：只做软删除，查询时必须加 `deleted=False` 过滤。
 - 状态管理：Pinia stores 目录为空，实际未使用，状态在组件内本地管理。
+
+## 数学公式与 Agent 入库
+
+- 图片由 Agent 识别后直接入库；新数学题的正文、答案、解析均使用带边界的 LaTeX：行内 `\(...\)`，独立公式 `\[...\]`。
+- 次方必须带花括号，如 `x^{2026}`；分数使用 `\frac{a}{b}`。不写排版 HTML，不批量转换历史 `1/2` 等普通文本。
+- 使用结构化参数写库，写入后回读核对反斜杠、题干、答案、解析；正式写入前备份，并先通过生产公式渲染器校验。
+- 原图缺字或裁切时不补猜；未展示年级、学期或学生作答时不推断。保留原图关联；不因题型复杂而将学生错误类型强行标为“计算”。
+- 具体规范、备份及部署命令见 `docs/math-formula-implementation-plan.md`。两张授权图片的可重复导入脚本为 `backend/scripts/import_math_formula_photos.py`，不传 `--apply` 仅预检。
