@@ -27,7 +27,7 @@ frontend/dev.out.log
 
 # Uploads generated at runtime
 backend/uploads/audio/
-backend/uploads/images/
+# Teaching images and practice PDFs are intentionally versioned for shared deployments.
 
 # Node
 frontend/node_modules/

@@ -20,9 +20,7 @@ build/
 # Database
 *.db
 
-# Uploads
-uploads/images/*
-!uploads/images/.gitkeep
+# Teaching images and practice PDFs under uploads/images are intentionally versioned.
 
 # Logs
 *.log
