@@ -625,7 +625,11 @@ const generatePractice = async () => {
       grade: generateForm.grade,
       count: generateForm.count,
     })
-    ElMessage.success('练习集已生成')
+    if (data.pdf_url) {
+      ElMessage.success('练习集和PDF已生成')
+    } else {
+      ElMessage.warning(`练习集已创建，PDF未生成：${data.pdf_error || '请在练习列表重试'}`)
+    }
     generateDialogVisible.value = false
     // 跳转到练习集详情
     window.location.href = `/practice-sets?id=${data.id}`
@@ -1101,8 +1105,16 @@ const createPracticeSet = async () => {
       question_type: printForm.questionType,
     })
 
-    // 自动生成PDF
-    const pdfRes = await questionApi.generatePracticeSetPdf(data.id)
+    // 练习集已经保存，PDF失败时关闭创建窗口，避免重复创建。
+    printDialogVisible.value = false
+    clearSelection()
+    let pdfRes
+    try {
+      pdfRes = await questionApi.generatePracticeSetPdf(data.id)
+    } catch (error) {
+      ElMessage.warning(`练习集已创建，PDF生成失败：${error.response?.data?.detail || error.message}。请在练习列表重试`)
+      return
+    }
 
     ElMessage.success('练习集已创建，PDF已生成')
     printDialogVisible.value = false
