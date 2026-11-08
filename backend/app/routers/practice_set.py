@@ -99,6 +99,7 @@ class PracticeSetResponse(BaseModel):
     questions: List[PracticeSetQuestionResponse] = []
     word_review_stats: Optional[dict] = None  # 单词复习统计
     pdf_url: Optional[str] = None  # PDF下载URL
+    pdf_error: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -245,6 +246,7 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
 
     # 生成PDF
     pdf_url = None
+    pdf_error = None
     if questions_data:
         try:
             pdf_path = generate_practice_set_pdf(practice_set.name, questions_data)
@@ -252,6 +254,7 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
             db.commit()
             pdf_url = f"/uploads/{pdf_path}"
         except Exception as e:
+            pdf_error = str(e)
             print(f"PDF生成失败: {e}")
 
     return {
@@ -268,6 +271,7 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
         "created_at": practice_set.created_at,
         "questions": [],
         "pdf_url": pdf_url,
+        "pdf_error": pdf_error,
     }
 
 

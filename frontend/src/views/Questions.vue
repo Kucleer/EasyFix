@@ -625,7 +625,11 @@ const generatePractice = async () => {
       grade: generateForm.grade,
       count: generateForm.count,
     })
-    ElMessage.success('练习集已生成')
+    if (data.pdf_error) {
+      ElMessage.warning(`练习集已创建，PDF生成失败：${data.pdf_error}`)
+    } else {
+      ElMessage.success('练习集已生成')
+    }
     generateDialogVisible.value = false
     // 跳转到练习集详情
     window.location.href = `/practice-sets?id=${data.id}`
