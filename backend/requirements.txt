@@ -13,15 +13,7 @@ cryptography==42.0.2
 pydantic==2.6.1
 pydantic-settings==2.1.0
 
-# OCR - Local (选择其一安装)
-# 方案1: PaddleOCR (推荐，中文识别好)
-paddleocr==2.7.3
-paddlepaddle==3.0.0
-
-# 方案2: Tesseract (需单独安装Tesseract引擎)
-# pytesseract==0.3.10
-
-# OCR - Cloud APIs
+# HTTP client (shared by text model services)
 requests==2.31.0
 
 # LLM

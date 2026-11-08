@@ -6,6 +6,8 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 
 import App from './App.vue'
+import KnowledgeTag from './components/KnowledgeTag.vue'
+import ListActions from './components/ListActions.vue'
 import router from './router'
 import './styles/variables.css'
 
@@ -16,6 +18,8 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
+app.component('KnowledgeTag', KnowledgeTag)
+app.component('ListActions', ListActions)
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })

@@ -18,8 +18,7 @@ const routes = [
   },
   {
     path: '/stats',
-    name: 'Stats',
-    component: () => import('@/views/Stats.vue'),
+    redirect: '/learning-analysis',
   },
   {
     path: '/settings',

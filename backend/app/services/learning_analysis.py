@@ -9,8 +9,10 @@ from datetime import datetime, timedelta
 from collections import Counter
 
 class LearningAnalysisService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, subject_id=None):
+        """按指定学科汇总，未选择时保留各知识点的学科身份。"""
         self.db = db
+        self.subject_id = subject_id
 
     def get_full_stats(self) -> Dict[str, Any]:
         """获取完整学习统计数据"""
@@ -25,7 +27,7 @@ class LearningAnalysisService:
         """获取错题统计，使用数据库聚合避免加载所有记录"""
         try:
             # 使用数据库聚合计算总数
-            total = self.db.query(func.count(Question.id)).filter(Question.deleted == False).scalar() or 0
+            total = self.db.query(func.count(Question.id)).filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True)).scalar() or 0
 
             # 难度分布 - 使用数据库分组聚合
             difficulty_results = (
@@ -33,7 +35,7 @@ class LearningAnalysisService:
                     Question.difficulty,
                     func.count(Question.id)
                 )
-                .filter(Question.deleted == False, Question.difficulty.isnot(None))
+                .filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True), Question.difficulty.isnot(None))
                 .group_by(Question.difficulty)
                 .all()
             )
@@ -43,7 +45,7 @@ class LearningAnalysisService:
             # 注意：错误类型存储为逗号分隔的字符串，需要在应用层拆分
             error_type_results = (
                 self.db.query(Question.error_type)
-                .filter(Question.deleted == False, Question.error_type.isnot(None))
+                .filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True), Question.error_type.isnot(None))
                 .all()
             )
             error_types = Counter()
@@ -57,31 +59,31 @@ class LearningAnalysisService:
             # 知识点错误排行 - 使用数据库分组聚合
             kp_results = (
                 self.db.query(
-                    Question.knowledge_point,
+                    Question.knowledge_point, Question.subject_id,
                     func.count(Question.id)
                 )
-                .filter(Question.deleted == False, Question.knowledge_point.isnot(None))
-                .group_by(Question.knowledge_point)
+                .filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True), Question.knowledge_point.isnot(None))
+                .group_by(Question.subject_id, Question.knowledge_point)
                 .order_by(func.count(Question.id).desc())
-                .limit(10)
                 .all()
             )
-            top_kp = [{"point": kp[0], "count": kp[1]} for kp in kp_results]
+            subject_map = {subject.id: subject.name for subject in self.db.query(Subject).filter(Subject.deleted == False).all()}
+            top_kp = [{"point": kp[0], "subject_id": kp[1], "subject_name": subject_map.get(kp[1], "未知学科"), "count": kp[2]} for kp in kp_results]
 
             # 复习效果 - 使用数据库聚合
             not_reviewed = (
                 self.db.query(func.count(Question.id))
-                .filter(Question.deleted == False, (Question.review_count == 0) | (Question.review_count.is_(None)))
+                .filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True), (Question.review_count == 0) | (Question.review_count.is_(None)))
                 .scalar() or 0
             )
             reviewed_once = (
                 self.db.query(func.count(Question.id))
-                .filter(Question.deleted == False, Question.review_count == 1)
+                .filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True), Question.review_count == 1)
                 .scalar() or 0
             )
             reviewed_multiple = (
                 self.db.query(func.count(Question.id))
-                .filter(Question.deleted == False, Question.review_count > 1)
+                .filter(Question.deleted == False, (Question.subject_id == self.subject_id if self.subject_id is not None else True), Question.review_count > 1)
                 .scalar() or 0
             )
 
@@ -126,7 +128,7 @@ class LearningAnalysisService:
                 )
                 .join(PracticeSet, PracticeSet.id == PracticeSetQuestion.practice_set_id)
                 .filter(
-                    PracticeSet.deleted == False,
+                    PracticeSet.deleted == False, (PracticeSet.subject_id == self.subject_id if self.subject_id is not None else True),
                     PracticeSet.source_type == 'question',
                     PracticeSet.reviewed == True,
                     PracticeSetQuestion.is_correct.isnot(None)
@@ -154,6 +156,10 @@ class LearningAnalysisService:
     def _get_word_stats(self) -> Dict[str, Any]:
         """获取单词统计，使用数据库聚合避免加载所有记录"""
         try:
+            if self.subject_id is not None:
+                subject = self.db.query(Subject).filter(Subject.id == self.subject_id, Subject.deleted == False).first()
+                if not subject or "英" not in subject.name:
+                    return {"total": 0, "mastery_distribution": {}, "low_accuracy_words": [], "memory_curve_status": {}, "frequency_trend": []}
             # 使用数据库聚合计算总数
             total = self.db.query(func.count(Word.id)).filter(Word.deleted == False).scalar() or 0
 
@@ -259,7 +265,7 @@ class LearningAnalysisService:
             # 使用数据库聚合计算总数
             total_practices = (
                 self.db.query(func.count(PracticeSet.id))
-                .filter(PracticeSet.deleted == False)
+                .filter(PracticeSet.deleted == False, (PracticeSet.subject_id == self.subject_id if self.subject_id is not None else True))
                 .scalar() or 0
             )
 
@@ -270,7 +276,7 @@ class LearningAnalysisService:
                     func.extract('dow', PracticeSet.created_at).label('dow'),
                     func.count(PracticeSet.id)
                 )
-                .filter(PracticeSet.deleted == False)
+                .filter(PracticeSet.deleted == False, (PracticeSet.subject_id == self.subject_id if self.subject_id is not None else True))
                 .group_by(func.extract('dow', PracticeSet.created_at))
                 .all()
             )
@@ -336,8 +342,8 @@ class LearningAnalysisService:
                     KnowledgePoint.subject_id,
                     func.count(Question.id).label('error_count')
                 )
-                .outerjoin(Question, (KnowledgePoint.name == Question.knowledge_point) & (Question.deleted == False))
-                .filter(KnowledgePoint.deleted == False)
+                .outerjoin(Question, (KnowledgePoint.name == Question.knowledge_point) & (KnowledgePoint.subject_id == Question.subject_id) & (Question.deleted == False))
+                .filter(KnowledgePoint.deleted == False, (KnowledgePoint.subject_id == self.subject_id if self.subject_id is not None else True))
                 .group_by(KnowledgePoint.id, KnowledgePoint.name, KnowledgePoint.subject_id)
                 .all()
             )

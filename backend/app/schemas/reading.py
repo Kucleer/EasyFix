@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from typing import Optional, List
 from datetime import datetime
 
@@ -49,6 +49,12 @@ class ReadingPassageUpdate(BaseModel):
 
 
 class ReadingPassageResponse(ReadingPassageBase):
+    @computed_field
+    @property
+    def provenance(self) -> Optional[dict]:
+        """读取本地阅读包来源，不改变数据库结构。"""
+        return get_reading_provenance().get(self.source)
+
     id: int
     word_count: Optional[int] = None
     source: str
@@ -70,3 +76,19 @@ class GenerateReadingRequest(BaseModel):
     grade: int = Field(..., ge=1, le=12)
     topic: str
     difficulty: int = Field(default=3, ge=1, le=5)
+
+
+from functools import lru_cache
+from pathlib import Path
+import json
+
+
+@lru_cache(maxsize=1)
+def get_reading_provenance():
+    """加载随应用分发的阅读包来源索引。"""
+    result = {}
+    for path in (Path(__file__).resolve().parents[2] / 'data' / 'reading').glob('grade6-*.json'):
+        pack = json.loads(path.read_text(encoding='utf-8'))
+        for item in pack.get('passages', []):
+            result[pack['pack_id'] + ':' + item['id']] = item['provenance']
+    return result

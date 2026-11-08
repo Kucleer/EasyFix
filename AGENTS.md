@@ -30,11 +30,11 @@ npm run build                   # 生产构建，输出到 dist/
 - **后端路由数量**：`backend/app/main.py:46-60` 注册了 15 个路由。`CLAUDE.md` 写的 11 个已过时，缺少 `learning_report`、`motivation`、`error_type`、`reading`。
 - **前端路由数量**：`frontend/src/router/index.js` 定义了 13 条路由。`CLAUDE.md` 写的 8 条已过时，缺少 `/reading`、`/reading-test/:id`、`/learning-reports`、`/motivation`、`/learning-analysis`。
 - **软删除**：所有新模型必须包含 `deleted` 字段，禁止硬删除。
-- **配置加载**：`backend/.env` 通过 pydantic-settings 加载，详见 `backend/app/config.py`。`backend/config/` 下的 `llm.json` 和 `ocr.json` 通过 `/api/config` 接口运行时覆盖。
+- **配置加载**：`backend/.env` 通过 pydantic-settings 加载，详见 `backend/app/config.py`。`backend/config/` 下的 `llm.json` 通过 `/api/config` 接口运行时覆盖。
 - **文件上传路径**：`backend/uploads/images/{year}/{month}/{uuid}_{filename}`。Vite 开发服务器代理 `/uploads`，生产环境由 FastAPI 直接提供静态文件。
 - **访问密码**：Settings/Management 页面密码为 `32167`，硬编码在 `backend/app/access_config.py`。
 - **MCP 服务**：`.mcp.json` 配置了 MySQL（localhost:3306/easyfix）、browser、playwright。
-- **导航菜单**：`frontend/src/App.vue` 顶部水平菜单，包含首页、错题、单词、练习、阅读、统计、学习分析、激励中心、管理、配置。
+- **导航菜单**：`frontend/src/App.vue` 桌面分组侧栏与手机底部导航，覆盖学习、练习、成长记录及管理配置。
 - **前端 API 层**：`frontend/src/api/` 下有 5 个模块（question、word、learning_report、motivation、learning_analysis），其余 API 直接在组件内调用。
 
 ## 新增后端路由步骤
@@ -49,7 +49,7 @@ npm run build                   # 生产构建，输出到 dist/
 
 1. 在 `frontend/src/views/<Name>.vue` 创建页面组件
 2. 在 `frontend/src/router/index.js` 添加路由配置
-3. 在 `frontend/src/App.vue` 顶部菜单添加导航链接
+3. 在 `frontend/src/App.vue` 分组导航添加链接
 4. API 调用写在 `frontend/src/api/` 下，使用 axios
 
 ## 代码规范
@@ -57,7 +57,13 @@ npm run build                   # 生产构建，输出到 dist/
 - 后端：全部 `snake_case`，函数前写中文文档字符串。
 - 前端：Vue 3 Composition API + `<script setup>`，UI 组件用 Element Plus。
 - 数据库：只做软删除，查询时必须加 `deleted=False` 过滤。
-- 状态管理：Pinia stores 目录为空，实际未使用，状态在组件内本地管理。
+- 状态管理：应用默认年级/学期使用 `stores/appConfig`，其他业务状态主要在组件内管理。
+
+## OCR 下线
+
+- OCR 服务、图片识别接口与识别配置已移除；单词保留文本及 TXT/CSV 导入。
+- 原图附件使用 `/api/upload/file`、`/api/upload/batch-simple`，Agent 结构化入库继续保留。
+- 历史 OCR 日志与旧配置文件保留，但旧配置不再加载。
 
 ## 数学公式与 Agent 入库
 

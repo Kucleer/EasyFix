@@ -414,7 +414,7 @@ def delete_question(question_id: int, db: Session = Depends(get_db)):
 @router.post("/batch", response_model=BatchCreateResponse)
 def create_questions_batch(data: QuestionBatchCreate, db: Session = Depends(get_db)):
     """
-    批量创建错题（用于OCR后一道图生成多题）
+    批量创建错题（支持 Agent 结构化录入及一图多题）
 
     images: 多张关联图片路径
     questions: 多个题目列表

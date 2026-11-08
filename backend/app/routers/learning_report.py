@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -44,7 +44,7 @@ def _generate_title(subject_name: Optional[str], grade: Optional[int], time_rang
     return f"{date_str}{' '.join(parts)}"
 
 
-def _build_data_summary(questions: List[Question], words: List[Word]) -> dict:
+def _build_data_summary(questions: List[Question], words: List[Word], subject_names=None) -> dict:
     """构建数据摘要供LLM分析"""
     # 错题统计
     total_questions = len(questions)
@@ -61,11 +61,13 @@ def _build_data_summary(questions: List[Question], words: List[Word]) -> dict:
         if q.error_type:
             error_type_dist[q.error_type] = error_type_dist.get(q.error_type, 0) + 1
 
-    # 知识点分布
+    # 知识点按学科和名称分组，避免同名知识点混算。
+    subject_names = subject_names or {}
     kp_dist = {}
     for q in questions:
         if q.knowledge_point:
-            kp_dist[q.knowledge_point] = kp_dist.get(q.knowledge_point, 0) + 1
+            key = f"{subject_names.get(q.subject_id, str(q.subject_id))} · {q.knowledge_point}"
+            kp_dist[key] = kp_dist.get(key, 0) + 1
 
     # 复习次数分布
     review_dist = {"未复习": 0, "复习1次": 0, "复习2-5次": 0, "复习5次以上": 0}
@@ -178,7 +180,7 @@ def generate_report(
     if request.time_range_days:
         cutoff_date = datetime.now() - timedelta(days=request.time_range_days)
         word_query = word_query.filter(Word.created_at >= cutoff_date)
-    words = word_query.all()
+    words = word_query.all() if not request.subject_id or (subject_name and "英" in subject_name) else []
 
     # 检查数据量
     if len(questions) == 0 and len(words) == 0:
@@ -188,7 +190,8 @@ def generate_report(
         )
 
     # 构建数据摘要
-    data_summary = _build_data_summary(questions, words)
+    subject_names = {s.id: s.name for s in db.query(Subject).filter(Subject.deleted == False).all()}
+    data_summary = _build_data_summary(questions, words, subject_names)
 
     # 生成标题
     title = request.title or _generate_title(subject_name, request.grade, request.time_range_days)
@@ -228,9 +231,10 @@ def generate_report(
 
 @router.get("/list", response_model=ReportListResponse)
 def list_reports(
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     subject_id: Optional[int] = None,
+    grade: Optional[int] = Query(None, ge=1, le=12),
     db: Session = Depends(get_db)
 ):
     """获取报告列表"""
@@ -238,6 +242,9 @@ def list_reports(
 
     if subject_id:
         query = query.filter(LearningReport.subject_id == subject_id)
+
+    if grade is not None:
+        query = query.filter(LearningReport.grade == grade)
 
     total = query.count()
     reports = query.order_by(LearningReport.created_at.desc()).offset(skip).limit(limit).all()

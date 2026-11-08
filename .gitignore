@@ -14,6 +14,13 @@ backups/
 tmp/math-feasibility/
 tmp/pg18/
 tmp/postgresql-*.zip
+tmp/cloudflare-config/
+tmp/npm-cache/
+tmp/uv-cache/
+tmp/uv-python/
+cloudflare/python_modules/
+cloudflare/.wrangler/
+cloudflare/.venv-workers/
 output/pdf/
 backend/easyfix.db
 *.sqlite3
@@ -44,3 +51,12 @@ report/
 # OS
 Thumbs.db
 .DS_Store
+
+# Local runtime and private annotation snapshots
+/.wrangler/
+/tmp/
+/backend/config/llm.json
+/backend/config/ocr.json
+/backend/config/custom_ocr.json
+/backend/data/annotations/
+/backend/data/reading/n*.json

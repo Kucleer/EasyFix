@@ -1,98 +1,422 @@
-/* frontend/src/styles/variables.css */
-
-/* ==================== 字体层级 ==================== */
 :root {
-  /* 字号 */
-  --font-h1: 20px;
-  --font-h2: 18px;
-  --font-h3: 16px;
-  --font-body: 14px;
-  --font-small: 12px;
-
-  /* 字重 */
-  --font-weight-bold: bold;
-  --font-weight-semibold: 600;
-  --font-weight-normal: normal;
-
-  /* ==================== 背景色 ==================== */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f5f5;
-  --bg-tertiary: #fafafa;
-  --bg-dark: #1a1a1a;
-
-  /* ==================== 文字色 ==================== */
-  --text-primary: #303133;
-  --text-secondary: #606266;
-  --text-muted: #909399;
-  --text-white: #ffffff;
-
-  /* ==================== 强调色 ==================== */
-  --accent-blue: #409eff;
-  --accent-purple: #8250df;
-  --accent-pink: #ec7cf3;
-  --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-
-  /* ==================== 功能色 ==================== */
-  --success: #67c23a;
-  --warning: #e6a23c;
-  --danger: #f56c6c;
-  --info: #909399;
-
-  /* ==================== 边框色 ==================== */
-  --border-light: #f0f0f0;
-  --border-default: #dcdfe6;
-  --border-dark: #303133;
-
-  /* ==================== 圆角系统 ==================== */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-full: 9999px;
-
-  /* ==================== 阴影系统 ==================== */
-  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --font-h1:26px;
+  --font-h2:18px;
+  --font-h3:16px;
+  --font-body:14px;
+  --font-small:12px;
+  --font-weight-bold:700;
+  --font-weight-semibold:600;
+  --font-weight-normal:400;
+  --bg-primary:#fff;
+  --bg-secondary:#f6f7fb;
+  --bg-tertiary:#f8f9fc;
+  --bg-dark:#20253b;
+  --text-primary:#20253b;
+  --text-secondary:#586176;
+  --text-muted:#697187;
+  --text-white:#fff;
+  --accent-blue:#4f46e5;
+  --accent-purple:#6555c5;
+  --accent-pink:#b8578d;
+  --accent-gradient:linear-gradient(135deg,#4f46e5,#6960d9);
+  --success:#358364;
+  --warning:#a47123;
+  --danger:#d34f61;
+  --info:#697187;
+  --border-light:#e8eaf1;
+  --border-default:#dcdfe9;
+  --border-dark:#20253b;
+  --radius-sm:6px;
+  --radius-md:10px;
+  --radius-lg:14px;
+  --radius-full:9999px;
+  --shadow-sm:0 1px 3px #20253b04;
+  --shadow-md:0 3px 12px #20253b08;
+  --shadow-lg:0 10px 25px #20253b12;
+  --el-color-primary:#4f46e5;
+  --el-color-primary-light-3:#8079ed;
+  --el-color-primary-light-5:#aaa5f2;
+  --el-color-primary-light-7:#d2cff8;
+  --el-color-primary-light-8:#e2e0fb;
+  --el-color-primary-light-9:#eeedff;
+  --el-color-primary-dark-2:#4338ca;
+  --el-color-success:#358364;
+  --el-text-color-primary:#20253b;
+  --el-text-color-regular:#586176;
+  --el-text-color-secondary:#697187;
+  --el-border-color:#dcdfe9;
+  --el-border-color-light:#e8eaf1;
+  --el-border-radius-base:8px;
+  --el-bg-color-page:#f6f7fb;
+  --el-font-family:'Microsoft YaHei','Segoe UI',sans-serif
 }
 
-/* ==================== Element Plus 主题覆盖 ==================== */
-.el-button {
-  border-radius: var(--radius-md) !important;
+* {
+  box-sizing:border-box
 }
-
-.el-button:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+body {
+  margin:0;
+  background:var(--bg-secondary);
+  font:14px/1.6 var(--el-font-family);
+  color:var(--text-primary);
+  -webkit-font-smoothing:antialiased
 }
-
+button,input,textarea {
+  font:inherit
+}
+a {
+  color:inherit;
+  text-decoration:none
+}
+button,a {
+  touch-action:manipulation
+}
+button:focus-visible,a:focus-visible {
+  outline:3px solid #a5b4fc;
+  outline-offset:3px
+}
+h1,h2,h3,p {
+  margin-top:0
+}
+h1 {
+  font-size:26px
+}
+h2 {
+  font-size:18px
+}
+h3 {
+  font-size:16px
+}
+.app-shell {
+  display:grid;
+  grid-template-columns:205px minmax(0,1fr);
+  min-height:100vh
+}
+.app-sidebar {
+  position:sticky;
+  top:0;
+  height:100vh;
+  overflow:auto;
+  background:#fff;
+  border-right:1px solid var(--border-light);
+  padding:22px 14px;
+  display:flex;
+  flex-direction:column
+}
+.app-brand {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:0 12px 17px;
+  font-size:23px;
+  font-weight:750;
+  letter-spacing:-.7px
+}
+.brand-mark {
+  display:grid;
+  place-items:center;
+  background:var(--accent-blue);
+  color:#fff;
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  font-size:22px
+}
+.nav-label {
+  padding:14px 13px 4px;
+  margin:0;
+  font-size:11px;
+  letter-spacing:1px;
+  color:var(--text-muted)
+}
+.nav-link {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:9px 13px;
+  min-height:40px;
+  border-radius:8px;
+  margin:2px 0;
+  color:var(--text-secondary);
+  font-size:14px;
+  transition:background .15s
+}
+.nav-link .el-icon {
+  font-size:18px
+}
+.nav-link:hover {
+  background:#f6f5ff
+}
+.nav-link.active {
+  background:#eeedff;
+  color:var(--accent-blue);
+  font-weight:600
+}
+.sidebar-note {
+  font-size:11px;
+  color:var(--text-muted);
+  margin:auto 12px 0;
+  padding-top:20px
+}
+.app-workspace {
+  min-width:0
+}
+.app-topbar {
+  height:66px;
+  background:#ffffffd9;
+  border-bottom:1px solid var(--border-light);
+  padding:0 30px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:15px
+}
+.app-breadcrumb {
+  font-size:12px;
+  color:var(--text-muted)
+}
+.app-breadcrumb span {
+  margin:0 10px;
+  color:#a3a8b7
+}
+.app-breadcrumb strong {
+  font-weight:500;
+  color:var(--text-primary)
+}
+.topbar-actions {
+  display:flex;
+  align-items:center;
+  gap:18px
+}
+.topbar-add {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:12px;
+  color:var(--accent-blue)
+}
+.profile-mark {
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  width:32px;
+  height:32px;
+  background:#eeedff;
+  color:var(--accent-blue);
+  font-weight:600
+}
+.app-main {
+  max-width:none;
+  margin:auto;
+  padding:24px 30px 36px
+}
+.app-main>div {
+  min-width:0
+}
+.mobile-navigation {
+  display:none
+}
 .el-card {
-  border-radius: var(--radius-md) !important;
-  box-shadow: var(--shadow-md) !important;
-  border: 1px solid var(--border-light);
+  border-radius:10px!important;
+  box-shadow:none!important;
+  border:1px solid var(--border-light)
 }
-
-.el-input__wrapper {
-  border-radius: var(--radius-sm) !important;
+.el-card__header {
+  padding:15px 18px
 }
-
+.el-card__body {
+  padding:18px
+}
+.el-button {
+  border-radius:8px;
+  transition:background .15s,border-color .15s
+}
+.el-button:hover,.el-card:hover {
+  transform:none!important
+}
 .el-table {
-  border-radius: var(--radius-md) !important;
-  overflow: hidden;
+  border-radius:8px;
+  font-size:13px;
+  --el-table-header-bg-color:#f8f9fc;
+  --el-table-row-hover-bg-color:#f4f3ff
 }
-
-.el-table th {
-  background-color: var(--bg-tertiary) !important;
-  font-weight: var(--font-weight-semibold) !important;
+.el-table .cell {
+  line-height:1.7
 }
-
-.el-table tr:hover > td {
-  background-color: #f5f7fa !important;
+.el-table th.el-table__cell {
+  font-weight:600;
+  color:var(--text-secondary)
 }
-
+.el-table td.el-table__cell {
+  padding:9px 0
+}
 .el-dialog {
-  border-radius: var(--radius-lg) !important;
+  border-radius:14px;
+  max-width:calc(100vw - 28px)
+}
+.el-drawer__body {
+  overflow:auto
+}
+.el-input__wrapper,.el-select__wrapper {
+  border-radius:7px
+}
+.el-tag {
+  border-radius:5px
+}
+.el-form-item {
+  margin-bottom:17px
+}
+.el-pagination {
+  flex-wrap:wrap;
+  gap:5px
+}
+.card-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap
+}
+.header-actions {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap
+}
+.filters {
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:14px
+}
+.btn-gradient {
+  background:var(--accent-blue)!important;
+  border-color:var(--accent-blue)!important;
+  color:#fff!important
+}
+.text-muted,.text-secondary {
+  color:var(--text-muted)
 }
 
-.el-tag {
-  border-radius: var(--radius-sm) !important;
+@media(max-width:1000px) {
+  .app-shell {
+  grid-template-columns:180px minmax(0,1fr)
 }
+.app-main {
+  padding:20px
+}
+.app-topbar {
+  padding:0 20px
+}
+.app-sidebar {
+  padding:20px 10px
+}
+
+}
+
+@media(max-width:768px) {
+  .app-shell {
+  display:block
+}
+.app-sidebar {
+  display:none
+}
+.app-main {
+  padding:18px 14px calc(90px + env(safe-area-inset-bottom))
+}
+.app-topbar {
+  height:58px;
+  padding:0 15px
+}
+.app-breadcrumb {
+  font-size:12px
+}
+.app-breadcrumb span {
+  margin:0 5px
+}
+.topbar-actions {
+  gap:12px
+}
+.topbar-add {
+  font-size:12px
+}
+.mobile-navigation {
+  display:flex;
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:100;
+  background:#fff;
+  border-top:1px solid var(--border-light);
+  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+  justify-content:space-around
+}
+.mobile-navigation>a,.mobile-navigation>button {
+  border:0;
+  background:transparent;
+  color:var(--text-muted);
+  font-size:12px;
+  padding:5px 14px;
+  min-height:48px;
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  flex-direction:column;
+  gap:3px
+}
+.mobile-navigation .el-icon {
+  font-size:20px
+}
+.mobile-navigation .active {
+  color:var(--accent-blue);
+  background:#eeedff
+}
+.mobile-more .nav-link {
+  min-height:44px
+}
+.el-card__body,.el-card__header {
+  padding:14px
+}
+.el-table {
+  font-size:13px
+}
+.el-button {
+  min-height:36px
+}
+.el-dialog {
+  width:calc(100vw - 28px)!important;
+  margin-top:6vh!important
+}
+.filters>.el-select,.filters>.el-input {
+  max-width:100%;
+  flex:1 1 145px!important;
+  width:auto!important
+}
+.el-pagination {
+  justify-content:center
+}
+.el-form-item__label {
+  font-size:13px
+}
+h1 {
+  font-size:23px
+}
+.el-message {
+  max-width:calc(100vw - 24px)
+}
+
+}
+
+@media(prefers-reduced-motion:reduce) {
+  *,*::before,*::after {
+  animation:none!important;
+  transition:none!important;
+  scroll-behavior:auto!important
+}
+
+}
+
+/* 列表工具栏统一尺寸与间距，弹窗提交按钮保留原语义。 */
+.app-main :is(.card-header, .header-actions, .batch-actions) .el-button { height: 34px; min-height: 34px; padding: 8px 13px; font-size: 13px; border-radius: 8px; }
+.app-main :is(.card-header, .header-actions, .batch-actions) .el-button + .el-button { margin-left: 0; }
+.app-main .card-header > div:not(.card-header-inner) { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

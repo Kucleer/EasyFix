@@ -1,5 +1,6 @@
 <template>
   <div class="reading-page">
+    <PageHeading title="读一篇，发现一个新世界" description="让阅读成为习惯，也让表达更加自然。" />
     <el-row :gutter="20">
       <!-- 左侧短文列表 -->
       <el-col :xs="24" :sm="10">
@@ -15,10 +16,11 @@
 
           <!-- 筛选 -->
           <div class="filters">
-            <el-select v-model="filters.topic" placeholder="话题" clearable size="small" @change="fetchReadings" style="width: 110px">
+            <el-button size="small" type="primary" plain @click="filters.grade = 6; applyFilters()">六年级新短文</el-button>
+            <el-select v-model="filters.topic" placeholder="话题" clearable size="small" @change="applyFilters" style="width: 110px">
               <el-option v-for="t in topics" :key="t" :label="t" :value="t" />
             </el-select>
-            <el-select v-model="filters.grade" placeholder="年级" clearable size="small" @change="fetchReadings" style="width: 90px">
+            <el-select v-model="filters.grade" placeholder="全部年级" clearable size="small" @change="applyFilters" style="width: 90px">
               <el-option v-for="g in 12" :key="g" :label="g + '年级'" :value="g" />
             </el-select>
             <el-select v-model="filters.difficulty" placeholder="难度" clearable size="small" @change="fetchReadings" style="width: 90px">
@@ -30,9 +32,11 @@
             </el-select>
           </div>
 
+          <div class="reading-count">共 {{ total }} 篇短文 · 默认显示全部年级</div>
           <!-- 列表 -->
           <div v-if="loading" class="loading">加载中...</div>
-          <div v-else-if="readings.length === 0" class="empty">暂无短文</div>
+          <div v-else-if="loadError" class="empty"><p>{{ loadError }}</p><el-button @click="fetchReadings">重新加载</el-button></div>
+          <div v-else-if="readings.length === 0" class="empty"><p>当前条件下没有短文</p><el-button @click="clearFilters">查看全部历史短文</el-button></div>
           <div v-else class="passage-list">
             <div
               v-for="item in readings"
@@ -47,9 +51,11 @@
                 <span class="meta-item">{{ item.grade }}年级</span>
                 <span class="meta-item">{{ '⭐'.repeat(item.difficulty) }}</span>
                 <span class="meta-item">{{ item.word_count || '-' }}词</span>
+                <span v-if="item.provenance" class="meta-item">来源 {{ item.provenance.published_at }} · 适龄改写</span>
               </div>
             </div>
           </div>
+          <el-pagination v-if="total > pageSize" v-model:current-page="currentPage" :page-size="pageSize" :total="total" layout="prev, pager, next" @current-change="fetchReadings" />
         </el-card>
       </el-col>
 
@@ -70,6 +76,7 @@
             </div>
           </template>
 
+          <el-alert v-if="selectedPassage.provenance" type="info" :closable="false"><template #title>{{ selectedPassage.provenance.source_name }} · 来源发布于 {{ selectedPassage.provenance.published_at }} · AI 适龄改写与配题</template><p>正文、习题和解析已保存在本地。原始来源为科学文章，不是原站分级课程。</p></el-alert>
           <div class="passage-content">
             <p v-for="(para, idx) in contentParagraphs" :key="idx" class="paragraph">
               {{ para }}
@@ -137,6 +144,8 @@
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
+import readingProvenance from '@/data/reading-provenance.json'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -147,6 +156,10 @@ const topics = ref([])
 const selectedId = ref(null)
 const selectedPassage = ref(null)
 const loading = ref(false)
+const loadError = ref('')
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = 20
 const showAllAnswers = ref(false)
 const showGenerateDialog = ref(false)
 const generating = ref(false)
@@ -159,7 +172,7 @@ const filters = reactive({
 })
 
 const generateForm = reactive({
-  grade: 7,
+  grade: null,
   topic: '校园生活',
   difficulty: 3,
 })
@@ -189,16 +202,33 @@ async function fetchTopics() {
   }
 }
 
+function applyFilters() {
+  currentPage.value = 1
+  fetchReadings()
+}
+
+function clearFilters() {
+  Object.assign(filters, { topic: '', grade: null, difficulty: null })
+  applyFilters()
+}
+
 async function fetchReadings() {
   loading.value = true
+  loadError.value = ''
   try {
-    const params = {}
+    const params = { skip: (currentPage.value - 1) * pageSize, limit: pageSize }
     if (filters.topic) params.topic = filters.topic
     if (filters.grade) params.grade = filters.grade
     if (filters.difficulty) params.difficulty = filters.difficulty
     const res = await axios.get('/api/readings', { params })
-    readings.value = res.data.items || []
+    readings.value = (res.data.items || []).map(item => ({ ...item, provenance: item.provenance || readingProvenance[item.source] }))
+    total.value = res.data.total || 0
+    if (selectedId.value && !readings.value.some(item => item.id === selectedId.value)) {
+      selectedId.value = null
+      selectedPassage.value = null
+    }
   } catch {
+    loadError.value = '短文加载失败，请重试。'
     ElMessage.error('获取短文列表失败')
   } finally {
     loading.value = false
@@ -210,7 +240,7 @@ async function selectPassage(item) {
   selectedPassage.value = null
   try {
     const res = await axios.get(`/api/readings/${item.id}`)
-    selectedPassage.value = res.data
+    selectedPassage.value = { ...res.data, provenance: res.data.provenance || readingProvenance[res.data.source] }
   } catch {
     ElMessage.error('获取短文详情失败')
   }
@@ -263,33 +293,121 @@ async function createPracticeSet() {
 
 onMounted(async () => {
   await appConfigStore.load()
-  if (filters.grade == null) filters.grade = appConfigStore.defaultGrade
   if (generateForm.grade == null && appConfigStore.defaultGrade != null) {
     generateForm.grade = appConfigStore.defaultGrade
   }
   fetchTopics()
-  fetchReadings()
+  await fetchReadings()
 })
 </script>
 
 <style scoped>
-.reading-page { padding: 10px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.filters { display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
-.passage-list { max-height: 600px; overflow-y: auto; }
-.passage-card { padding: 12px; border: 1px solid #ebeef5; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
-.passage-card:hover { border-color: #409eff; }
-.passage-card.active { border-color: #409eff; background-color: #ecf5ff; }
-.passage-title { font-weight: bold; margin-bottom: 6px; }
-.passage-meta { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #909399; flex-wrap: wrap; }
-.passage-content { line-height: 1.8; font-size: 14px; }
-.paragraph { margin-bottom: 10px; text-indent: 2em; }
-.question-item { margin-bottom: 16px; padding: 12px; background: #fafafa; border-radius: 4px; }
-.question-text { font-weight: bold; margin-bottom: 8px; }
-.option { padding: 4px 0; }
-.answer-box { margin-top: 6px; padding: 6px 10px; background: #fdf6ec; border-radius: 4px; color: #e6a23c; font-size: 13px; }
-.loading, .empty, .empty-detail { text-align: center; padding: 40px; color: #909399; }
-@media (max-width: 768px) {
-  .passage-list { max-height: 300px; }
+.reading-count { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+.reading-page  {
+   padding: 10px;
+   }
+.card-header  {
+   display: flex;
+   justify-content: space-between;
+   align-items: center;
+   flex-wrap: wrap;
+   gap: 8px;
+   }
+.filters  {
+   display: flex;
+   gap: 8px;
+   margin-bottom: 15px;
+   flex-wrap: wrap;
+   }
+.passage-list  {
+   max-height: 600px;
+   overflow-y: auto;
+   }
+.passage-card  {
+   padding: 12px;
+   border: 1px solid #ebeef5;
+   border-radius: 6px;
+   margin-bottom: 8px;
+   cursor: pointer;
+   transition: all 0.2s;
+   }
+.passage-card:hover  {
+   border-color: var(--accent-blue);
+   }
+.passage-card.active  {
+   border-color: var(--accent-blue);
+   background-color: #ecf5ff;
+   }
+.passage-title  {
+   font-weight: bold;
+   margin-bottom: 6px;
+   }
+.passage-meta  {
+   display: flex;
+   gap: 8px;
+   align-items: center;
+   font-size: 12px;
+   color: var(--text-muted);
+   flex-wrap: wrap;
+   }
+.passage-content  {
+   line-height: 1.8;
+   font-size: 14px;
+   }
+.paragraph  {
+   margin-bottom: 10px;
+   text-indent: 2em;
+   }
+.question-item  {
+   margin-bottom: 16px;
+   padding: 12px;
+   background: #fafafa;
+   border-radius: 4px;
+   }
+.question-text  {
+   font-weight: bold;
+   margin-bottom: 8px;
+   }
+.option  {
+   padding: 4px 0;
+   }
+.answer-box  {
+   margin-top: 6px;
+   padding: 6px 10px;
+   background: #fdf6ec;
+   border-radius: 4px;
+   color: #e6a23c;
+   font-size: 13px;
+   }
+.loading, .empty, .empty-detail  {
+   text-align: center;
+   padding: 40px;
+   color: var(--text-muted);
+   }
+@media (max-width: 768px)  {
+
+  .passage-list  {
+   max-height: 300px;
+   }
 }
+.reading-page {
+  padding:0}
+.passage-card {
+  padding:14px;
+  border-radius:9px;
+  border-color:var(--border-light);
+  margin-bottom:9px}
+.passage-card.active {
+  background:#eeedff;
+  border-color:var(--accent-blue)}
+.passage-title {
+  font-size:15px}
+.passage-content {
+  font-size:16px;
+  line-height:1.9}
+.answer-box {
+  color:#8b641f;
+  background:#fff6e6}
+.passage-meta {
+  color:var(--text-muted)}
 </style>

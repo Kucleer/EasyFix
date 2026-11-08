@@ -46,6 +46,14 @@ class KnowledgePointUpdate(BaseModel):
     error_type_ids: Optional[List[int]] = None
 
 
+def _validate_error_types(db, ids, subject_id):
+    """知识点仅关联同学科或通用错误类型。"""
+    types = db.query(ErrorType).filter(ErrorType.id.in_(ids or []), ErrorType.deleted == False).all()
+    if len(types) != len(set(ids or [])) or any(et.subject_id not in (None, subject_id) for et in types):
+        raise HTTPException(status_code=400, detail="错误类型不存在或不属于当前学科")
+    return types
+
+
 @router.get("", response_model=List[KnowledgePointResponse])
 def list_knowledge_points(
     subject_id: Optional[int] = None,
@@ -73,7 +81,7 @@ def list_knowledge_points(
     for kp in knowledge_points:
         error_types = []
         for et in kp.error_types:
-            if not et.deleted:
+            if not et.deleted and et.subject_id in (None, kp.subject_id):
                 error_types.append(ErrorTypeSimple(id=et.id, name=et.name))
         result.append(KnowledgePointResponse(
             id=kp.id,
@@ -96,6 +104,7 @@ def create_knowledge_point(data: KnowledgePointCreate, db: Session = Depends(get
     if not subject:
         raise HTTPException(status_code=400, detail="学科不存在")
 
+    _validate_error_types(db, data.error_type_ids, data.subject_id)
     kp = KnowledgePoint(
         name=data.name,
         subject_id=data.subject_id,
@@ -138,6 +147,9 @@ def update_knowledge_point(kp_id: int, data: KnowledgePointUpdate, db: Session =
     kp = db.query(KnowledgePoint).filter(KnowledgePoint.id == kp_id, KnowledgePoint.deleted == False).first()
     if not kp:
         raise HTTPException(status_code=404, detail="知识点不存在")
+
+    target_subject = data.subject_id if data.subject_id is not None else kp.subject_id
+    _validate_error_types(db, data.error_type_ids if data.error_type_ids is not None else [et.id for et in kp.error_types if not et.deleted], target_subject)
 
     if data.subject_id is not None:
         subject = db.query(Subject).filter(Subject.id == data.subject_id, Subject.deleted == False).first()
