@@ -1,0 +1,15 @@
+{
+  "name": "easyfix",
+  "account_id": "52ff92165ba654aa8260a45ded30e1ef",
+  "main": "src/main.py",
+  "compatibility_date": "2026-11-08",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "easyfix",
+    "database_id": "2de427ad-42be-412f-8afe-dfedd94f1c6a"
+  }],
+  "r2_buckets": [{"binding": "IMAGES", "bucket_name": "easyfix"}]
+}

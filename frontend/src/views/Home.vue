@@ -3,9 +3,9 @@
     <!-- Hero -->
     <header class="hero">
       <div class="hero-left">
-        <p class="hero-eyebrow">WELCOME BACK</p>
-        <h1 class="hero-title">学习概览</h1>
-        <p class="hero-sub">保持节奏，每天进步一点点</p>
+        <p class="hero-eyebrow">A LITTLE BETTER, EVERY DAY</p>
+        <h1 class="hero-title">今天，也进步一点点。</h1>
+        <p class="hero-sub">把不懂的弄懂，把会的记牢。</p>
       </div>
       <div class="hero-right">
         <div class="date-chip">
@@ -20,9 +20,11 @@
       </div>
     </header>
 
+    <section class="focus-panel"><div><p class="hero-eyebrow">TODAY'S FOCUS · 今日重点</p><h2>{{ stats.to_review_questions ? '从 ' + stats.to_review_questions + ' 道待复习错题开始' : '从一次认真复习开始' }}</h2><p>回顾上次的难点，让知识掌握得更扎实。</p><el-button type="primary" @click="router.push('/questions')">开始错题复习 <el-icon><Right /></el-icon></el-button></div><div class="focus-total"><strong>{{ learningOverview.today_question_review_count + learningOverview.today_word_review_count }}</strong><span>今日已复习</span></div></section>
+    <nav class="home-shortcuts" aria-label="学习快捷入口"><RouterLink to="/questions">错题复习 <span>{{ stats.to_review_questions || 0 }} 道待复习 →</span></RouterLink><RouterLink to="/words">单词温习 <span>{{ stats.word_stats?.to_review_count || 0 }} 个待温习 →</span></RouterLink><RouterLink to="/practice-sets">专项练习 <span>进入练习中心 →</span></RouterLink><RouterLink to="/reading">阅读训练 <span>选一篇开始 →</span></RouterLink></nav>
     <!-- Stats Grid -->
     <section class="stats-grid">
-      <div class="stat-card tone-indigo stat-lg" @click="$router.push('/questions')">
+      <div class="stat-card tone-indigo stat-lg" role="link" tabindex="0" @keydown.enter="$router.push('/questions')" @click="$router.push('/questions')">
         <div class="stat-top">
           <span class="stat-label">错题总数</span>
           <div class="stat-icon">
@@ -39,7 +41,7 @@
         <div class="stat-foot">点击查看详情 <span class="arrow">→</span></div>
       </div>
 
-      <div class="stat-card tone-violet" @click="$router.push('/questions')">
+      <div class="stat-card tone-violet" role="link" tabindex="0" @keydown.enter="$router.push('/questions')" @click="$router.push('/questions')">
         <div class="stat-top">
           <span class="stat-label">学科数量</span>
           <div class="stat-icon">
@@ -52,7 +54,7 @@
         <div class="stat-value">{{ stats.total_subjects }}</div>
       </div>
 
-      <div class="stat-card tone-sky" @click="$router.push('/management')">
+      <div class="stat-card tone-sky" role="link" tabindex="0" @keydown.enter="$router.push('/management')" @click="$router.push('/management')">
         <div class="stat-top">
           <span class="stat-label">活跃天数</span>
           <div class="stat-icon">
@@ -67,7 +69,7 @@
         <div class="stat-value">{{ stats.active_days || 0 }}</div>
       </div>
 
-      <div class="stat-card tone-emerald" @click="$router.push('/words')">
+      <div class="stat-card tone-emerald" role="link" tabindex="0" @keydown.enter="$router.push('/words')" @click="$router.push('/words')">
         <div class="stat-top">
           <span class="stat-label">待复习(单词)</span>
           <div class="stat-icon">
@@ -80,7 +82,7 @@
         <div class="stat-value">{{ stats.word_stats?.to_review_count || 0 }}</div>
       </div>
 
-      <div class="stat-card tone-amber" @click="$router.push('/words')">
+      <div class="stat-card tone-amber" role="link" tabindex="0" @keydown.enter="$router.push('/questions')" @click="$router.push('/questions')">
         <div class="stat-top">
           <span class="stat-label">待复习(错题)</span>
           <div class="stat-icon">
@@ -93,7 +95,7 @@
         <div class="stat-value">{{ stats.to_review_questions || 0 }}</div>
       </div>
 
-      <div class="stat-card tone-rose" @click="$router.push('/words')">
+      <div class="stat-card tone-rose" role="link" tabindex="0" @keydown.enter="$router.push('/words')" @click="$router.push('/words')">
         <div class="stat-top">
           <span class="stat-label">复习次数</span>
           <div class="stat-icon">
@@ -107,7 +109,7 @@
         <div class="stat-value">{{ stats.word_stats?.total_reviews || 0 }}</div>
       </div>
 
-      <div class="stat-card tone-fuchsia" @click="$router.push('/words')">
+      <div class="stat-card tone-fuchsia" role="link" tabindex="0" @keydown.enter="$router.push('/words')" @click="$router.push('/words')">
         <div class="stat-top">
           <span class="stat-label">单词总数</span>
           <div class="stat-icon">
@@ -120,7 +122,7 @@
         <div class="stat-value">{{ stats.word_stats?.total_words || 0 }}</div>
       </div>
 
-      <div class="stat-card tone-cyan" @click="$router.push('/words')">
+      <div class="stat-card tone-cyan" role="link" tabindex="0" @keydown.enter="$router.push('/words')" @click="$router.push('/words')">
         <div class="stat-top">
           <span class="stat-label">已复习单词</span>
           <div class="stat-icon">
@@ -132,7 +134,7 @@
         <div class="stat-value">{{ stats.word_stats?.reviewed_words || 0 }}</div>
       </div>
 
-      <div class="stat-card tone-lime" @click="$router.push('/words')">
+      <div class="stat-card tone-lime" role="link" tabindex="0" @keydown.enter="$router.push('/words')" @click="$router.push('/words')">
         <div class="stat-top">
           <span class="stat-label">单词正确率</span>
           <div class="stat-icon">
@@ -321,6 +323,7 @@
 </template>
 
 <script setup>
+import { Right } from '@element-plus/icons-vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { statsApi, statsOverviewApi } from '@/api/question'
@@ -672,512 +675,302 @@ onMounted(async () => {
 
 <style scoped>
 .home {
-  min-height: 100vh;
-  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
-  padding: 32px;
-  max-width: 1600px;
-  margin: 0 auto;
-}
-
-/* Hero */
+  margin:0 auto}
 .hero {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 32px;
-}
-
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:15px;
+  margin-bottom:18px}
 .hero-eyebrow {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: #6366f1;
-  text-transform: uppercase;
-  margin: 0 0 8px 0;
-}
-
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1.6px;
+  color:var(--accent-blue);
+  margin:0 0 5px}
 .hero-title {
-  font-size: 40px;
-  font-weight: 800;
-  color: #312e81;
-  margin: 0 0 6px 0;
-  letter-spacing: -0.02em;
-}
-
+  font-size:27px;
+  letter-spacing:-.7px;
+  margin:0 0 5px;
+  color:var(--text-primary)}
 .hero-sub {
-  font-size: 16px;
-  color: #64748b;
-  margin: 0;
-}
-
+  font-size:13px;
+  margin:0;
+  color:var(--text-muted)}
 .date-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  background: #ffffff;
-  border: 3px solid #c7d2fe;
-  border-radius: 16px;
-  box-shadow: 5px 5px 0 rgba(99, 102, 241, 0.28), 0 10px 24px rgba(79, 70, 229, 0.12);
-}
-
+  display:flex;
+  align-items:center;
+  gap:7px;
+  font-size:12px;
+  color:var(--text-muted)}
 .chip-icon {
-  width: 20px;
-  height: 20px;
-  color: #6366f1;
-}
-
-.chip-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: #4338ca;
-}
-
-/* Stats Grid */
+  width:17px;
+  height:17px}
+.focus-panel {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  background:#eeedfc;
+  border:1px solid #e1def9;
+  border-radius:12px;
+  padding:22px 25px;
+  margin-bottom:14px}
+.focus-panel h2 {
+  font-size:22px;
+  margin:3px 0 7px}
+.focus-panel p:not(.hero-eyebrow) {
+  font-size:13px;
+  color:#60617e;
+  margin:0 0 15px}
+.focus-panel .el-icon {
+  margin-left:10px}
+.focus-total {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  min-width:140px;
+  color:var(--accent-blue)}
+.focus-total strong {
+  font-size:37px;
+  line-height:1.3}
+.focus-total span {
+  font-size:12px}
+.home-shortcuts {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin-bottom:16px}
+.home-shortcuts a {
+  background:#fff;
+  border:1px solid var(--border-light);
+  border-radius:9px;
+  padding:11px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  font-size:13px}
+.home-shortcuts a:hover {
+  border-color:#aaa5f2}
+.home-shortcuts span {
+  font-size:11px;
+  color:var(--text-muted)}
 .stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-}
-
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:10px;
+  margin-bottom:18px}
 .stat-card {
-  position: relative;
-  background: #ffffff;
-  border: 3px solid;
-  border-radius: 22px;
-  padding: 20px;
-  cursor: pointer;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-}
-
-.stat-lg {
-  grid-column: span 2;
-  grid-row: span 2;
-}
-
+  position:relative;
+  cursor:pointer;
+  background:#fff;
+  border:1px solid var(--border-light);
+  border-radius:10px;
+  padding:13px 15px;
+  transition:border-color .15s}
+.stat-card:hover {
+  border-color:#aaa5f2}
 .stat-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 18px;
-}
-
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:5px;
+  margin-bottom:6px}
 .stat-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #64748b;
-  letter-spacing: 0.02em;
-}
-
+  font-size:12px;
+  color:var(--text-muted)}
 .stat-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-}
-
+  width:25px;
+  height:25px;
+  border-radius:7px;
+  display:grid;
+  place-items:center;
+  background:#eeedff;
+  color:var(--accent-blue)}
 .stat-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
+  width:16px;
+  height:16px}
 .stat-value {
-  font-size: 44px;
-  font-weight: 800;
-  color: #1e293b;
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
+  font-size:27px;
+  line-height:1.2;
+  font-weight:700;
+  color:var(--text-primary)}
 .stat-foot {
-  margin-top: 14px;
-  font-size: 12px;
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.arrow {
-  transition: transform 0.25s ease;
-}
-
-.stat-card:hover .arrow {
-  transform: translateX(4px);
-}
-
-/* Tone variants */
-.tone-indigo {
-  border-color: #4f46e5;
-  box-shadow: 7px 7px 0 rgba(79, 70, 229, 0.32), 0 14px 30px rgba(79, 70, 229, 0.18);
-}
-.tone-indigo:hover {
-  box-shadow: 11px 11px 0 rgba(79, 70, 229, 0.32), 0 22px 38px rgba(79, 70, 229, 0.24);
-}
-.tone-indigo .stat-icon { background: linear-gradient(135deg, #6366f1, #4f46e5); }
-.tone-indigo .stat-value { color: #3730a3; }
-
-.tone-violet {
-  border-color: #8b5cf6;
-  box-shadow: 7px 7px 0 rgba(139, 92, 246, 0.32), 0 14px 30px rgba(139, 92, 246, 0.16);
-}
-.tone-violet:hover {
-  box-shadow: 11px 11px 0 rgba(139, 92, 246, 0.32), 0 22px 38px rgba(139, 92, 246, 0.22);
-}
-.tone-violet .stat-icon { background: linear-gradient(135deg, #a78bfa, #8b5cf6); }
-.tone-violet .stat-value { color: #5b21b6; }
-
-.tone-sky {
-  border-color: #0ea5e9;
-  box-shadow: 7px 7px 0 rgba(14, 165, 233, 0.32), 0 14px 30px rgba(14, 165, 233, 0.16);
-}
-.tone-sky:hover {
-  box-shadow: 11px 11px 0 rgba(14, 165, 233, 0.32), 0 22px 38px rgba(14, 165, 233, 0.22);
-}
-.tone-sky .stat-icon { background: linear-gradient(135deg, #38bdf8, #0ea5e9); }
-.tone-sky .stat-value { color: #075985; }
-
-.tone-emerald {
-  border-color: #10b981;
-  box-shadow: 7px 7px 0 rgba(16, 185, 129, 0.32), 0 14px 30px rgba(16, 185, 129, 0.16);
-}
-.tone-emerald:hover {
-  box-shadow: 11px 11px 0 rgba(16, 185, 129, 0.32), 0 22px 38px rgba(16, 185, 129, 0.22);
-}
-.tone-emerald .stat-icon { background: linear-gradient(135deg, #34d399, #10b981); }
-.tone-emerald .stat-value { color: #047857; }
-
-.tone-amber {
-  border-color: #f59e0b;
-  box-shadow: 7px 7px 0 rgba(245, 158, 11, 0.32), 0 14px 30px rgba(245, 158, 11, 0.16);
-}
-.tone-amber:hover {
-  box-shadow: 11px 11px 0 rgba(245, 158, 11, 0.32), 0 22px 38px rgba(245, 158, 11, 0.22);
-}
-.tone-amber .stat-icon { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
-.tone-amber .stat-value { color: #92400e; }
-
-.tone-rose {
-  border-color: #f43f5e;
-  box-shadow: 7px 7px 0 rgba(244, 63, 94, 0.32), 0 14px 30px rgba(244, 63, 94, 0.16);
-}
-.tone-rose:hover {
-  box-shadow: 11px 11px 0 rgba(244, 63, 94, 0.32), 0 22px 38px rgba(244, 63, 94, 0.22);
-}
-.tone-rose .stat-icon { background: linear-gradient(135deg, #fb7185, #f43f5e); }
-.tone-rose .stat-value { color: #9f1239; }
-
-.tone-fuchsia {
-  border-color: #d946ef;
-  box-shadow: 7px 7px 0 rgba(217, 70, 239, 0.32), 0 14px 30px rgba(217, 70, 239, 0.16);
-}
-.tone-fuchsia:hover {
-  box-shadow: 11px 11px 0 rgba(217, 70, 239, 0.32), 0 22px 38px rgba(217, 70, 239, 0.22);
-}
-.tone-fuchsia .stat-icon { background: linear-gradient(135deg, #e879f9, #d946ef); }
-.tone-fuchsia .stat-value { color: #86198f; }
-
-.tone-cyan {
-  border-color: #06b6d4;
-  box-shadow: 7px 7px 0 rgba(6, 182, 212, 0.32), 0 14px 30px rgba(6, 182, 212, 0.16);
-}
-.tone-cyan:hover {
-  box-shadow: 11px 11px 0 rgba(6, 182, 212, 0.32), 0 22px 38px rgba(6, 182, 212, 0.22);
-}
-.tone-cyan .stat-icon { background: linear-gradient(135deg, #22d3ee, #06b6d4); }
-.tone-cyan .stat-value { color: #155e75; }
-
-.tone-lime {
-  border-color: #84cc16;
-  box-shadow: 7px 7px 0 rgba(132, 204, 22, 0.32), 0 14px 30px rgba(132, 204, 22, 0.16);
-}
-.tone-lime:hover {
-  box-shadow: 11px 11px 0 rgba(132, 204, 22, 0.32), 0 22px 38px rgba(132, 204, 22, 0.22);
-}
-.tone-lime .stat-icon { background: linear-gradient(135deg, #a3e635, #84cc16); }
-.tone-lime .stat-value { color: #3f6212; }
-
-/* Content Grid */
-.content-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  margin-top: 20px;
-}
-
-/* Grade Switcher */
+  display:none}
 .grade-switch-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 0 0 20px 0;
-  padding: 14px 16px;
-  background: #ffffff;
-  border: 3px solid #c7d2fe;
-  border-radius: 18px;
-  box-shadow: 5px 5px 0 rgba(99, 102, 241, 0.18);
-}
-
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:12px;
+  background:white;
+  border:1px solid var(--border-light);
+  border-radius:10px;
+  padding:12px 15px;
+  margin-bottom:18px}
 .grade-switch-label {
-  font-size: 13px;
-  font-weight: 800;
-  color: #4338ca;
-  letter-spacing: 0.04em;
-}
-
+  font-size:12px;
+  color:var(--text-muted)}
 .grade-switch-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  flex: 1;
-}
-
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+  flex:1}
 .grade-switch-chip {
-  border: 2px solid #e2e8f0;
-  background: #fff;
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.grade-switch-chip:hover {
-  border-color: #a5b4fc;
-  color: #3730a3;
-}
-
+  border:1px solid transparent;
+  background:#f6f7fb;
+  border-radius:6px;
+  font-size:12px;
+  padding:5px 9px;
+  color:var(--text-secondary);
+  cursor:pointer}
 .grade-switch-chip.active {
-  border-color: #4f46e5;
-  background: #4f46e5;
-  color: #fff;
-  box-shadow: 0 6px 14px rgba(79, 70, 229, 0.28);
-}
-
+  background:#eeedff;
+  border-color:#d2cff8;
+  color:var(--accent-blue)}
 .grade-switch-note {
-  font-size: 12px;
-  color: #94a3b8;
-  white-space: nowrap;
-}
-
-@media (max-width: 720px) {
-  .grade-switch-note {
-    white-space: normal;
-  }
-}
-
+  font-size:11px;
+  color:var(--text-muted)}
+.content-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px}
 .panel {
-  background: #ffffff;
-  border: 3px solid #e2e8f0;
-  border-radius: 22px;
-  padding: 24px;
-  box-shadow: 7px 7px 0 rgba(148, 163, 184, 0.28), 0 14px 30px rgba(79, 70, 229, 0.08);
-}
-
+  background:#fff;
+  border:1px solid var(--border-light);
+  border-radius:11px;
+  padding:18px;
+  min-width:0}
 .panel-full {
-  grid-column: span 2;
-}
-
+  grid-column:1/-1}
 .panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 18px;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-bottom:14px}
 .panel-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #312e81;
-  margin: 0;
-}
-
+  font-size:17px;
+  margin:0}
 .subject-select {
-  width: 140px;
-}
-
-/* Overview */
+  width:140px}
 .overview-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px}
 .overview-col {
-  background: #f8fafc;
-  border: 2px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 16px;
-}
-
+  padding:13px;
+  border:1px solid var(--border-light);
+  border-radius:8px;
+  background:var(--bg-tertiary)}
 .overview-col-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #475569;
-  margin-bottom: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.title-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.dot-slate { background: #94a3b8; }
-.dot-indigo { background: #6366f1; }
-
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  font-weight:600;
+  margin-bottom:10px}
 .overview-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
+  display:flex;
+  flex-direction:column;
+  gap:7px}
 .overview-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: #475569;
-}
-
-.ov-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.dot-emerald { background: #10b981; }
-.dot-blue { background: #3b82f6; }
-.dot-emerald-light { background: #6ee7b7; }
-.dot-blue-light { background: #93c5fd; }
-
-/* Chart */
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  color:var(--text-secondary)}
+.title-dot,.ov-dot {
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  flex-shrink:0}
+.dot-slate {
+  background:#8c94a9}
+.dot-indigo,.dot-blue {
+  background:#655bea}
+.dot-emerald {
+  background:#358364}
+.dot-emerald-light {
+  background:#86bca3}
+.dot-blue-light {
+  background:#aaa5f2}
 .chart-container {
-  padding: 6px 0;
-}
-
-/* Table */
+  padding:4px 0}
 .subject-table {
-  width: 100%;
-}
-
-.subject-table :deep(.el-table__header-wrapper th) {
-  background: #f8fafc !important;
-  color: #64748b;
-  font-weight: 600;
-}
-
-.subject-table :deep(.el-table--striped .el-table__body tr.el-table__row--striped td) {
-  background: #f8fafc;
-}
-
+  width:100%}
 .question-count {
-  font-weight: 700;
-  color: #4f46e5;
-  font-size: 15px;
-}
-
+  color:var(--accent-blue);
+  font-weight:650}
 .practice-count {
-  color: #059669;
-  font-weight: 600;
-}
-
+  color:var(--success)}
 .difficulty-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+  display:flex;
+  flex-direction:column;
+  gap:5px}
 .diff-bar-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px}
 .diff-label {
-  width: 40px;
-  color: #64748b;
-  flex-shrink: 0;
-}
-
+  width:40px;
+  flex-shrink:0;
+  color:var(--text-muted)}
 .diff-count {
-  width: 22px;
-  text-align: right;
-  color: #94a3b8;
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
+  width:22px;
+  text-align:right;
+  color:var(--text-muted);
+  font-size:11px}
 .error-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-/* Responsive */
-@media (max-width: 1200px) {
+  display:flex;
+  gap:4px;
+  flex-wrap:wrap}
+@media(max-width:1200px) {
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .stat-lg {
-    grid-column: span 2;
-  }
-
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .panel-full {
-    grid-column: span 1;
-  }
+  grid-template-columns:repeat(3,minmax(0,1fr))}
+.home-shortcuts {
+  grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-
-@media (max-width: 768px) {
-  .home {
-    padding: 16px;
-  }
-
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .stat-lg {
-    grid-column: span 1;
-    grid-row: auto;
-  }
-
+@media(max-width:768px) {
   .hero {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
-  }
-
-  .hero-title {
-    font-size: 30px;
-  }
-
-  .stat-value {
-    font-size: 36px;
-  }
-
-  .overview-grid {
-    grid-template-columns: 1fr;
-  }
+  align-items:start;
+  flex-direction:column;
+  gap:8px}
+.hero-title {
+  font-size:23px}
+.focus-panel {
+  padding:18px}
+.focus-panel h2 {
+  font-size:19px}
+.focus-total {
+  display:none}
+.stats-grid {
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px}
+.stat-card {
+  padding:11px}
+.stat-value {
+  font-size:23px}
+.stat-icon {
+  display:none}
+.content-grid {
+  grid-template-columns:1fr}
+.panel {
+  padding:14px}
+.home-shortcuts a {
+  flex-direction:column;
+  align-items:start;
+  padding:10px;
+  min-height:54px}
+.grade-switch-chip {
+  min-height:36px}
+.overview-grid {
+  gap:8px}
+.overview-col {
+  padding:10px}
+.overview-item {
+  font-size:12px}
 }
 </style>

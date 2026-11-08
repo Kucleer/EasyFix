@@ -31,9 +31,11 @@ class LLMService:
         self._init_client()
 
     def _init_client(self):
-        if self._client is None:
-            api_key = self._config.get("api_key") or settings.ANTHROPIC_API_KEY
-            base_url = self._config.get("base_url")
+        api_key = self._config.get("api_key") or settings.ANTHROPIC_API_KEY
+        base_url = self._config.get("base_url")
+        signature = (api_key, base_url)
+        if self._client is None or getattr(self, "_client_signature", None) != signature:
+            self._client_signature = signature
             if base_url:
                 self._client = anthropic.Anthropic(
                     api_key=api_key,
@@ -315,7 +317,7 @@ class LLMService:
 ### 2. 错题分析
 - **难度分布**：各难度级别（1-5）的错题数量和占比
 - **错误类型分析**：计算错误、概念错误、审题错误、其他错误的分布
-- **知识点分布**：高频出错知识点TOP10
+- **知识点分布**：高频出错知识点TOP10。输入中的“学科 · 知识点”是完整身份，输出 point 必须保留学科前缀，不得合并不同学科的同名知识点。
 - **复习效果**：错题的复习次数分布，未复习/复习1次/复习多次的比例
 
 ### 3. 单词分析（如有数据）
@@ -660,7 +662,9 @@ class LLMService:
             return {"error": "解析失败"}
 
     def analyze_learning_data(self, prompt: str) -> str:
-        """分析学习数据"""
+        """加载当前配置并分析学习数据。"""
+        self._config = load_llm_config()
+        self._init_client()
         try:
             # 使用重试机制调用API
             response = self._retry_on_rate_limit(

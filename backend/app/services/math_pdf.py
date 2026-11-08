@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import html
+import os
 from pathlib import Path
 import re
 import threading
@@ -133,6 +134,12 @@ def render_pdf(title, questions, output_path):
         launch = {'headless': True, 'timeout': settings.PDF_TIMEOUT_MS}
         if settings.PDF_BROWSER_CHANNEL:
             launch['channel'] = settings.PDF_BROWSER_CHANNEL
+        elif os.name == 'nt':
+            # Windows 部署未下载 Playwright 浏览器时，复用系统 Edge。
+            edge_paths = [Path(os.environ.get(key, '')) / 'Microsoft/Edge/Application/msedge.exe'
+                          for key in ('PROGRAMFILES(X86)', 'PROGRAMFILES', 'LOCALAPPDATA')]
+            if any(path.is_file() for path in edge_paths):
+                launch['channel'] = 'msedge'
         browser = playwright.chromium.launch(**launch)
         try:
             # 与 A4 扣除左右页边距后的 178mm 内容宽度一致，用于超宽公式检测。

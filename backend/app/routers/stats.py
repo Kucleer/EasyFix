@@ -444,23 +444,26 @@ def get_learning_overview(
 
 
 @router.get("/knowledge-points")
-def get_knowledge_point_stats(db: Session = Depends(get_db)):
+def get_knowledge_point_stats(subject_id: Optional[int] = Query(None, ge=1), db: Session = Depends(get_db)):
     """获取知识点掌握统计"""
     results = (
         db.query(
-            Question.knowledge_point,
+            Question.knowledge_point, Question.subject_id, Subject.name.label("subject_name"),
             func.count(Question.id).label('total'),
             func.sum(func.cast(Question.review_count > 0, Integer)).label('reviewed'),
             func.sum(Question.correct_count).label('total_correct'),
             func.sum(Question.review_count).label('total_reviews'),
             func.sum(Question.error_count).label('total_errors'),
         )
+        .join(Subject, Subject.id == Question.subject_id)
         .filter(
+            Subject.deleted == False,
+            (Question.subject_id == subject_id if subject_id is not None else True),
             Question.deleted == False,
             Question.knowledge_point.isnot(None),
             Question.knowledge_point != '',
         )
-        .group_by(Question.knowledge_point)
+        .group_by(Question.subject_id, Subject.name, Question.knowledge_point)
         .all()
     )
     data = []
@@ -470,6 +473,8 @@ def get_knowledge_point_stats(db: Session = Depends(get_db)):
         accuracy = round(correct / reviews * 100, 1) if reviews > 0 else 0
         data.append({
             "name": r.knowledge_point,
+            "subject_id": r.subject_id,
+            "subject_name": r.subject_name,
             "total": int(r.total or 0),
             "reviewed": int(r.reviewed or 0),
             "accuracy": accuracy,
@@ -483,17 +488,17 @@ def get_knowledge_point_stats(db: Session = Depends(get_db)):
 from app.services.learning_analysis import LearningAnalysisService
 
 @router.get("/analysis/full")
-def get_full_analysis(db: Session = Depends(get_db)):
+def get_full_analysis(subject_id: Optional[int] = Query(None, ge=1), db: Session = Depends(get_db)):
     """获取完整学习分析数据"""
-    service = LearningAnalysisService(db)
+    service = LearningAnalysisService(db, subject_id=subject_id)
     return service.get_full_stats()
 
 
 @router.post("/analysis/llm")
-def get_llm_analysis(db: Session = Depends(get_db)):
+def get_llm_analysis(subject_id: Optional[int] = Query(None, ge=1), db: Session = Depends(get_db)):
     """获取LLM学习分析"""
     try:
-        service = LearningAnalysisService(db)
+        service = LearningAnalysisService(db, subject_id=subject_id)
         stats = service.get_full_stats()
         analysis = service.analyze_with_llm(stats)
         return analysis

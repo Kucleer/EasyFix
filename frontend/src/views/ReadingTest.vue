@@ -1,5 +1,6 @@
 <template>
   <div class="reading-test">
+    <PageHeading title="阅读练习" description="读懂文章，再从文中寻找答案。" />
     <el-card>
       <template #header>
         <div class="card-header">
@@ -69,6 +70,7 @@
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
@@ -166,32 +168,139 @@ onMounted(fetchTestData)
 </script>
 
 <style scoped>
-.reading-test { padding: 10px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.test-container { min-height: 500px; }
-.passage-col { border-right: 1px solid #ebeef5; }
-.passage-scroll { padding-right: 20px; max-height: 600px; overflow-y: auto; }
-.passage-scroll h3 { margin-bottom: 16px; }
-.paragraph { margin-bottom: 12px; line-height: 1.8; text-indent: 2em; }
-.meta-bar { margin-top: 20px; display: flex; gap: 8px; align-items: center; font-size: 12px; color: #909399; flex-wrap: wrap; }
-.answer-col { padding-left: 20px; }
-.question-block { margin-bottom: 20px; padding: 16px; background: #fafafa; border-radius: 6px; }
-.q-text { font-weight: bold; margin-bottom: 12px; }
-.options-group { display: flex; flex-direction: column; gap: 8px; }
-.option-item { margin: 0; padding: 8px 12px; border-radius: 4px; white-space: normal; height: auto; line-height: 1.4; }
-.option-item:hover { background: #ecf5ff; }
-.action-bar { text-align: center; margin: 20px 0; }
-.result-box { padding: 16px; border-radius: 6px; margin-top: 16px; }
-.result-box.pass { background: #f0f9eb; border: 1px solid #e1f3d8; }
-.result-box.fail { background: #fef0f0; border: 1px solid #fde2e2; }
-.result-summary { font-size: 16px; font-weight: bold; margin-bottom: 12px; }
-.result-item { padding: 8px 0; border-bottom: 1px solid #ebeef5; }
-.correct { color: #67c23a; }
-.wrong { color: #f56c6c; }
-.explanation { font-size: 13px; color: #909399; margin-top: 4px; }
-@media (max-width: 768px) {
-  .passage-col { border-right: none; }
-  .passage-scroll { padding-right: 0; }
-  .answer-col { padding-left: 0; }
+.reading-test  {
+   padding: 10px;
+   }
+.card-header  {
+   display: flex;
+   justify-content: space-between;
+   align-items: center;
+   }
+.test-container  {
+   min-height: 500px;
+   }
+.passage-col  {
+   border-right: 1px solid #ebeef5;
+   }
+.passage-scroll  {
+   padding-right: 20px;
+   max-height: 600px;
+   overflow-y: auto;
+   }
+.passage-scroll h3  {
+   margin-bottom: 16px;
+   }
+.paragraph  {
+   margin-bottom: 12px;
+   line-height: 1.8;
+   text-indent: 2em;
+   }
+.meta-bar  {
+   margin-top: 20px;
+   display: flex;
+   gap: 8px;
+   align-items: center;
+   font-size: 12px;
+   color: var(--text-muted);
+   flex-wrap: wrap;
+   }
+.answer-col  {
+   padding-left: 20px;
+   }
+.question-block  {
+   margin-bottom: 20px;
+   padding: 16px;
+   background: #fafafa;
+   border-radius: 6px;
+   }
+.q-text  {
+   font-weight: bold;
+   margin-bottom: 12px;
+   }
+.options-group  {
+   display: flex;
+   flex-direction: column;
+   gap: 8px;
+   }
+.option-item  {
+   margin: 0;
+   padding: 8px 12px;
+   border-radius: 4px;
+   white-space: normal;
+   height: auto;
+   line-height: 1.4;
+   }
+.option-item:hover  {
+   background: #ecf5ff;
+   }
+.action-bar  {
+   text-align: center;
+   margin: 20px 0;
+   }
+.result-box  {
+   padding: 16px;
+   border-radius: 6px;
+   margin-top: 16px;
+   }
+.result-box.pass  {
+   background: #f0f9eb;
+   border: 1px solid #e1f3d8;
+   }
+.result-box.fail  {
+   background: #fef0f0;
+   border: 1px solid #fde2e2;
+   }
+.result-summary  {
+   font-size: 16px;
+   font-weight: bold;
+   margin-bottom: 12px;
+   }
+.result-item  {
+   padding: 8px 0;
+   border-bottom: 1px solid #ebeef5;
+   }
+.correct  {
+   color: #67c23a;
+   }
+.wrong  {
+   color: #f56c6c;
+   }
+.explanation  {
+   font-size: 13px;
+   color: var(--text-muted);
+   margin-top: 4px;
+   }
+@media (max-width: 768px)  {
+
+  .passage-col  {
+   border-right: none;
+   }
+  .passage-scroll  {
+   padding-right: 0;
+   }
+  .answer-col  {
+   padding-left: 0;
+   }
 }
+.reading-test {
+  padding:0}
+.passage-scroll {
+  padding-right:20px}
+.paragraph {
+  font-size:17px;
+  line-height:1.95}
+.question-block {
+  background:#f8f9fc;
+  border:1px solid var(--border-light);
+  border-radius:9px;
+  padding:15px}
+.option-item {
+  min-height:44px;
+  border:1px solid var(--border-light);
+  border-radius:7px;
+  padding:10px 12px}
+.explanation {
+  color:var(--text-secondary);
+  font-size:14px;
+  line-height:1.8}
 </style>

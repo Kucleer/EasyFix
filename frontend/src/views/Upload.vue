@@ -1,5 +1,6 @@
 <template>
   <div class="upload">
+    <PageHeading title="录入错题" description="记录题目、解题过程，并保留原图方便回顾。" />
     <el-card>
       <template #header>
         <span class="page-title">新增错题</span>
@@ -7,7 +8,7 @@
 
       <!-- 图片上传卡片 -->
       <div class="detail-card" style="margin-bottom: 16px;">
-        <div class="card-header-blue">📷 图片上传</div>
+        <div class="card-header-blue">图片上传</div>
         <div class="card-content">
           <el-upload
             ref="uploadRef"
@@ -43,7 +44,7 @@
 
       <!-- 基本信息卡片 -->
       <div class="detail-card" style="margin-bottom: 16px;">
-        <div class="card-header-blue">📝 基本信息</div>
+        <div class="card-header-blue">基本信息</div>
         <div class="card-content">
           <el-form :model="form" label-width="80px" style="max-width: 600px">
             <el-form-item label="学科" required>
@@ -68,7 +69,7 @@
 
       <!-- 题目内容卡片 -->
       <div class="detail-card" style="margin-bottom: 16px;">
-        <div class="card-header-green">📖 题目内容</div>
+        <div class="card-header-green">题目内容</div>
         <div class="card-content">
           <el-form :model="form" label-width="80px" style="max-width: 800px">
             <el-form-item label="题目">
@@ -86,7 +87,7 @@
 
       <!-- 难度与分类卡片 -->
       <div class="detail-card" style="margin-bottom: 16px;">
-        <div class="card-header-orange">⭐ 难度与分类</div>
+        <div class="card-header-orange">难度与分类</div>
         <div class="card-content">
           <el-form :model="form" label-width="80px" style="max-width: 600px">
             <el-form-item label="难度">
@@ -106,7 +107,8 @@
                 allow-create
                 style="width: 100%"
               >
-                <el-option v-for="kp in knowledgePoints" :key="kp.id" :label="kp.name" :value="kp.name" />
+                <template #label="{ label }"><KnowledgeTag :name="label" :subject-id="form.subject_id" /></template>
+                <el-option v-for="kp in knowledgePoints" :key="kp.id" :label="kp.name" :value="kp.name"><KnowledgeTag :name="kp.name" :subject-id="kp.subject_id" /></el-option>
               </el-select>
             </el-form-item>
             <el-form-item label="标签">
@@ -153,6 +155,7 @@
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
 import { ref, reactive, onMounted, watch } from 'vue'
@@ -323,8 +326,8 @@ const submitQuestion = async () => {
   // 先上传图片
   try {
     for (const file of selectedFiles.value) {
-      const { data } = await uploadApi.uploadImage(file.raw)
-      uploadImagePaths.value.push(data.image_path)
+      const { data } = await uploadApi.uploadFile(file.raw)
+      uploadImagePaths.value.push(data.path)
     }
   } catch (e) {
     console.error('图片上传失败:', e)
@@ -382,213 +385,402 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.upload {
+.upload  {
+
   max-width: 900px;
+
   margin: 0 auto;
+
 }
+
 
 /* 禁用上传页面卡片的hover效果 */
-.upload :deep(.el-card) {
+.upload :deep(.el-card)  {
+
   transition: none;
+
 }
-.upload :deep(.el-card:hover) {
+
+.upload :deep(.el-card:hover)  {
+
   transform: none;
+
   box-shadow: var(--shadow-sm) !important;
+
 }
 
-.step-content {
+
+.step-content  {
+
   min-height: 300px;
+
 }
 
-.loading {
+
+.loading  {
+
   display: flex;
+
   flex-direction: column;
+
   align-items: center;
+
   justify-content: center;
+
   gap: 15px;
+
   padding: 60px;
+
 }
 
-.loading-icon {
+
+.loading-icon  {
+
   font-size: 64px;
-  color: #409eff;
+
+  color: var(--accent-blue);
+
 }
 
-.loading-tips {
+
+.loading-tips  {
+
   text-align: center;
+
   color: #666;
+
 }
 
-.ocr-info {
-  margin-top: 10px;
-}
 
-.manual-entry {
+
+
+.manual-entry  {
+
   margin-top: 20px;
+
   padding: 20px;
+
   background: #f5f7fa;
+
   border-radius: 8px;
+
 }
 
-.batch-item {
+
+.batch-item  {
+
   display: flex;
+
   gap: 15px;
+
   padding: 10px;
+
 }
 
-.batch-text {
+
+.batch-text  {
+
   flex: 1;
+
   font-size: 14px;
+
   line-height: 1.6;
+
 }
 
-.no-text {
+
+.no-text  {
+
   color: #999;
+
   font-style: italic;
+
 }
 
-.submitted-preview {
+
+.submitted-preview  {
+
   margin-top: 20px;
+
   padding-top: 10px;
+
 }
 
-.submitted-preview h4 {
+
+.submitted-preview h4  {
+
   margin: 10px 0;
-  color: #409eff;
+
+  color: var(--accent-blue);
+
 }
 
-.preview-card {
+
+.preview-card  {
+
   background: #f5f7fa;
+
 }
 
-.preview-item {
+
+.preview-item  {
+
   margin-bottom: 10px;
+
 }
 
-.preview-item label {
+
+.preview-item label  {
+
   font-weight: bold;
+
   color: #666;
+
   margin-right: 8px;
+
 }
 
-.preview-actions {
+
+.preview-actions  {
+
   margin-top: 15px;
+
   display: flex;
+
   gap: 10px;
+
 }
 
-.manual-entry-placeholder {
+
+.manual-entry-placeholder  {
+
   margin-top: 30px;
+
   display: flex;
+
   flex-direction: column;
+
   align-items: center;
+
   justify-content: center;
+
   padding: 20px;
+
   border: 2px dashed #dcdfe6;
+
   border-radius: 8px;
+
   background: #f5f7fa;
+
 }
 
-.manual-entry-placeholder .el-image {
+
+.manual-entry-placeholder .el-image  {
+
   max-width: 300px;
+
   max-height: 200px;
+
   opacity: 0.5;
+
   pointer-events: none;
+
 }
 
-.placeholder-tip {
+
+.placeholder-tip  {
+
   margin-top: 10px;
-  color: #909399;
+
+  color: var(--text-muted);
+
   font-size: 12px;
+
 }
 
-.page-title {
+
+.page-title  {
+
   font-size: 18px;
+
   font-weight: bold;
-  color: #303133;
+
+  color: var(--text-primary);
+
 }
 
-.detail-card {
+
+.detail-card  {
+
   background: #fff;
+
   border-radius: 12px;
+
   box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+
   margin-bottom: 16px;
+
   overflow: hidden;
+
 }
 
-.card-header-blue {
-  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
+
+.card-header-blue  {
+
+  background: linear-gradient(135deg, var(--accent-blue) 0%, #3a8ee6 100%);
+
   color: #fff;
+
   padding: 12px 16px;
+
   font-weight: bold;
+
   font-size: 15px;
+
 }
 
-.card-header-green {
+
+.card-header-green  {
+
   background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
+
   color: #fff;
+
   padding: 12px 16px;
+
   font-weight: bold;
+
   font-size: 15px;
+
 }
 
-.card-header-orange {
+
+.card-header-orange  {
+
   background: linear-gradient(135deg, #e6a23c 0%, #db8b2e 100%);
+
   color: #fff;
+
   padding: 12px 16px;
+
   font-weight: bold;
+
   font-size: 15px;
+
 }
 
-.card-content {
+
+.card-content  {
+
   padding: 16px;
+
 }
 
-.submit-area {
+
+.submit-area  {
+
   text-align: center;
+
   padding: 16px 0;
+
 }
 
-.image-preview-list {
+
+.image-preview-list  {
+
   display: flex;
+
   flex-wrap: wrap;
+
   gap: 12px;
+
   margin-top: 16px;
+
 }
 
-.preview-image-item {
+
+.preview-image-item  {
+
   position: relative;
+
   width: 120px;
+
   height: 120px;
+
   border-radius: 8px;
+
   overflow: hidden;
+
   border: 2px solid #e4e7ed;
+
 }
 
-.preview-image {
+
+.preview-image  {
+
   width: 120px;
+
   height: 120px;
+
   border-radius: 8px;
+
   cursor: pointer;
+
 }
 
-.remove-btn {
+
+.remove-btn  {
+
   position: absolute;
+
   top: -8px;
+
   right: -8px;
+
   width: 24px;
+
   height: 24px;
+
   padding: 0;
+
   font-size: 12px;
+
 }
 
-.preview-image-item:hover .remove-btn {
+
+.preview-image-item:hover .remove-btn  {
+
   opacity: 1;
+
 }
 
-.el-upload__tip {
-  color: #909399;
+
+.el-upload__tip  {
+
+  color: var(--text-muted);
+
   font-size: 12px;
+
   margin-top: 8px;
+
 }
+
+.upload {
+  max-width:1100px}
+.detail-card {
+  border:1px solid var(--border-light);
+  box-shadow:none;
+  border-radius:10px}
+.card-header-blue,.card-header-green,.card-header-orange {
+  background:#f5f4ff;
+  color:var(--text-primary);
+  padding:11px 15px;
+  font-size:15px}
+.card-content {
+  padding:15px}
+.submit-area {
+  text-align:right;
+  padding:10px 0}
+.step-content {
+  min-height:0}
 </style>

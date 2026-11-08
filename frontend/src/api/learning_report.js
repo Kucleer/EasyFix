@@ -16,7 +16,7 @@ export const learningReportApi = {
 
   /**
    * 获取报告列表
-   * @param {Object} params - { skip, limit, subject_id }
+   * @param {Object} params - { skip, limit, subject_id, grade }
    */
   list(params) {
     return api.get('/learning-reports/list', { params })

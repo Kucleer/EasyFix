@@ -1,5 +1,6 @@
 <template>
   <div class="questions">
+    <PageHeading title="我的错题本" description="留下问题，也留下解决问题的过程。" />
     <el-card>
       <template #header>
         <div class="card-header">
@@ -36,7 +37,8 @@
           @change="fetchQuestions"
           style="width: 195px"
         >
-          <el-option v-for="kp in filterOptions.knowledge_points" :key="kp" :label="kp" :value="kp" />
+                <template #label="{ label }"><KnowledgeTag :name="label" :subject-id="filters.subject_id" /></template>
+          <el-option v-for="kp in filterOptions.knowledge_points" :key="kp" :label="kp" :value="kp"><KnowledgeTag :name="kp" :subject-id="filters.subject_id" /></el-option>
         </el-select>
         <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchQuestions" style="width: 150px">
           <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
@@ -76,9 +78,7 @@
         <el-tag v-if="filters.tag_ids?.length" v-for="tagId in filters.tag_ids" :key="tagId" size="small" closable @close="removeFilter('tag_ids', tagId)" :style="getTagStyle(tagId)">
           {{ getTagName(tagId) }}
         </el-tag>
-        <el-tag v-if="filters.knowledge_point" size="small" type="info" closable @close="removeFilter('knowledge_point')">
-          知识点: {{ filters.knowledge_point }}
-        </el-tag>
+        <KnowledgeTag v-if="filters.knowledge_point" :name="filters.knowledge_point" :subject-id="filters.subject_id" closable @close="removeFilter('knowledge_point')" />
         <el-tag v-if="filters.subject_id" size="small" closable @close="removeFilter('subject_id')">
           {{ subjects.find(s => s.id === filters.subject_id)?.name }}
         </el-tag>
@@ -92,10 +92,10 @@
       </div>
 
       <!-- 错题列表 -->
-      <el-table v-model:selection="selectedQuestions" :data="questions.items" stripe style="width: 100%; margin-top: 20px" @selection-change="handleSelectionChange">
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column label="题目" min-width="250">
+      <el-table class="question-table" v-model:selection="selectedQuestions" :data="questions.items" stripe style="width: 100%; margin-top: 20px" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="42" />
+
+        <el-table-column label="题目" min-width="620">
           <template #default="{ row }">
             <div class="question-cell">
               <el-image
@@ -109,60 +109,21 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="difficulty" label="难度" width="120">
+        <el-table-column label="分类与记录" width="220">
           <template #default="{ row }">
-            <span class="difficulty-stars" :class="'difficulty-' + row.difficulty">{{ getDifficultyStars(row.difficulty) }}</span>
+            <div class="question-meta">
+              <span>{{ subjects.find(subject => subject.id === row.subject_id)?.name || '未指定学科' }}</span>
+              <KnowledgeTag v-if="row.knowledge_point" :name="row.knowledge_point" :subject-id="row.subject_id" />
+              <span v-if="row.error_type">{{ row.error_type }}</span>
+              <div class="question-tags"><el-tag v-for="tag in row.tags || []" :key="tag.id" size="small">{{ tag.name }}</el-tag></div>
+              <small>#{{ row.id }} · {{ formatDate(row.created_at) }}</small>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="正确率" width="100" sortable :sort-method="(a, b) => getAccuracyValue(a) - getAccuracyValue(b)">
-          <template #default="{ row }">
-            {{ getAccuracyDisplay(row) }}
-          </template>
+        <el-table-column label="复习情况" width="125" sortable :sort-method="(a, b) => getAccuracyValue(a) - getAccuracyValue(b)">
+          <template #default="{ row }"><div class="question-meta"><span class="difficulty-stars" :class="'difficulty-' + row.difficulty">{{ getDifficultyStars(row.difficulty) }}</span><span>正确率 {{ getAccuracyDisplay(row) }}</span><small>答对 {{ row.correct_count || 0 }} / {{ (row.correct_count || 0) + (row.error_count || 0) }} 次</small></div></template>
         </el-table-column>
-        <el-table-column label="复习" width="100">
-          <template #default="{ row }">
-            <span class="review-info">
-              <span class="correct">{{ row.correct_count || 0 }}</span> /
-              <span class="total">{{ (row.correct_count || 0) + (row.error_count || 0) }}</span>
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="error_type" label="错误类型" width="110">
-          <template #default="{ row }">
-            <el-tag v-if="row.error_type" :type="getErrorTypeType(row.error_type)" :style="{ marginRight: '4px', fontSize: '14px' }">{{ row.error_type }}</el-tag>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="知识点" width="150">
-          <template #default="{ row }">
-            <el-tag v-if="row.knowledge_point" type="info" :style="{ marginRight: '4px', fontSize: '14px' }">{{ row.knowledge_point }}</el-tag>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="标签" width="150">
-          <template #default="{ row }">
-            <el-tag
-              v-for="tag in (row.tags || []).slice(0, 2)"
-              :key="tag.id"
-              :style="{ marginRight: '4px', backgroundColor: tag.color || '#409eff', borderColor: tag.color || '#409eff', color: tag.color ? getContrastColor(tag.color) : '#ffffff', fontSize: '14px' }"
-            >{{ tag.name }}</el-tag>
-            <el-tag v-if="(row.tags || []).length > 2" :style="{ fontSize: '14px' }">+{{ row.tags.length - 2 }}</el-tag>
-            <span v-if="!row.tags?.length">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160">
-          <template #default="{ row }">
-            {{ formatDate(row.created_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="340" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" size="default" @click="viewDetail(row)">查看</el-button>
-            <el-button type="primary" size="default" @click="editQuestion(row)">编辑</el-button>
-            <el-button type="primary" size="default" @click="generateSimilar(row)">相似题</el-button>
-            <el-button type="danger" size="default" @click="deleteQuestion(row)">删除</el-button>
-          </template>
-        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => viewDetail(row) }" :actions="[{ label: '编辑', run: () => editQuestion(row) }, { label: '生成相似题', run: () => generateSimilar(row) }, { label: '删除', danger: true, run: () => deleteQuestion(row) }]" /></template></el-table-column>
       </el-table>
 
       <!-- 分页 -->
@@ -274,9 +235,7 @@
               </div>
               <div class="meta-item">
                 <label>知识点：</label>
-                <el-tag v-if="currentQuestion.knowledge_point" size="small" type="info">
-                  {{ currentQuestion.knowledge_point }}
-                </el-tag>
+                <KnowledgeTag v-if="currentQuestion.knowledge_point" :name="currentQuestion.knowledge_point" :subject-id="currentQuestion.subject_id" />
                 <span v-else class="text-muted">暂无</span>
               </div>
             </div>
@@ -411,6 +370,7 @@
             allow-create
             style="width: 100%"
           >
+                <template #label="{ label }"><KnowledgeTag :name="label" :subject-id="editForm.subject_id" /></template>
             <el-option
               v-for="kp in editKnowledgePoints"
               :key="kp.id"
@@ -493,6 +453,7 @@
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
@@ -1176,391 +1137,762 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.card-header {
+.card-header  {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
 }
 
-.header-actions {
+
+.header-actions  {
+
   display: flex;
+
   gap: 12px;
+
 }
 
-.header-actions :deep(.el-button) {
+
+.header-actions :deep(.el-button)  {
+
   padding: 12px 20px;
+
   font-size: 15px;
+
 }
 
-.filters {
+
+.filters  {
+
   display: flex;
+
   gap: 15px;
+
   flex-wrap: wrap;
+
   font-size: 16px;
+
 }
+
 
 .filters :deep(.el-input__wrapper),
-.filters :deep(.el-select__wrapper) {
+.filters :deep(.el-select__wrapper)  {
+
   min-height: 40px !important;
+
   font-size: 16px !important;
+
 }
 
-.filters :deep(.el-input__inner) {
+
+.filters :deep(.el-input__inner)  {
+
   font-size: 16px !important;
+
   height: 40px !important;
+
 }
 
-.filters :deep(.el-select__tags) {
+
+.filters :deep(.el-select__tags)  {
+
   font-size: 16px !important;
+
 }
 
-.selected-filters {
+
+.selected-filters  {
+
   display: flex;
+
   gap: 12px;
+
   flex-wrap: wrap;
+
   align-items: center;
+
   padding: 12px 0;
+
   font-size: 16px;
+
 }
 
-.filter-label {
+
+.filter-label  {
+
   font-size: 16px;
-  color: #909399;
+
+  color: var(--text-muted);
+
 }
 
-.question-cell {
+
+.question-cell  {
+
   display: flex;
+
   align-items: center;
+
 }
 
-.text-preview {
+
+.text-preview  {
+
   overflow: hidden;
+
   text-overflow: ellipsis;
+
   white-space: normal;
+
   word-break: break-word;
+
   line-height: 1.4;
+
 }
 
-.pagination {
+
+.pagination  {
+
   margin-top: 20px;
+
   display: flex;
+
   justify-content: flex-end;
+
 }
 
-.batch-actions {
+
+.batch-actions  {
+
   position: fixed;
+
   bottom: 0;
+
   left: 0;
+
   right: 0;
+
   background: white;
+
   padding: 15px 20px;
+
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+
   z-index: 100;
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
 }
 
-.batch-info {
+
+.batch-info  {
+
   font-size: 14px;
-  color: #606266;
+
+  color: var(--text-secondary);
+
 }
 
-.batch-info strong {
-  color: #409eff;
+
+.batch-info strong  {
+
+  color: var(--accent-blue);
+
   font-size: 16px;
+
 }
 
-.batch-buttons {
+
+.batch-buttons  {
+
   display: flex;
+
   gap: 10px;
+
 }
 
-.analysis-image-preview {
+
+.analysis-image-preview  {
+
   display: flex;
+
   align-items: center;
+
   gap: 10px;
+
 }
 
-.original-image-preview {
+
+.original-image-preview  {
+
   display: flex;
+
   align-items: center;
+
   gap: 10px;
+
 }
+
 
 /* 难度星级样式 */
-.difficulty-stars {
+.difficulty-stars  {
+
   font-size: 14px;
+
   letter-spacing: 2px;
+
 }
+
 
 .difficulty-stars.difficulty-1,
-.difficulty-stars.difficulty-2 {
+.difficulty-stars.difficulty-2  {
+
   color: #67c23a;
+
 }
 
-.difficulty-stars.difficulty-3 {
+
+.difficulty-stars.difficulty-3  {
+
   color: #e6a23c;
+
 }
+
 
 .difficulty-stars.difficulty-4,
-.difficulty-stars.difficulty-5 {
+.difficulty-stars.difficulty-5  {
+
   color: #f56c6c;
+
 }
+
 
 /* 难度筛选标签样式 */
 .difficulty-filter-1,
-.difficulty-filter-2 {
+.difficulty-filter-2  {
+
   color: #67c23a;
+
   border-color: #67c23a;
+
 }
 
-.difficulty-filter-3 {
+
+.difficulty-filter-3  {
+
   color: #e6a23c;
+
   border-color: #e6a23c;
+
 }
+
 
 .difficulty-filter-4,
-.difficulty-filter-5 {
+.difficulty-filter-5  {
+
   color: #f56c6c;
+
   border-color: #f56c6c;
+
 }
+
 
 /* 表格字体加大 */
-:deep(.el-table) {
+:deep(.el-table)  {
+
   font-size: 15px;
+
 }
 
-:deep(.el-table th) {
+
+:deep(.el-table th)  {
+
   font-size: 15px;
+
 }
 
-:deep(.el-table td) {
+
+:deep(.el-table td)  {
+
   font-size: 15px;
+
 }
+
 
 /* 禁用卡片的hover效果 */
-.questions :deep(.el-card) {
+.questions :deep(.el-card)  {
+
   transition: none;
+
 }
-.questions :deep(.el-card:hover) {
+
+.questions :deep(.el-card:hover)  {
+
   transform: none;
+
   box-shadow: var(--shadow-sm) !important;
+
 }
+
 
 /* ========== 详情页卡片式布局 ========== */
-.question-detail {
+.question-detail  {
+
   padding: 8px;
+
 }
+
 
 /* 原图展示区 */
-.detail-images {
+.detail-images  {
+
   margin-bottom: 16px;
+
 }
 
-.image-gallery {
+
+.image-gallery  {
+
   display: flex;
+
   gap: 12px;
+
   overflow-x: auto;
+
   padding: 4px 0;
+
 }
 
-.gallery-image {
+
+.gallery-image  {
+
   width: 180px;
+
   height: 180px;
+
   border-radius: 8px;
+
   cursor: pointer;
+
   transition: transform 0.2s;
+
   flex-shrink: 0;
+
 }
 
-.gallery-image:hover {
+
+.gallery-image:hover  {
+
   transform: scale(1.05);
+
 }
+
 
 /* 卡片通用样式 */
-.detail-card {
+.detail-card  {
+
   background: #fff;
+
   border-radius: 12px;
+
   box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+
   margin-bottom: 16px;
+
   overflow: hidden;
+
 }
 
-.detail-row {
+
+.detail-row  {
+
   display: flex;
+
   gap: 16px;
+
   margin-bottom: 16px;
+
 }
 
-.flex-1 {
+
+.flex-1  {
+
   flex: 1;
+
 }
+
 
 /* 卡片标题栏 */
-.card-header-blue {
-  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
+.card-header-blue  {
+
+  background: linear-gradient(135deg, var(--accent-blue) 0%, #3a8ee6 100%);
+
   color: #fff;
+
   padding: 14px 20px;
+
   font-weight: bold;
+
   font-size: 18px;
+
 }
 
-.card-header-green {
+
+.card-header-green  {
+
   background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
+
   color: #fff;
+
   padding: 14px 20px;
+
   font-weight: bold;
+
   font-size: 18px;
+
 }
 
-.card-header-orange {
+
+.card-header-orange  {
+
   background: linear-gradient(135deg, #e6a23c 0%, #db8b2e 100%);
+
   color: #fff;
+
   padding: 14px 20px;
+
   font-weight: bold;
+
   font-size: 18px;
+
 }
 
-.card-header-gray {
-  background: linear-gradient(135deg, #606266 0%, #555558 100%);
+
+.card-header-gray  {
+
+  background: linear-gradient(135deg, var(--text-secondary) 0%, #555558 100%);
+
   color: #fff;
+
   padding: 14px 20px;
+
   font-weight: bold;
+
   font-size: 18px;
+
 }
 
-.card-header-purple {
+
+.card-header-purple  {
+
   background: linear-gradient(135deg, #9c27b0 0%, #862491 100%);
+
   color: #fff;
+
   padding: 14px 20px;
+
   font-weight: bold;
+
   font-size: 18px;
+
 }
+
 
 /* 卡片内容区 */
-.card-content {
+.card-content  {
+
   padding: 20px;
+
 }
+
 
 /* 题目/答案/解析文字 */
-.question-text {
+.question-text  {
+
   white-space: pre-wrap;
+
   word-break: break-word;
+
   line-height: 1.8;
+
   font-size: 17px;
-  color: #303133;
+
+  color: var(--text-primary);
+
 }
+
 
 /* 解析图片 */
-.analysis-image {
+.analysis-image  {
+
   margin-top: 12px;
+
 }
 
-.analysis-img {
+
+.analysis-img  {
+
   width: 200px;
+
   height: 200px;
+
   border-radius: 8px;
+
   cursor: pointer;
+
 }
+
 
 /* 元数据行 */
-.meta-row {
+.meta-row  {
+
   display: flex;
+
   gap: 32px;
+
   margin-bottom: 12px;
+
 }
 
-.meta-row:last-child {
+
+.meta-row:last-child  {
+
   margin-bottom: 0;
+
 }
 
-.meta-item {
+
+.meta-item  {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
 }
 
-.meta-item label {
-  color: #909399;
+
+.meta-item label  {
+
+  color: var(--text-muted);
+
   font-size: 14px;
+
 }
 
-.meta-item span {
-  color: #303133;
+
+.meta-item span  {
+
+  color: var(--text-primary);
+
   font-size: 14px;
+
 }
+
 
 /* 黄色星星难度 */
-.difficulty-stars-yellow {
+.difficulty-stars-yellow  {
+
   font-size: 18px;
+
   letter-spacing: 3px;
+
   color: #f5c518;
+
 }
+
 
 /* 标签区域 */
-.tags-area {
+.tags-area  {
+
   display: flex;
+
   align-items: center;
+
   flex-wrap: wrap;
+
   gap: 8px;
+
   margin-bottom: 16px;
+
 }
 
-.tags-label {
-  color: #909399;
+
+.tags-label  {
+
+  color: var(--text-muted);
+
   font-size: 14px;
+
 }
+
 
 /* 相似题 */
-.similar-item {
+.similar-item  {
+
   padding: 12px;
+
   background: #f5f7fa;
+
   border-radius: 8px;
+
   margin-bottom: 12px;
+
 }
 
-.similar-item:last-child {
+
+.similar-item:last-child  {
+
   margin-bottom: 0;
+
 }
 
-.similar-item p {
+
+.similar-item p  {
+
   margin: 0 0 8px 0;
+
   line-height: 1.6;
+
 }
 
-.similar-item p:last-child {
+
+.similar-item p:last-child  {
+
   margin-bottom: 0;
+
 }
+
 
 /* 文字辅助 */
-.text-muted {
+.text-muted  {
+
   color: #c0c4cc;
+
   font-size: 14px;
+
 }
+
 
 /* 练习历史 */
-.history-item {
+.history-item  {
+
   display: flex;
+
   align-items: center;
+
   gap: 12px;
+
   padding: 8px 0;
+
   border-bottom: 1px solid #ebeef5;
+
 }
 
-.history-item:last-child {
+
+.history-item:last-child  {
+
   border-bottom: none;
+
 }
 
-.history-date {
-  color: #909399;
+
+.history-date  {
+
+  color: var(--text-muted);
+
   font-size: 13px;
+
   min-width: 140px;
+
 }
 
-.history-name {
+
+.history-name  {
+
   flex: 1;
+
   font-size: 14px;
-  color: #303133;
+
+  color: var(--text-primary);
+
 }
+
+.filters {
+  gap:8px;
+  font-size:14px}
+.filters :deep(.el-input__wrapper),.filters :deep(.el-select__wrapper) {
+  min-height:34px!important;
+  font-size:14px!important}
+.filters :deep(.el-input__inner) {
+  font-size:14px!important;
+  height:32px!important}
+.filters :deep(.el-select__tags) {
+  font-size:13px!important}
+.selected-filters {
+  gap:8px;
+  padding:9px 0;
+  font-size:13px}
+.filter-label {
+  font-size:13px}
+.header-actions :deep(.el-button) {
+  padding:9px 14px;
+  font-size:14px}
+.text-preview {
+  line-height:1.7}
+.batch-actions {
+  left:220px;
+  bottom:14px;
+  right:20px;
+  border:1px solid var(--border-light);
+  border-radius:10px;
+  padding:12px 16px;
+  z-index:90}
+.detail-card {
+  box-shadow:none;
+  border:1px solid var(--border-light);
+  border-radius:10px}
+.card-header-blue,.card-header-green,.card-header-orange,.card-header-purple {
+  background:#f5f4ff;
+  color:var(--text-primary);
+  padding:11px 15px;
+  font-size:15px}
+.gallery-image:hover {
+  transform:none}
+@media(max-width:768px) {
+  .batch-actions {
+  left:10px;
+  right:10px;
+  bottom:76px;
+  flex-wrap:wrap;
+  gap:8px}
+.batch-buttons {
+  flex-wrap:wrap}
+.detail-row {
+  flex-direction:column}
+.question-detail {
+  padding:0}
+}
+
+.question-cell { align-items: flex-start; gap: 10px; min-width: 0; }
+.question-cell :deep(.el-image) { flex-shrink: 0; }
+.text-preview { flex: 1; min-width: 0; line-height: 1.9; font-size: 16px; }
+.text-preview :deep(.math-text) { display: block; width: 100%; overflow-y: visible; }
+.question-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.question-meta small { color: var(--text-muted); font-size: 12px; }
+.question-meta :deep(.el-tag) { max-width: 100%; height: auto; white-space: normal; line-height: 1.6; padding: 3px 7px; }
+.question-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.question-tags:empty { display: none; }
+.question-actions { display: flex; align-items: center; gap: 6px; }
+.question-actions :deep(.el-button) { padding: 7px 9px; }
+.question-table :deep(td.el-table__cell) { padding: 13px 0; vertical-align: top; }
 </style>

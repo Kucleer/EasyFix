@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db
-from app.services.ocr import ocr_service
 from app.services.logger import logger_service
 from app.config import get_settings
 
@@ -15,9 +14,6 @@ router = APIRouter(prefix="/api/upload", tags=["上传"])
 settings = get_settings()
 
 
-class UploadResponse(BaseModel):
-    image_path: str
-    ocr_result: dict
 
 
 class BatchUploadResponse(BaseModel):
@@ -71,64 +67,6 @@ async def _save_image(file: UploadFile) -> dict:
     }
 
 
-@router.post("/image", response_model=UploadResponse)
-async def upload_image(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    """
-    上传单张图片并进行OCR识别
-
-    Returns:
-        {
-            "image_path": str,
-            "ocr_result": {
-                "full_text": str,
-                "blocks": list,
-                "provider": str,
-            }
-        }
-    """
-    # 保存图片
-    result = await _save_image(file)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-
-    image_path = result["image_path"]
-    absolute_path = result["absolute_path"]
-
-    # 记录上传日志
-    logger_service.log_upload(
-        image_path=image_path,
-        ocr_result={"status": "processing"},
-        success=True,
-    )
-
-    # 执行OCR识别
-    try:
-        ocr_result = ocr_service.recognize(absolute_path)
-    except Exception as e:
-        error_msg = str(e)
-        logger_service.log_upload(
-            image_path=image_path,
-            ocr_result={},
-            success=False,
-            error=error_msg,
-        )
-        raise HTTPException(status_code=500, detail=f"OCR识别失败: {error_msg}")
-
-    # 记录OCR日志
-    logger_service.log_ocr(
-        image_path=image_path,
-        result=ocr_result,
-        provider=ocr_result.get("provider", "unknown"),
-        success=True,
-    )
-
-    return {
-        "image_path": image_path,
-        "ocr_result": ocr_result,
-    }
 
 
 class SimpleUploadResponse(BaseModel):
@@ -142,7 +80,7 @@ async def upload_file(
     file: UploadFile = File(...),
 ):
     """
-    简单文件上传（不进行OCR识别）
+    上传原图附件
 
     Returns:
         {
@@ -187,98 +125,6 @@ async def upload_file(
     }
 
 
-@router.post("/batch", response_model=BatchUploadResponse)
-async def upload_batch_images(
-    files: List[UploadFile] = File(...),
-    db: Session = Depends(get_db),
-):
-    """
-    批量上传多张图片，每张图片单独进行OCR识别
-
-    Returns:
-        {
-            "images": [
-                {
-                    "image_path": str,
-                    "ocr_result": {...},
-                    "original_filename": str,
-                },
-                ...
-            ],
-            "total_count": int,
-            "success_count": int,
-            "failed_count": int,
-        }
-    """
-    results = []
-    success_count = 0
-    failed_count = 0
-
-    for file in files:
-        # 保存图片
-        save_result = await _save_image(file)
-
-        if "error" in save_result:
-            results.append({
-                "original_filename": file.filename,
-                "success": False,
-                "error": save_result["error"],
-            })
-            failed_count += 1
-            logger_service.log_upload(
-                image_path="",
-                ocr_result={},
-                success=False,
-                error=save_result["error"],
-            )
-            continue
-
-        image_path = save_result["image_path"]
-        absolute_path = save_result["absolute_path"]
-
-        # 执行OCR识别
-        try:
-            ocr_result = ocr_service.recognize(absolute_path)
-            results.append({
-                "image_path": image_path,
-                "ocr_result": ocr_result,
-                "original_filename": file.filename,
-                "size": save_result["size"],
-                "success": True,
-            })
-            success_count += 1
-
-            logger_service.log_ocr(
-                image_path=image_path,
-                result=ocr_result,
-                provider=ocr_result.get("provider", "unknown"),
-                success=True,
-            )
-        except Exception as e:
-            error_msg = str(e)
-            results.append({
-                "image_path": image_path,
-                "ocr_result": {},
-                "original_filename": file.filename,
-                "success": False,
-                "error": error_msg,
-            })
-            failed_count += 1
-
-            logger_service.log_ocr(
-                image_path=image_path,
-                result={},
-                provider="unknown",
-                success=False,
-                error=error_msg,
-            )
-
-    return {
-        "images": results,
-        "total_count": len(files),
-        "success_count": success_count,
-        "failed_count": failed_count,
-    }
 
 
 @router.post("/batch-simple", response_model=BatchUploadResponse)
@@ -286,7 +132,7 @@ async def upload_batch_images_simple(
     files: List[UploadFile] = File(...),
 ):
     """
-    简单批量上传多张图片，不进行OCR识别
+    批量上传原图附件
 
     Returns:
         {
@@ -373,7 +219,7 @@ async def upload_to_error_book(
         # 记录上传日志
         logger_service.log_upload(
             image_path=save_result["image_path"],
-            ocr_result={"stored": True},
+            upload_result={"stored": True},
             success=True,
         )
 
