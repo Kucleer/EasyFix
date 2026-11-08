@@ -174,7 +174,7 @@
             </div>
             <div class="question-answer">
               <span class="answer-label">答案：</span>
-              <span class="answer-badge"><MathText :text="question.original_answer || '-'" /></span>
+              <span class="answer-badge readable-answer"><MathText :text="question.original_answer || '-'" /></span>
             </div>
           </div>
           <div class="question-actions">
@@ -233,7 +233,7 @@
           <el-col :span="12">
             <div class="detail-block">
               <div class="detail-label">答案</div>
-              <div class="detail-value answer-value">
+              <div class="detail-value answer-value readable-answer">
                 <MathText :text="gradingQuestionDetail.original_answer || '-'" />
               </div>
             </div>
@@ -437,7 +437,7 @@
                           </div>
                           <div class="info-row">
                             <span class="label">答案：</span>
-                            <span class="value answer"><MathText :text="row.original_answer || '-'" /></span>
+                            <span class="value answer readable-answer"><MathText :text="row.original_answer || '-'" /></span>
                           </div>
                           <div v-if="row.explanation" class="info-row">
                             <span class="label">解析：</span>
@@ -1996,6 +1996,15 @@ onMounted(() => {
   border-top: 1px solid #ebeef5;
   font-size: 13px;
   color: #606266;
+}
+
+.readable-answer,
+.detail-value.answer-value.readable-answer {
+  /* 衬线字形保留 i 的圆点及 l 的底部特征，避免小号粗体混淆。 */
+  font-family: Georgia, 'Times New Roman', 'Microsoft YaHei', serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.9;
 }
 
 .detail-meta span {
