@@ -52,7 +52,7 @@ class LoggerService:
             db.close()
 
     @staticmethod
-    def log_upload(image_path: str, ocr_result: dict, success: bool = True, error: str = None):
+    def log_upload(image_path: str, upload_result: dict, success: bool = True, error: str = None):
         """记录上传操作"""
         return LoggerService.log(
             operation_type=OperationType.UPLOAD,
@@ -60,7 +60,7 @@ class LoggerService:
             target_type="image",
             target_id=None,
             request_data={"image_path": image_path},
-            response_data=ocr_result,
+            response_data=upload_result,
             error_message=error,
         )
 
@@ -88,18 +88,6 @@ class LoggerService:
             error_message=error,
         )
 
-    @staticmethod
-    def log_ocr(image_path: str, result: dict, provider: str, success: bool = True, error: str = None):
-        """记录OCR识别"""
-        return LoggerService.log(
-            operation_type=OperationType.OCR_RECOGNIZE,
-            operation_status=OperationStatus.SUCCESS if success else OperationStatus.FAILED,
-            target_type="ocr",
-            target_id=None,
-            request_data={"image_path": image_path, "provider": provider},
-            response_data={"text_length": len(result.get("full_text", ""))} if success else None,
-            error_message=error,
-        )
 
     @staticmethod
     def log_similar(question_id: int, similar_result: dict, success: bool = True, error: str = None):

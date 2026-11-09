@@ -1,5 +1,6 @@
 <template>
   <div class="learning-reports">
+    <PageHeading title="学习报告" description="回顾学习表现，为下一步找到方向。" />
     <el-row :gutter="20">
       <el-col :span="24">
         <el-card>
@@ -15,7 +16,8 @@
 
           <!-- 筛选条件 -->
           <div class="filters">
-            <el-select v-model="filters.subject_id" placeholder="学科" clearable @change="fetchReports" style="width: 150px">
+            <el-select v-model="filters.grade" placeholder="全部年级" clearable aria-label="报告年级筛选" @change="applyReportFilters" style="width: 150px"><el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" /></el-select>
+            <el-select v-model="filters.subject_id" placeholder="学科" clearable @change="applyReportFilters" style="width: 150px">
               <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
             </el-select>
           </div>
@@ -47,12 +49,7 @@
                 {{ formatDate(row.created_at) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" size="default" @click="viewReport(row)">查看</el-button>
-                <el-button type="danger" size="default" @click="deleteReport(row)">删除</el-button>
-              </template>
-            </el-table-column>
+            <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => viewReport(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteReport(row), disabled: false, danger: true }]" /></template></el-table-column>
           </el-table>
 
           <!-- 分页 -->
@@ -102,7 +99,7 @@
     </el-dialog>
 
     <!-- 报告详情弹窗 -->
-    <el-dialog v-model="detailDialogVisible" title="报告详情" width="900px" class="report-detail-dialog">
+    <el-dialog v-model="detailDialogVisible" title="报告详情" width="min(1300px, 94vw)" class="report-detail-dialog">
       <div v-if="currentReport" class="report-content">
         <div class="report-header">
           <h2>{{ currentReport.title }}</h2>
@@ -173,28 +170,25 @@
 
           <div v-if="currentReport.content.question_analysis.top_error_knowledge_points?.length" class="subsection">
             <h4>高频出错知识点 TOP10</h4>
-            <el-table :data="currentReport.content.question_analysis.top_error_knowledge_points">
-              <el-table-column prop="point" label="知识点" />
-              <el-table-column prop="count" label="错误次数" width="100" />
-            </el-table>
+            <SubjectKnowledgeRanking :items="currentReport.content.question_analysis.top_error_knowledge_points" :subjects="subjects" :subject-id="currentReport.subject_id || null" count-label="错误次数" />
           </div>
 
           <div class="subsection">
             <h4>复习效果</h4>
             <el-row :gutter="20">
-              <el-col :span="6">
+              <el-col :xs="12" :md="6">
                 <div class="mini-stat">
                   <div class="value">{{ currentReport.content.question_analysis.review_effectiveness?.not_reviewed || 0 }}</div>
                   <div class="label">未复习</div>
                 </div>
               </el-col>
-              <el-col :span="6">
+              <el-col :xs="12" :md="6">
                 <div class="mini-stat">
                   <div class="value">{{ currentReport.content.question_analysis.review_effectiveness?.reviewed_1 || 0 }}</div>
                   <div class="label">复习1次</div>
                 </div>
               </el-col>
-              <el-col :span="6">
+              <el-col :xs="12" :md="6">
                 <div class="mini-stat">
                   <div class="value">{{ currentReport.content.question_analysis.review_effectiveness?.reviewed_multiple || 0 }}</div>
                   <div class="label">复习多次</div>
@@ -264,6 +258,8 @@
 </template>
 
 <script setup>
+import SubjectKnowledgeRanking from '@/components/SubjectKnowledgeRanking.vue'
+import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted } from 'vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -275,6 +271,7 @@ const appConfigStore = useAppConfigStore()
 const reports = ref({ total: 0, items: [] })
 const subjects = ref([])
 const filters = reactive({
+  grade: null,
   subject_id: null,
 })
 const pagination = reactive({
@@ -340,16 +337,24 @@ const getSuggestionType = (type) => {
   return map[type] || 'info'
 }
 
+const applyReportFilters = () => {
+  pagination.page = 1
+  fetchReports()
+}
+
+let reportRequest = 0
 const fetchReports = async () => {
+  const requestId = ++reportRequest
   try {
     const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit,
     }
     if (filters.subject_id) params.subject_id = filters.subject_id
+    if (filters.grade) params.grade = filters.grade
 
     const { data } = await learningReportApi.list(params)
-    reports.value = data
+    if (requestId === reportRequest) reports.value = data
   } catch (error) {
     ElMessage.error('获取报告列表失败')
   }
@@ -366,8 +371,8 @@ const fetchSubjects = async () => {
 
 const showGenerateDialog = () => {
   generateForm.title = ''
-  generateForm.subject_id = null
-  generateForm.grade = null
+  generateForm.subject_id = filters.subject_id
+  generateForm.grade = filters.grade
   generateForm.time_range_days = null
   generateDialogVisible.value = true
 }
@@ -384,7 +389,9 @@ const generateReport = async () => {
     const { data: result } = await learningReportApi.generate(data)
     ElMessage.success(result.message)
     generateDialogVisible.value = false
-    fetchReports()
+    filters.subject_id = generateForm.subject_id || null
+    filters.grade = generateForm.grade || null
+    applyReportFilters()
 
     // 自动打开新生成的报告
     viewReport({ id: result.id })
@@ -431,131 +438,154 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.learning-reports {
+.learning-reports  {
+
   max-width: 1200px;
   margin: 0 auto;
 }
 
-.card-header {
+.card-header  {
+
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.filters {
+.filters  {
+
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.pagination {
+.pagination  {
+
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
 }
 
 /* 报告详情弹窗样式 */
-.report-content {
+.report-content  {
+
   max-height: 70vh;
   overflow-y: auto;
 }
 
-.report-header {
+.report-header  {
+
   text-align: center;
   margin-bottom: 30px;
   padding-bottom: 20px;
   border-bottom: 1px solid #eee;
 }
 
-.report-header h2 {
+.report-header h2  {
+
   margin: 0 0 15px 0;
 }
 
-.report-meta {
+.report-meta  {
+
   display: flex;
   justify-content: center;
   gap: 10px;
   align-items: center;
 }
 
-.report-meta .accuracy {
+.report-meta .accuracy  {
+
   margin-left: 20px;
   font-size: 16px;
 }
 
-.report-section {
+.report-section  {
+
   margin-bottom: 30px;
 }
 
-.report-section h3 {
-  color: #409eff;
-  border-left: 4px solid #409eff;
+.report-section h3  {
+
+  color: var(--accent-blue);
+  border-left: 4px solid var(--accent-blue);
   padding-left: 10px;
   margin-bottom: 15px;
 }
 
-.subsection {
+.subsection  {
+
   margin-bottom: 20px;
 }
 
-.subsection h4 {
-  color: #606266;
+.subsection h4  {
+
+  color: var(--text-secondary);
   margin-bottom: 10px;
 }
 
-.stat-card {
+.stat-card  {
+
   text-align: center;
   padding: 20px;
   background: #f5f7fa;
   border-radius: 8px;
 }
 
-.stat-card .stat-value {
+.stat-card .stat-value  {
+
   font-size: 32px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
 }
 
-.stat-card .stat-label {
+.stat-card .stat-label  {
+
   font-size: 14px;
-  color: #909399;
+  color: var(--text-muted);
   margin-top: 5px;
 }
 
-.mini-stat {
+.mini-stat  {
+
   text-align: center;
   padding: 15px;
   background: #f5f7fa;
   border-radius: 8px;
 }
 
-.mini-stat .value {
+.mini-stat .value  {
+
   font-size: 24px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
 }
 
-.mini-stat .label {
+.mini-stat .label  {
+
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
 }
 
-.distribution-bars {
+.distribution-bars  {
+
   padding: 10px 0;
 }
 
-.bar-item {
+.bar-item  {
+
   display: flex;
   align-items: center;
   margin-bottom: 10px;
 }
 
-.bar-label {
+.bar-label  {
+
   width: 80px;
   font-size: 14px;
 }
 
-.bar-wrapper {
+.bar-wrapper  {
+
   flex: 1;
   height: 20px;
   background-color: #f0f0f0;
@@ -564,54 +594,82 @@ onMounted(async () => {
   margin: 0 10px;
 }
 
-.bar {
+.bar  {
+
   height: 100%;
   border-radius: 10px;
   transition: width 0.3s ease;
 }
 
-.bar-value {
+.bar-value  {
+
   width: 40px;
   text-align: right;
   font-size: 14px;
 }
 
-.suggestion-card {
+.suggestion-card  {
+
   margin-bottom: 10px;
 }
 
-.summary-box {
+.summary-box  {
+
   background: #f5f7fa;
   padding: 20px;
   border-radius: 8px;
 }
 
-.summary-box h4 {
+.summary-box h4  {
+
   margin: 10px 0;
-  color: #409eff;
+  color: var(--accent-blue);
 }
 
-.summary-box ul {
+.summary-box ul  {
+
   margin: 0;
   padding-left: 20px;
 }
 
-.summary-box li {
+.summary-box li  {
+
   margin: 5px 0;
   line-height: 1.6;
 }
 
-.word-list {
+.word-list  {
+
   display: flex;
   flex-wrap: wrap;
 }
 
 /* 禁用卡片的hover效果 */
-.learning-reports :deep(.el-card) {
+.learning-reports :deep(.el-card)  {
+
   transition: none;
 }
-.learning-reports :deep(.el-card:hover) {
+.learning-reports :deep(.el-card:hover)  {
+
   transform: none;
   box-shadow: var(--shadow-sm) !important;
 }
+.learning-reports {
+  max-width:none}
+.report-header {
+  margin-bottom:20px;
+  padding-bottom:15px}
+.report-section {
+  margin-bottom:22px}
+.report-section h3 {
+  color:var(--accent-blue);
+  border-color:var(--accent-blue)}
+.stat-card,.mini-stat {
+  padding:15px;
+  background:#f6f7fb}
+.stat-card .stat-value {
+  font-size:27px;
+  color:var(--accent-blue)}
+.summary-box {
+  padding:16px}
 </style>

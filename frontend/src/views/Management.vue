@@ -1,5 +1,6 @@
 <template>
   <div class="management">
+    <PageHeading title="资料管理" description="整理学习资料，设置适合自己的学习偏好。" />
     <!-- 访问密码验证 -->
     <el-dialog v-model="showPasswordDialog" title="请输入访问密码" width="400px" :close-on-click-modal="false" :show-close="false">
       <el-form>
@@ -61,11 +62,7 @@
             <el-table :data="subjects" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="学科名称" />
-              <el-table-column label="操作" width="120">
-                <template #default="{ row }">
-                  <el-button link type="danger" size="small" @click="deleteSubject(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '删除', run: () => deleteSubject(row), disabled: false, danger: true }" :actions="[]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -87,11 +84,7 @@
                   <el-tag :style="{ backgroundColor: row.color, color: '#fff' }">{{ row.color || '默认' }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="120">
-                <template #default="{ row }">
-                  <el-button link type="danger" size="small" @click="deleteTag(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '删除', run: () => deleteTag(row), disabled: false, danger: true }" :actions="[]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -109,12 +102,7 @@
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="类型名称" />
               <el-table-column prop="subject_name" label="学科" width="120" />
-              <el-table-column label="操作" width="180">
-                <template #default="{ row }">
-                  <el-button type="primary" size="default" @click="editErrorType(row)">编辑</el-button>
-                  <el-button type="danger" size="default" @click="deleteErrorType(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editErrorType(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteErrorType(row), disabled: false, danger: true }]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -142,7 +130,7 @@
             </div>
             <el-table :data="knowledgePoints" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
-              <el-table-column prop="name" label="知识点名称" />
+              <el-table-column prop="name" label="知识点名称"><template #default="{ row }"><KnowledgeTag :name="row.name" :subject-id="row.subject_id" /></template></el-table-column>
               <el-table-column prop="subject_name" label="学科" width="100" />
               <el-table-column prop="grade" label="年级" width="80">
                 <template #default="{ row }">
@@ -154,12 +142,7 @@
                   {{ row.semester === 1 ? '上学期' : '下学期' }}
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="180">
-                <template #default="{ row }">
-                  <el-button type="primary" size="default" @click="editKnowledgePoint(row)">编辑</el-button>
-                  <el-button type="danger" size="default" @click="deleteKnowledgePoint(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editKnowledgePoint(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteKnowledgePoint(row), disabled: false, danger: true }]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -178,12 +161,7 @@
               <el-table-column prop="name" label="错题本名称" />
               <el-table-column prop="subject_name" label="学科" width="100" />
               <el-table-column prop="description" label="描述" />
-              <el-table-column label="操作" width="180">
-                <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="editErrorBook(row)">编辑</el-button>
-                  <el-button link type="danger" size="small" @click="deleteErrorBook(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editErrorBook(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteErrorBook(row), disabled: false, danger: true }]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -252,12 +230,7 @@
                   <el-tag :type="row.is_custom ? 'warning' : 'primary'">{{ row.is_custom ? '自定义' : '预设' }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="180">
-                <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="editStarAction(row)">编辑</el-button>
-                  <el-button link type="danger" size="small" @click="deleteStarAction(row)" :disabled="row.is_preset">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editStarAction(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteStarAction(row), disabled: row.is_preset, danger: true }]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -283,12 +256,7 @@
                   <el-tag :type="row.is_preset ? 'primary' : 'warning'">{{ row.is_preset ? '预设' : '自定义' }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="180">
-                <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="editAchievement(row)" :disabled="row.is_preset">编辑</el-button>
-                  <el-button link type="danger" size="small" @click="deleteAchievement(row)" :disabled="row.is_preset">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editAchievement(row), disabled: row.is_preset, danger: false }" :actions="[{ label: '删除', run: () => deleteAchievement(row), disabled: row.is_preset, danger: true }]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -316,12 +284,7 @@
                   {{ row.remaining_stock === -1 ? '无限' : row.remaining_stock }}
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="180">
-                <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="editReward(row)">编辑</el-button>
-                  <el-button link type="danger" size="small" @click="deleteReward(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editReward(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteReward(row), disabled: false, danger: true }]" /></template></el-table-column>
             </el-table>
           </div>
         </el-tab-pane>
@@ -518,12 +481,13 @@
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi, uploadApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
-import axios from 'axios'
+import axios from '@/api/http'
 
 const appConfigStore = useAppConfigStore()
 const activeTab = ref('system')
@@ -1256,78 +1220,101 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.management {
+.management  {
+
   max-width: 1200px;
   margin: 0 auto;
 }
 
-.card-header {
+.card-header  {
+
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.tab-content {
+.tab-content  {
+
   padding: 10px 0;
 }
 
-.system-config .form-tip {
+.system-config .form-tip  {
+
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
   line-height: 1.5;
   margin-top: 4px;
 }
 
-.action-bar {
+.action-bar  {
+
   margin-bottom: 10px;
 }
 
-.filters {
+.filters  {
+
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 15px;
 }
 
-.text-success {
+.text-success  {
+
   color: #67c23a;
   font-weight: bold;
 }
 
-.text-danger {
+.text-danger  {
+
   color: #f56c6c;
   font-weight: bold;
 }
 
-.stars-adjust-section {
+.stars-adjust-section  {
+
   background: #f5f7fa;
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 20px;
 }
 
-.stars-adjust-section h4 {
+.stars-adjust-section h4  {
+
   margin: 0 0 12px 0;
-  color: #303133;
+  color: var(--text-primary);
 }
 
-.adjust-result {
+.adjust-result  {
+
   margin-top: 12px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
-.balance-value {
+.balance-value  {
+
   font-size: 18px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
 }
 
 /* 禁用卡片的hover效果 */
-.management :deep(.el-card) {
+.management :deep(.el-card)  {
+
   transition: none;
 }
-.management :deep(.el-card:hover) {
+.management :deep(.el-card:hover)  {
+
   transform: none;
   box-shadow: var(--shadow-sm) !important;
 }
+.management {
+  max-width:none}
+.tab-content {
+  padding:8px 0}
+.stars-adjust-section {
+  background:#f6f7fb;
+  border:1px solid var(--border-light)}
+.balance-value {
+  color:var(--accent-blue)}
 </style>

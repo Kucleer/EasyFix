@@ -1,0 +1,9 @@
+CREATE INDEX IF NOT EXISTS cf_question_active_date ON question(created_at DESC,id DESC) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_question_subject_grade ON question(subject_id,grade,created_at DESC) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_word_active_grade ON word(grade,semester,created_at DESC) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_word_review_due ON word(next_review_at) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_review_log_word_date ON word_review_log(word_id,reviewed_at DESC,id DESC) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_review_log_date ON word_review_log(reviewed_at,is_correct) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_practice_active_date ON practice_set(created_at DESC,id DESC) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_practice_active_source ON practice_set(source_type,subject_id,last_reviewed_at) WHERE deleted=0;
+CREATE INDEX IF NOT EXISTS cf_reading_active_grade ON reading_passage(grade,topic,created_at DESC) WHERE deleted=0;

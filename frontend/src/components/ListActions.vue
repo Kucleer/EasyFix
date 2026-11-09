@@ -1,0 +1,7 @@
+<template><div class="list-actions"><el-button v-if="primary" :type="primary.danger ? 'danger' : 'primary'" :plain="primary.danger" size="small" :disabled="primary.disabled" @click="primary.run()">{{ primary.label }}</el-button><el-dropdown v-if="actions.length" trigger="click"><el-button size="small" aria-label="更多操作">更多<el-icon class="more-arrow"><ArrowDown /></el-icon></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-for="item in actions" :key="item.label" :disabled="item.disabled" :divided="item.danger" :class="{ 'list-action-danger': item.danger }" @click="item.run()">{{ item.label }}</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></template>
+<script setup>
+import { ArrowDown } from '@element-plus/icons-vue'
+defineProps({primary:Object,actions:{type:Array,default:()=>[]}})
+</script>
+<style scoped>.list-actions{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap}.list-actions :deep(.el-button){height:30px;min-height:30px;padding:7px 11px;margin:0;font-size:12px;border-radius:7px}.more-arrow{margin-left:5px;font-size:11px}@media(max-width:768px){.list-actions :deep(.el-button){height:36px;min-height:36px}} </style>
+<style>.list-action-danger:not(.is-disabled){color:var(--el-color-danger)}.list-action-danger:not(.is-disabled):hover{background:var(--el-color-danger-light-9)!important;color:var(--el-color-danger)!important}</style>

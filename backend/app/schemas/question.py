@@ -41,7 +41,7 @@ class QuestionUpdate(BaseModel):
 
 # 批量创建错题
 class QuestionBatchCreate(BaseModel):
-    """批量创建错题（用于OCR后一道图生成多题）"""
+    """批量创建错题（支持 Agent 结构化录入及一图多题）"""
     error_book_id: Optional[int] = None
     subject_id: int
     grade: Optional[int] = Field(default=None, ge=1, le=12)

@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios from '@/api/http'
 
 const api = axios.create({
   baseURL: '/api',
@@ -145,14 +145,6 @@ export const statsOverviewApi = {
 
 // 图片上传API
 export const uploadApi = {
-  uploadImage(file) {
-    const formData = new FormData()
-    formData.append('file', file)
-    return api.post('/upload/image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
-    })
-  },
   uploadFile(file) {
     const formData = new FormData()
     formData.append('file', file)
@@ -177,23 +169,11 @@ export const statsApi = {
 
 // 配置API
 export const configApi = {
-  getOcrConfig() {
-    return api.get('/config/ocr')
-  },
-  saveOcrConfig(data) {
-    return api.post('/config/ocr', data)
-  },
   getLlmConfig() {
     return api.get('/config/llm')
   },
   saveLlmConfig(data) {
     return api.post('/config/llm', data)
-  },
-  getCustomOcrConfig() {
-    return api.get('/config/custom-ocr')
-  },
-  saveCustomOcrConfig(data) {
-    return api.post('/config/custom-ocr', data)
   },
 }
 

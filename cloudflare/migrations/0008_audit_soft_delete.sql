@@ -1,0 +1,1 @@
+ALTER TABLE operation_log ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;

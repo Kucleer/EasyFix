@@ -99,6 +99,7 @@ class PracticeSetResponse(BaseModel):
     questions: List[PracticeSetQuestionResponse] = []
     word_review_stats: Optional[dict] = None  # 单词复习统计
     pdf_url: Optional[str] = None  # PDF下载URL
+    pdf_error: Optional[str] = None  # 创建成功但 PDF 失败时返回原因
 
     class Config:
         from_attributes = True
@@ -236,6 +237,7 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
     questions_data = []
     for question in ordered_questions:
         questions_data.append({
+            "subject_name": subject_name,
             "question_text": question.parsed_question or question.original_text or "",
             "difficulty": question.difficulty or 3,
             "id": question.id,
@@ -245,6 +247,7 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
 
     # 生成PDF
     pdf_url = None
+    pdf_error = None
     if questions_data:
         try:
             pdf_path = generate_practice_set_pdf(practice_set.name, questions_data)
@@ -252,7 +255,12 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
             db.commit()
             pdf_url = f"/uploads/{pdf_path}"
         except Exception as e:
-            print(f"PDF生成失败: {e}")
+            db.rollback()
+            pdf_error = str(e)
+            logger_service.log_operation(
+                operation_type="generate_pdf", target_type="practice_set",
+                target_id=practice_set.id, data={}, success=False, error=pdf_error,
+            )
 
     return {
         "id": practice_set.id,
@@ -268,6 +276,7 @@ def generate_practice_from_questions(data: GenerateFromQuestionsRequest, db: Ses
         "created_at": practice_set.created_at,
         "questions": [],
         "pdf_url": pdf_url,
+        "pdf_error": pdf_error,
     }
 
 
@@ -788,6 +797,8 @@ def generate_pdf(practice_set_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="练习集不存在")
 
     questions_data = []
+    subject = db.query(Subject).filter(Subject.id == ps.subject_id, Subject.deleted == False).first()
+    subject_name = subject.name if subject else ""
 
     # 阅读理解类型：从ReadingPassage和ReadingQuestion获取题目
     if ps.source_type == "reading" and ps.passage_id:
@@ -833,6 +844,7 @@ def generate_pdf(practice_set_id: int, db: Session = Depends(get_db)):
                 question_text = question.parsed_question or question.original_text or ""
 
             questions_data.append({
+                "subject_name": subject_name,
                 "question_text": question_text,
                 "difficulty": question.difficulty or 3,
                 "id": question.id,

@@ -1,5 +1,6 @@
 <template>
   <div class="motivation">
+    <PageHeading title="给坚持，一点小小的奖励" description="记录认真付出的时刻，按照自己的节奏成长。" />
     <el-card v-loading="loading">
       <template #header>
         <div class="card-header">
@@ -14,7 +15,7 @@
           <!-- 积分概览 -->
           <div class="points-overview">
             <el-row :gutter="20">
-              <el-col :span="12">
+              <el-col :xs="24" :md="12">
                 <div class="points-card balance-card">
                   <div class="points-icon">
                     <el-icon :size="40"><Coin /></el-icon>
@@ -25,7 +26,7 @@
                   </div>
                 </div>
               </el-col>
-              <el-col :span="12">
+              <el-col :xs="24" :md="12">
                 <div class="points-card today-card">
                   <div class="points-icon">
                     <el-icon :size="40"><Calendar /></el-icon>
@@ -252,6 +253,7 @@
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Coin, Calendar, Check, List, Star, Trophy, Medal, Present, Notebook, School, Timer, Aim } from '@element-plus/icons-vue'
@@ -536,42 +538,49 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.motivation {
+.motivation  {
+
   max-width: 1200px;
   margin: 0 auto;
 }
 
-.card-header {
+.card-header  {
+
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 /* 积分概览 */
-.points-overview {
+.points-overview  {
+
   margin-bottom: 30px;
 }
 
-.points-card {
+.points-card  {
+
   display: flex;
   align-items: center;
   padding: 25px 30px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
+  background: linear-gradient(135deg, var(--accent-blue) 0%, #66b1ff 100%);
   color: white;
   box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
 }
 
-.points-card.balance-card {
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
+.points-card.balance-card  {
+
+  background: linear-gradient(135deg, var(--accent-blue) 0%, #66b1ff 100%);
 }
 
-.points-card.today-card {
+.points-card.today-card  {
+
   background: linear-gradient(135deg, #67c23a 0%, #95d475 100%);
   box-shadow: 0 4px 12px rgba(103, 194, 58, 0.3);
 }
 
-.points-icon {
+.points-icon  {
+
   width: 60px;
   height: 60px;
   border-radius: 50%;
@@ -582,67 +591,79 @@ onMounted(() => {
   margin-right: 20px;
 }
 
-.points-info {
+.points-info  {
+
   flex: 1;
 }
 
-.points-label {
+.points-label  {
+
   font-size: 14px;
   opacity: 0.9;
   margin-bottom: 5px;
 }
 
-.points-value {
+.points-value  {
+
   font-size: 32px;
   font-weight: bold;
 }
 
-.today-value {
+.today-value  {
+
   color: #ffff00;
 }
 
 /* 成就徽章墙 */
-.achievements-section {
+.achievements-section  {
+
   margin-top: 20px;
 }
 
-.section-title {
+.section-title  {
+
   font-size: 18px;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 20px;
   padding-left: 10px;
-  border-left: 4px solid #409eff;
+  border-left: 4px solid var(--accent-blue);
 }
 
-.achievement-group {
+.achievement-group  {
+
   margin-bottom: 30px;
 }
 
-.group-header {
+.group-header  {
+
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 15px;
 }
 
-.group-name {
+.group-name  {
+
   font-size: 16px;
   font-weight: bold;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
-.group-progress {
+.group-progress  {
+
   font-size: 14px;
-  color: #909399;
+  color: var(--text-muted);
 }
 
-.achievement-grid {
+.achievement-grid  {
+
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 20px;
 }
 
-.achievement-item {
+.achievement-item  {
+
   position: relative;
   display: flex;
   flex-direction: column;
@@ -655,28 +676,34 @@ onMounted(() => {
   transition: all 0.3s ease;
 }
 
-.achievement-item:hover {
+.achievement-item:hover  {
+
   transform: translateY(-5px);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
 }
 
-.achievement-item.is-locked {
+.achievement-item.is-locked  {
+
   background-color: #f5f5f5;
 }
 
-.achievement-item.is-locked .achievement-icon {
+.achievement-item.is-locked .achievement-icon  {
+
   opacity: 0.5;
 }
 
-.achievement-item.is-unlocked {
+.achievement-item.is-unlocked  {
+
   border-color: #67c23a;
 }
 
-.achievement-item.is-unlocked:hover {
+.achievement-item.is-unlocked:hover  {
+
   border-color: #85ce61;
 }
 
-.achievement-icon {
+.achievement-icon  {
+
   width: 64px;
   height: 64px;
   border-radius: 50%;
@@ -687,25 +714,29 @@ onMounted(() => {
   transition: all 0.3s ease;
 }
 
-.achievement-name {
+.achievement-name  {
+
   font-size: 14px;
   font-weight: bold;
-  color: #303133;
+  color: var(--text-primary);
   text-align: center;
   margin-bottom: 4px;
 }
 
-.achievement-level {
+.achievement-level  {
+
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
   margin-bottom: 10px;
 }
 
-.achievement-progress {
+.achievement-progress  {
+
   width: 100%;
 }
 
-.achievement-badge {
+.achievement-badge  {
+
   position: absolute;
   top: 8px;
   right: 8px;
@@ -719,17 +750,20 @@ onMounted(() => {
 }
 
 /* 奖励商城 */
-.rewards-section {
+.rewards-section  {
+
   margin-top: 20px;
 }
 
-.rewards-layout {
+.rewards-layout  {
+
   display: flex;
   gap: 24px;
   min-height: 500px;
 }
 
-.reward-list {
+.reward-list  {
+
   width: 120px;
   flex-shrink: 0;
   max-height: 600px;
@@ -739,7 +773,8 @@ onMounted(() => {
   gap: 12px;
 }
 
-.reward-list-card {
+.reward-list-card  {
+
   width: 120px;
   height: 120px;
   border: 2px solid #f0f0f0;
@@ -751,32 +786,37 @@ onMounted(() => {
   flex-direction: column;
 }
 
-.reward-list-card:hover {
-  border-color: #409eff;
+.reward-list-card:hover  {
+
+  border-color: var(--accent-blue);
   transform: scale(1.05);
 }
 
-.reward-list-card.selected {
-  border-color: #409eff;
+.reward-list-card.selected  {
+
+  border-color: var(--accent-blue);
   background: #ecf5ff;
 }
 
-.reward-list-img {
+.reward-list-img  {
+
   width: 100%;
   height: 90px;
   object-fit: cover;
 }
 
-.reward-list-icon {
+.reward-list-icon  {
+
   width: 100%;
   height: 90px;
-  background: #409eff;
+  background: var(--accent-blue);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.reward-list-name {
+.reward-list-name  {
+
   height: 30px;
   line-height: 30px;
   font-size: 12px;
@@ -788,7 +828,8 @@ onMounted(() => {
   background: #fff;
 }
 
-.reward-detail {
+.reward-detail  {
+
   flex: 1;
   background: #fff;
   border-radius: 12px;
@@ -796,19 +837,22 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.reward-detail-inner {
+.reward-detail-inner  {
+
   display: flex;
   flex-direction: column;
 }
 
-.reward-detail-image {
+.reward-detail-image  {
+
   width: 100%;
   max-height: 400px;
   object-fit: contain;
   background: #f5f5f5;
 }
 
-.reward-detail-placeholder {
+.reward-detail-placeholder  {
+
   width: 100%;
   height: 300px;
   background: #f5f5f5;
@@ -817,24 +861,28 @@ onMounted(() => {
   justify-content: center;
 }
 
-.reward-detail-content {
+.reward-detail-content  {
+
   padding: 24px;
 }
 
-.reward-detail-name {
+.reward-detail-name  {
+
   font-size: 20px;
   font-weight: bold;
-  color: #303133;
+  color: var(--text-primary);
   margin: 0 0 16px 0;
 }
 
-.reward-detail-meta {
+.reward-detail-meta  {
+
   display: flex;
   gap: 24px;
   margin-bottom: 16px;
 }
 
-.reward-detail-meta .reward-points {
+.reward-detail-meta .reward-points  {
+
   display: flex;
   align-items: center;
   gap: 4px;
@@ -843,23 +891,27 @@ onMounted(() => {
   color: #e6a23c;
 }
 
-.reward-detail-meta .reward-stock {
+.reward-detail-meta .reward-stock  {
+
   font-size: 14px;
   color: #67c23a;
 }
 
-.reward-detail-meta .reward-stock.out-of-stock {
+.reward-detail-meta .reward-stock.out-of-stock  {
+
   color: #f56c6c;
 }
 
-.reward-detail-desc {
+.reward-detail-desc  {
+
   font-size: 14px;
-  color: #606266;
+  color: var(--text-secondary);
   line-height: 1.6;
   margin-bottom: 24px;
 }
 
-.reward-empty {
+.reward-empty  {
+
   height: 100%;
   min-height: 400px;
   display: flex;
@@ -867,22 +919,26 @@ onMounted(() => {
   justify-content: center;
 }
 
-.redeem-btn {
+.redeem-btn  {
+
   width: 100%;
 }
 
 /* 成就详情弹窗 */
-.achievement-detail {
+.achievement-detail  {
+
   padding: 10px 0;
 }
 
-.detail-header {
+.detail-header  {
+
   display: flex;
   align-items: center;
   margin-bottom: 20px;
 }
 
-.detail-icon {
+.detail-icon  {
+
   width: 80px;
   height: 80px;
   border-radius: 50%;
@@ -892,28 +948,89 @@ onMounted(() => {
   margin-right: 20px;
 }
 
-.detail-info h3 {
+.detail-info h3  {
+
   margin: 0 0 10px;
   font-size: 20px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
-.detail-descriptions {
+.detail-descriptions  {
+
   margin-top: 10px;
 }
 
 /* 积分明细 */
-.points-detail {
+.points-detail  {
+
   padding: 10px 0;
 }
 
-.points-earn {
+.points-earn  {
+
   color: #67c23a;
   font-weight: bold;
 }
 
-.points-spend {
+.points-spend  {
+
   color: #f56c6c;
   font-weight: bold;
+}
+.motivation {
+  max-width:none}
+.points-overview {
+  margin-bottom:20px}
+.points-card.balance-card {
+  background:#eeedfc;
+  color:var(--text-primary);
+  box-shadow:none;
+  border:1px solid #e1def9;
+  padding:20px}
+.points-card.today-card {
+  background:#ecf7f1;
+  color:var(--text-primary);
+  box-shadow:none;
+  border:1px solid #d5eade;
+  padding:20px}
+.points-icon {
+  width:47px;
+  height:47px;
+  background:#fff9;
+  margin-right:16px;
+  color:var(--accent-blue)}
+.points-value {
+  font-size:29px}
+.today-value {
+  color:var(--success)}
+.section-title {
+  font-size:17px;
+  margin-bottom:15px;
+  border-color:var(--accent-blue)}
+.achievement-grid {
+  gap:12px}
+.achievement-item {
+  padding:16px 12px;
+  border-width:1px}
+.achievement-item:hover,.reward-list-card:hover {
+  transform:none;
+  box-shadow:none}
+.achievement-icon {
+  width:50px;
+  height:50px}
+.achievement-group {
+  margin-bottom:22px}
+@media(max-width:768px) {
+  .rewards-layout {
+  flex-direction:column}
+.reward-list {
+  width:100%;
+  flex-direction:row;
+  max-height:none;
+  overflow-x:auto}
+.reward-list-card {
+  flex-shrink:0}
+.points-card {
+  margin-bottom:12px}
 }
 </style>

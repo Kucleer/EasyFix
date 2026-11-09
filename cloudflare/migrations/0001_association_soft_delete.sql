@@ -1,0 +1,1 @@
+ALTER TABLE kp_error_type ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;

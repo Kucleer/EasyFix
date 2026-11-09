@@ -1,5 +1,6 @@
 <template>
   <div class="words">
+    <PageHeading title="让单词，慢慢熟悉起来" description="温习、默写与整理，找到适合自己的记忆节奏。" />
     <el-card>
       <template #header>
         <div class="card-header">
@@ -107,13 +108,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button type="info" size="default" @click="viewDetail(row)">详情</el-button>
-            <el-button type="primary" size="default" @click="editWord(row)">编辑</el-button>
-            <el-button type="danger" size="default" @click="deleteWord(row)">删除</el-button>
-          </template>
-        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => viewDetail(row), disabled: false, danger: false }" :actions="[{ label: '编辑', run: () => editWord(row), disabled: false, danger: false },{ label: '删除', run: () => deleteWord(row), disabled: false, danger: true }]" /></template></el-table-column>
       </el-table>
 
       <!-- 分页 -->
@@ -423,7 +418,6 @@
           <el-radio-group v-model="importForm.mode">
             <el-radio label="text">文本粘贴</el-radio>
             <el-radio label="file">文件上传</el-radio>
-            <el-radio label="image">图片识别</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="importForm.mode === 'text'" label="单词格式">
@@ -453,32 +447,7 @@ orange 橙子"
             </template>
           </el-upload>
         </el-form-item>
-        <el-form-item v-else-if="importForm.mode === 'image'" label="上传图片">
-          <el-upload
-            ref="imageUploadRef"
-            :auto-upload="false"
-            :limit="1"
-            accept="image/*"
-            :on-change="handleImageChange"
-            :on-remove="handleImageRemove"
-          >
-            <el-button>选择图片</el-button>
-            <template #tip>
-              <div class="el-upload__tip">支持 JPG、PNG 格式，图片中的单词文字将被识别提取</div>
-            </template>
-          </el-upload>
-          <!-- OCR识别结果预览 -->
-          <div v-if="importForm.ocrText" class="ocr-preview">
-            <div class="ocr-label">OCR原始识别：</div>
-            <el-input
-              v-model="importForm.ocrText"
-              type="textarea"
-              :rows="4"
-              placeholder="OCR识别的原始文本"
-              @input="importForm.parsedWords = smartParseWords(importForm.ocrText)"
-            />
-          </div>
-        </el-form-item>
+
 
         <!-- 单词预览表格 -->
         <el-form-item v-if="importForm.parsedWords.length > 0" label="单词预览">
@@ -535,6 +504,7 @@ orange 橙子"
 </template>
 
 <script setup>
+import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -740,13 +710,10 @@ const printForm = reactive({
 const importDialogVisible = ref(false)
 const importing = ref(false)
 const uploadRef = ref()
-const imageUploadRef = ref()
 const importForm = reactive({
   mode: 'text',
   text: '',
   file: null,
-  image: null,
-  ocrText: '',
   parsedWords: [],  // 解析后的单词预览
   grade: appConfigStore.defaultGrade,
   semester: appConfigStore.defaultSemester,
@@ -1078,11 +1045,14 @@ const playWordAudio = async (wordId) => {
       audio.onerror = () => {
         audioLoading.value = false
         URL.revokeObjectURL(audioUrl)
+        ElMessage.warning('单词音频无法解码，请重试')
         resolve()
       }
-      audio.play().catch(() => {
+      audio.play().catch((error) => {
         audioLoading.value = false
         URL.revokeObjectURL(audioUrl)
+        console.error('音频播放失败:', error)
+        ElMessage.warning('浏览器未能播放单词音频，请点击喇叭重试')
         resolve()
       })
     })
@@ -1255,8 +1225,6 @@ const showImportDialog = () => {
   importForm.mode = 'text'
   importForm.text = ''
   importForm.file = null
-  importForm.image = null
-  importForm.ocrText = ''
   importForm.parsedWords = []
   importForm.grade = null
   importForm.semester = null
@@ -1266,18 +1234,6 @@ const showImportDialog = () => {
 
 const handleFileChange = (file) => {
   onFileChange(file)
-}
-
-const handleImageChange = async (file) => {
-  importForm.image = file.raw
-  // 自动调用OCR识别
-  await recognizeImage(file.raw)
-}
-
-const handleImageRemove = () => {
-  importForm.image = null
-  importForm.ocrText = ''
-  importForm.parsedWords = []
 }
 
 // 文本模式变化时更新预览
@@ -1299,38 +1255,9 @@ const onFileChange = (file) => {
   }
 }
 
-const recognizeImage = async (file) => {
-  try {
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch('/api/upload/image', {
-      method: 'POST',
-      body: formData,
-    })
-
-    if (!response.ok) {
-      throw new Error('OCR识别失败')
-    }
-
-    const result = await response.json()
-    if (result.ocr_result && result.ocr_result.full_text) {
-      importForm.ocrText = result.ocr_result.full_text
-      // 智能分隔单词并更新预览
-      importForm.parsedWords = smartParseWords(result.ocr_result.full_text)
-      ElMessage.success('图片识别成功，请检查识别结果')
-    } else {
-      ElMessage.warning('未识别到文字，请上传更清晰的图片')
-    }
-  } catch (error) {
-    console.error('OCR error:', error)
-    ElMessage.error('图片识别失败，请尝试其他方式导入')
-  }
-}
-
 // 智能分隔单词 - 自动识别英文和中文
 const smartParseWords = (text) => {
-  // 清理OCR噪声字符（保留\n\r）
+  // 清理文本控制字符（保留\n\r）
   const cleaned = text
     .replace(/[\u0001-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '') // 移除控制字符（保留\n\r即10和13）
     .replace(/['']/g, "'")  // 规范化撇号
@@ -1480,12 +1407,6 @@ const importWords = async () => {
       ElMessage.error('读取文件失败')
       return
     }
-  } else if (importForm.mode === 'image') {
-    if (!importForm.ocrText.trim()) {
-      ElMessage.warning('请先上传图片并等待识别完成')
-      return
-    }
-    words = smartParseWords(importForm.ocrText)
   }
 
   if (words.length === 0) {
@@ -1540,84 +1461,99 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.words {
+.words  {
+
   max-width: 1400px;
   margin: 0 auto;
 }
 
-.card-header {
+.card-header  {
+
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.filters {
+.filters  {
+
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.word-english {
+.word-english  {
+
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
   font-size: 16px;
 }
 
-.word-cell {
+.word-cell  {
+
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.word-cell .word-english {
+.word-cell .word-english  {
+
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.phonetic {
-  color: #909399;
+.phonetic  {
+
+  color: var(--text-muted);
   font-family: monospace;
 }
 
-.review-info .correct {
+.review-info .correct  {
+
   color: #67c23a;
   font-weight: bold;
 }
 
-.review-info .total {
-  color: #909399;
+.review-info .total  {
+
+  color: var(--text-muted);
 }
 
-.pagination {
+.pagination  {
+
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
 }
 
 /* 复习弹窗样式 */
-:deep(.review-dialog) {
+:deep(.review-dialog)  {
+
   --review-scale: 1;
   transform: scale(var(--review-scale));
   transform-origin: center center;
 }
 
-:deep(.review-dialog .el-dialog__body) {
+:deep(.review-dialog .el-dialog__body)  {
+
   padding: 0;
 }
 
 /* 复习弹窗背景虚化 */
-:deep(.el-overlay-dialog) {
+:deep(.el-overlay-dialog)  {
+
   backdrop-filter: blur(8px);
   background: rgba(0, 0, 0, 0.3) !important;
 }
 
-.review-config {
+.review-config  {
+
   padding: 40px;
   font-size: 20px;
 }
 
-.review-question {
+.review-question  {
+
   padding: 40px;
   display: flex;
   flex-direction: column;
@@ -1625,7 +1561,8 @@ onMounted(async () => {
   max-height: 600px;
 }
 
-.question-header {
+.question-header  {
+
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1639,68 +1576,79 @@ onMounted(async () => {
   padding: 10px 0;
 }
 
-.progress {
+.progress  {
+
   font-size: 36px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
 }
 
-.timer {
+.timer  {
+
   font-size: 32px;
-  color: #909399;
+  color: var(--text-muted);
   font-family: monospace;
   font-weight: 600;
 }
 
-.result-display {
+.result-display  {
+
   text-align: center;
   padding: 24px 48px;
   border-radius: 16px;
   margin-bottom: 30px;
 }
 
-.correct-display {
+.correct-display  {
+
   background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
   color: #fff;
 }
 
-.wrong-display {
+.wrong-display  {
+
   background: linear-gradient(135deg, #f56c6c 0%, #e64242 100%);
   color: #fff;
 }
 
-.result-status {
+.result-status  {
+
   font-size: 32px;
   font-weight: bold;
   margin-bottom: 8px;
 }
 
-.result-answer-large {
+.result-answer-large  {
+
   font-size: 36px;
   font-weight: bold;
 }
 
-.your-answer {
+.your-answer  {
+
   font-size: 24px;
   margin-top: 8px;
   opacity: 0.9;
 }
 
-.question-content {
+.question-content  {
+
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
-.dictation {
+.dictation  {
+
   text-align: center;
   padding: 20px;
 }
 
-.dictation .chinese {
+.dictation .chinese  {
+
   font-weight: bold;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 16px;
   letter-spacing: 4px;
   line-height: 1.45;
@@ -1711,17 +1659,20 @@ onMounted(async () => {
   box-sizing: border-box;
 }
 
-.dictation .audio-row {
+.dictation .audio-row  {
+
   margin-bottom: 12px;
 }
 
-.dictation .hint-box {
+.dictation .hint-box  {
+
   margin-bottom: 28px;
 }
 
-.dictation .hint {
+.dictation .hint  {
+
   font-size: 24px;
-  color: #606266;
+  color: var(--text-secondary);
   background: #f5f7fa;
   padding: 10px 28px;
   border-radius: 8px;
@@ -1729,7 +1680,8 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 
-.letter-input {
+.letter-input  {
+
   outline: none;
   cursor: text;
   display: flex;
@@ -1741,7 +1693,8 @@ onMounted(async () => {
   width: 100%;
 }
 
-.letter-cells {
+.letter-cells  {
+
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -1750,7 +1703,8 @@ onMounted(async () => {
   padding: 8px 4px;
 }
 
-.letter-cell {
+.letter-cell  {
+
   width: 42px;
   height: 52px;
   border-bottom: 3px solid #c0c4cc;
@@ -1759,46 +1713,52 @@ onMounted(async () => {
   justify-content: center;
   font-size: 28px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
   text-transform: lowercase;
   box-sizing: border-box;
   background: #fafafa;
   border-radius: 6px 6px 0 0;
 }
 
-.letter-cell.fixed {
+.letter-cell.fixed  {
+
   border-bottom-color: transparent;
   background: transparent;
-  color: #909399;
+  color: var(--text-muted);
   font-size: 24px;
   min-width: 20px;
   width: auto;
   padding: 0 4px;
 }
 
-.letter-cell.active {
-  border-bottom-color: #409eff;
-  box-shadow: 0 2px 0 #409eff;
+.letter-cell.active  {
+
+  border-bottom-color: var(--accent-blue);
+  box-shadow: 0 2px 0 var(--accent-blue);
   background: #ecf5ff;
 }
 
-.letter-cell.filled {
+.letter-cell.filled  {
+
   background: #fff;
 }
 
-.letter-cell.correct {
+.letter-cell.correct  {
+
   border-bottom-color: #67c23a;
   color: #67c23a;
   background: #f0f9eb;
 }
 
-.letter-cell.wrong {
+.letter-cell.wrong  {
+
   border-bottom-color: #f56c6c;
   color: #f56c6c;
   background: #fef0f0;
 }
 
-.letter-hidden-input {
+.letter-hidden-input  {
+
   position: absolute;
   opacity: 0;
   width: 1px;
@@ -1806,12 +1766,14 @@ onMounted(async () => {
   pointer-events: none;
 }
 
-.dictation .answer-input {
+.dictation .answer-input  {
+
   max-width: 600px;
   margin: 0 auto;
 }
 
-.dictation .answer-input :deep(.el-input__wrapper) {
+.dictation .answer-input :deep(.el-input__wrapper)  {
+
   padding: 20px 30px;
   border-radius: 12px;
   border: 3px solid #dcdfe6;
@@ -1819,12 +1781,14 @@ onMounted(async () => {
   transition: all 0.3s;
 }
 
-.dictation .answer-input :deep(.el-input__wrapper.is-focus) {
-  border-color: #409eff;
+.dictation .answer-input :deep(.el-input__wrapper.is-focus)  {
+
+  border-color: var(--accent-blue);
   box-shadow: 0 0 0 4px rgba(64, 158, 255, 0.1);
 }
 
-.dictation .answer-input :deep(.el-input__inner) {
+.dictation .answer-input :deep(.el-input__inner)  {
+
   font-size: 48px;
   text-align: center;
   letter-spacing: 5px;
@@ -1832,7 +1796,8 @@ onMounted(async () => {
   line-height: 80px;
 }
 
-.result {
+.result  {
+
   margin-top: 30px;
   padding: 16px 32px;
   border-radius: 12px;
@@ -1840,102 +1805,139 @@ onMounted(async () => {
   font-size: 28px;
 }
 
-.result.correct-result {
+.result.correct-result  {
+
   background: #f0f9eb;
   color: #67c23a;
   border: 2px solid #67c23a;
 }
 
-.result.wrong-result {
+.result.wrong-result  {
+
   background: #fef0f0;
   color: #f56c6c;
   border: 2px solid #f56c6c;
 }
 
-.correct-answer {
+.correct-answer  {
+
   font-size: 28px;
   font-weight: bold;
 }
 
-.wrong-result .correct-answer {
+.wrong-result .correct-answer  {
+
   color: #67c23a;
 }
 
-.correct-result .correct-answer {
-  color: #909399;
+.correct-result .correct-answer  {
+
+  color: var(--text-muted);
 }
 
 /* 答题正确动画 */
-@keyframes correctPulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); }
+@keyframes correctPulse  {
+
+  0%  {
+   transform: scale(1);
+   }
+  50%  {
+   transform: scale(1.05);
+   }
+  100%  {
+   transform: scale(1);
+   }
 }
 
-@keyframes correctGlow {
-  0% { box-shadow: 0 0 0 0 rgba(103, 194, 58, 0.4); }
-  50% { box-shadow: 0 0 30px 10px rgba(103, 194, 58, 0.2); }
-  100% { box-shadow: 0 0 0 0 rgba(103, 194, 58, 0); }
+@keyframes correctGlow  {
+
+  0%  {
+   box-shadow: 0 0 0 0 rgba(103, 194, 58, 0.4);
+   }
+  50%  {
+   box-shadow: 0 0 30px 10px rgba(103, 194, 58, 0.2);
+   }
+  100%  {
+   box-shadow: 0 0 0 0 rgba(103, 194, 58, 0);
+   }
 }
 
-.result.correct-result {
+.result.correct-result  {
+
   animation: correctPulse 0.5s ease-out, correctGlow 0.8s ease-out;
 }
 
-.result.correct-result .correct-answer {
+.result.correct-result .correct-answer  {
+
   color: #67c23a;
 }
 
 /* 答题错误动画 */
-@keyframes wrongShake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-10px); }
-  40%, 80% { transform: translateX(10px); }
+@keyframes wrongShake  {
+
+  0%, 100%  {
+   transform: translateX(0);
+   }
+  20%, 60%  {
+   transform: translateX(-10px);
+   }
+  40%, 80%  {
+   transform: translateX(10px);
+   }
 }
 
-.result.wrong-result {
+.result.wrong-result  {
+
   animation: wrongShake 0.5s ease-out;
 }
 
-.result.wrong-result .correct-answer {
+.result.wrong-result .correct-answer  {
+
   color: #f56c6c;
 }
 
-.choice {
+.choice  {
+
   text-align: center;
 }
 
-.choice .english {
+.choice .english  {
+
   font-size: 64px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
   margin-bottom: 50px;
 }
 
-.choice .el-radio-group {
+.choice .el-radio-group  {
+
   display: flex;
   flex-direction: column;
   gap: 25px;
   align-items: center;
 }
 
-.choice .el-radio {
+.choice .el-radio  {
+
   font-size: 28px;
   padding: 20px 40px;
   min-width: 400px;
 }
 
-.choice .el-radio .el-radio__label {
+.choice .el-radio .el-radio__label  {
+
   font-size: 28px;
 }
 
 /* 听力模式 */
-.listening {
+.listening  {
+
   text-align: center;
   padding: 20px;
 }
 
-.listening .audio-controls {
+.listening .audio-controls  {
+
   margin-bottom: 40px;
   display: flex;
   justify-content: center;
@@ -1943,22 +1945,26 @@ onMounted(async () => {
   gap: 16px;
 }
 
-.listening .audio-btn-large {
+.listening .audio-btn-large  {
+
   font-size: 32px;
   padding: 30px 60px;
 }
 
-.listening .audio-btn-replay {
+.listening .audio-btn-replay  {
+
   font-size: 18px;
 }
 
-.listening .hint-box {
+.listening .hint-box  {
+
   margin-bottom: 40px;
 }
 
-.listening .hint {
+.listening .hint  {
+
   font-size: 28px;
-  color: #606266;
+  color: var(--text-secondary);
   background: #f5f7fa;
   padding: 12px 32px;
   border-radius: 8px;
@@ -1966,21 +1972,25 @@ onMounted(async () => {
   margin-bottom: 20px;
 }
 
-.listening .answer-input {
+.listening .answer-input  {
+
   max-width: 600px;
   margin: 0 auto;
 }
 
-.listening .answer-input :deep(.el-input__wrapper) {
+.listening .answer-input :deep(.el-input__wrapper)  {
+
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
-.listening .answer-input :deep(.el-input__wrapper.is-focus) {
+.listening .answer-input :deep(.el-input__wrapper.is-focus)  {
+
   box-shadow: 0 2px 12px rgba(64, 158, 255, 0.3);
 }
 
-.listening .answer-input :deep(.el-input__inner) {
+.listening .answer-input :deep(.el-input__inner)  {
+
   font-size: 28px;
   text-align: center;
   letter-spacing: 8px;
@@ -1988,7 +1998,8 @@ onMounted(async () => {
 }
 
 /* 喇叭按钮通用样式 */
-.audio-btn {
+.audio-btn  {
+
   font-size: 20px;
   padding: 8px 12px;
   border-radius: 50%;
@@ -1996,24 +2007,28 @@ onMounted(async () => {
   vertical-align: middle;
 }
 
-.audio-btn-table {
+.audio-btn-table  {
+
   font-size: 13px;
   flex-shrink: 0;
   margin-left: 0;
 }
 
-.question-actions {
+.question-actions  {
+
   margin-top: 40px;
   text-align: center;
   flex-shrink: 0;
 }
 
-.question-actions .el-button {
+.question-actions .el-button  {
+
   font-size: 28px;
   padding: 25px 80px;
 }
 
-.review-result {
+.review-result  {
+
   padding: 24px;
   display: flex;
   flex-direction: column;
@@ -2022,14 +2037,16 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.result-header {
+.result-header  {
+
   display: flex;
   gap: 20px;
   margin-bottom: 16px;
   flex-shrink: 0;
 }
 
-.accuracy-display {
+.accuracy-display  {
+
   flex: 1;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 20px;
@@ -2040,20 +2057,23 @@ onMounted(async () => {
   align-items: center;
 }
 
-.accuracy-big {
+.accuracy-big  {
+
   font-size: 80px;
   font-weight: bold;
   color: #fff;
   line-height: 1;
 }
 
-.accuracy-label {
+.accuracy-label  {
+
   font-size: 20px;
   color: rgba(255,255,255,0.85);
   margin-top: 8px;
 }
 
-.stats-panel {
+.stats-panel  {
+
   flex: 1.1;
   background: linear-gradient(145deg, #f5f7fa 0%, #e8ecf1 100%);
   border-radius: 20px;
@@ -2064,7 +2084,8 @@ onMounted(async () => {
   gap: 14px;
 }
 
-.stat-item {
+.stat-item  {
+
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -2074,30 +2095,38 @@ onMounted(async () => {
   padding: 12px;
 }
 
-.stat-item.correct .stat-value { color: #67c23a; }
-.stat-item.error .stat-value { color: #f56c6c; }
+.stat-item.correct .stat-value  {
+   color: #67c23a;
+   }
+.stat-item.error .stat-value  {
+   color: #f56c6c;
+   }
 
-.stat-value {
+.stat-value  {
+
   font-size: 32px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--accent-blue);
   line-height: 1;
 }
 
-.stat-label {
+.stat-label  {
+
   font-size: 13px;
-  color: #909399;
+  color: var(--text-muted);
   margin-top: 4px;
 }
 
-.error-word-list {
+.error-word-list  {
+
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.error-word-list .error-words-scroll {
+.error-word-list .error-words-scroll  {
+
   flex: 1;
   overflow-y: auto;
   display: grid;
@@ -2106,7 +2135,8 @@ onMounted(async () => {
   padding: 4px;
 }
 
-.error-word-item {
+.error-word-item  {
+
   display: flex;
   background: #fff;
   border-radius: 10px;
@@ -2114,7 +2144,8 @@ onMounted(async () => {
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
 
-.correct-side {
+.correct-side  {
+
   flex: 1;
   background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
   padding: 12px;
@@ -2123,19 +2154,22 @@ onMounted(async () => {
   justify-content: center;
 }
 
-.correct-en {
+.correct-en  {
+
   font-size: 18px;
   font-weight: bold;
   color: #fff;
 }
 
-.correct-cn {
+.correct-cn  {
+
   font-size: 13px;
   color: rgba(255,255,255,0.9);
   margin-top: 2px;
 }
 
-.wrong-side {
+.wrong-side  {
+
   width: 100px;
   background: #fef0f0;
   padding: 12px 8px;
@@ -2146,7 +2180,8 @@ onMounted(async () => {
   border-left: 2px solid #f56c6c;
 }
 
-.wrong-tag {
+.wrong-tag  {
+
   font-size: 10px;
   color: #f56c6c;
   font-weight: bold;
@@ -2154,7 +2189,8 @@ onMounted(async () => {
   letter-spacing: 0.5px;
 }
 
-.wrong-answer {
+.wrong-answer  {
+
   font-size: 14px;
   font-weight: bold;
   color: #f56c6c;
@@ -2163,27 +2199,20 @@ onMounted(async () => {
   margin-top: 4px;
 }
 
-.finish-btn {
+.finish-btn  {
+
   margin-top: 12px;
   flex-shrink: 0;
   height: 44px;
   font-size: 16px;
 }
 
-.ocr-preview {
-  margin-top: 15px;
-  padding: 10px;
-  background-color: #f5f7fa;
-  border-radius: 4px;
-}
 
-.ocr-label {
-  font-weight: bold;
-  margin-bottom: 8px;
-  color: #409eff;
-}
 
-.words-preview {
+
+
+.words-preview  {
+
   margin-top: 10px;
   border: 1px solid #ebeef5;
   border-radius: 4px;
@@ -2191,27 +2220,32 @@ onMounted(async () => {
   background-color: #fafafa;
 }
 
-.preview-summary {
+.preview-summary  {
+
   margin-top: 10px;
   text-align: right;
-  color: #909399;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
 /* 记忆曲线样式 */
-.memory-curve {
+.memory-curve  {
+
   padding: 20px;
 }
-.phase-bar {
+.phase-bar  {
+
   margin-bottom: 20px;
 }
-.phase-track {
+.phase-track  {
+
   position: relative;
   height: 40px;
   background: #f0f0f0;
   border-radius: 20px;
 }
-.phase-dot {
+.phase-dot  {
+
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -2221,58 +2255,116 @@ onMounted(async () => {
   font-size: 12px;
   border: 2px solid #ddd;
 }
-.phase-dot.active {
-  background: #409eff;
+.phase-dot.active  {
+
+  background: var(--accent-blue);
   color: #fff;
-  border-color: #409eff;
+  border-color: var(--accent-blue);
 }
-.next-review {
+.next-review  {
+
   margin-bottom: 20px;
   font-size: 16px;
   color: #666;
 }
-.review-history {
+.review-history  {
+
   border-top: 1px solid #eee;
   padding-top: 15px;
 }
-.history-title {
+.history-title  {
+
   font-weight: bold;
   margin-bottom: 10px;
 }
-.history-item {
+.history-item  {
+
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 0;
   font-size: 14px;
 }
-.history-date {
+.history-date  {
+
   min-width: 100px;
 }
-.history-correct {
+.history-correct  {
+
   color: #67c23a;
 }
-.history-wrong {
+.history-wrong  {
+
   color: #f56c6c;
 }
 
 /* 禁用卡片的hover效果 */
-.words :deep(.el-card) {
+.words :deep(.el-card)  {
+
   transition: none;
 }
-.words :deep(.el-card:hover) {
+.words :deep(.el-card:hover)  {
+
   transform: none;
   box-shadow: var(--shadow-sm) !important;
+}
+.words {
+  max-width:none}
+.word-english {
+  color:var(--accent-blue)}
+.card-header>div {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px}
+.card-header :deep(.el-button+.el-button) {
+  margin-left:0}
+.review-config {
+  padding:24px;
+  font-size:16px}
+.review-question {
+  padding:24px}
+.question-header {
+  gap:24px;
+  margin-bottom:20px}
+.progress {
+  font-size:25px}
+.timer {
+  font-size:23px}
+.result-display {
+  padding:18px 25px;
+  margin-bottom:20px}
+.result-status {
+  font-size:24px}
+.result-answer-large {
+  font-size:28px}
+@media(max-width:768px) {
+  .review-config,.review-question {
+  padding:14px}
+.review-question {
+  height:auto;
+  min-height:60vh}
+.question-header {
+  gap:18px}
+.letter-cell {
+  width:31px;
+  height:44px;
+  font-size:23px}
+.letter-cells {
+  gap:5px}
+.question-content {
+  min-width:0}
 }
 </style>
 
 <style>
-.toast-large.el-message {
+.toast-large.el-message  {
+
   font-size: 24px !important;
   padding: 20px 30px !important;
   min-width: 300px !important;
 }
-.toast-large.el-message .el-message__content {
+.toast-large.el-message .el-message__content  {
+
   font-size: 24px !important;
 }
 </style>
