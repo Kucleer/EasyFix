@@ -16,10 +16,30 @@ def main():
     os.chdir(BACKEND)
     from playwright.sync_api import sync_playwright
     from app.config import get_settings
-    from app.services.math_pdf import ASSETS, RENDERER, build_document, generate_math_practice_pdf
+    from app.services.math_pdf import ASSETS, RENDERER, build_document, generate_math_practice_pdf, get_answer_space_mm
     from import_math_formula_photos import QUESTIONS
     settings = get_settings()
     results = {}
+    spacing_cases = [
+        ('默认留白', '已知两个数满足某个条件，求结果。', 40),
+        ('选择题', r'选出正确答案：A. \(1\)；B. \(2\)；C. \(3\)。', 20),
+        ('计算题', r'计算：\(1+2\)。', 40),
+        ('应用题', '大桥两侧安装路灯，至少需要多少盏？', 60),
+        ('定义优先', '一个数分解质因数后满足条件，称为特殊数。判断哪些数符合定义。', 60),
+        ('多小问优先', '计算：（1）同时完成需要多久？（2）轮流完成需要多久？（3）怎样调整？', 100),
+        ('公式括号不算小问', r'计算：\(f(1)+f(2)+f(3)\)。', 40),
+    ]
+    for name, text, expected in spacing_cases:
+        question = {'subject_name': '数学', 'question_text': text}
+        assert get_answer_space_mm(question) == expected, name
+        document, _ = build_document(name, [question])
+        assert f'height:{expected}mm' in document, name
+        question['subject_name'] = '英语'
+        assert get_answer_space_mm(question) == 0, name
+        document, _ = build_document(name, [question])
+        assert 'class="answer-space"' not in document, name
+    assert get_answer_space_mm({'subject_name': '数学', 'is_reading_question': True}) == 0
+    results['math_answer_spacing'] = 'passed'
     _, reading_fields = build_document('阅读选项兼容', [{'question_text': 'Choose one.', 'option_a': 'A. Reading', 'option_b': '(B) Music', 'option_c': 'C、Sports', 'option_d': 'D) Travel'}])
     assert [item['text'] for item in reading_fields[1:]] == ['A. Reading', 'B. Music', 'C. Sports', 'D. Travel']
     results['reading_option_prefixes'] = 'passed'

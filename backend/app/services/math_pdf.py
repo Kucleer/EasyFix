@@ -18,6 +18,37 @@ RENDERER = ROOT / 'shared/math-text.mjs'
 PDF_SLOTS = threading.BoundedSemaphore(2)
 
 
+def get_answer_space_mm(question):
+    """仅为数学题分配答题留白；不明确时留四厘米，多小问额外加高。"""
+    if question.get('is_reading_question') or str(question.get('subject_name') or '').strip() != '数学':
+        return 0
+
+    # 去掉公式边界内的括号，避免把 (1)、(2) 等公式内容误当小问。
+    text = re.sub(r'\\\(.*?\\\)|\\\[.*?\\\]', '', str(question.get('question_text') or ''), flags=re.S)
+    numbers = {int(value) for value in re.findall(r'[（(]\s*([1-9]\d*)\s*[）)]', text)}
+    subquestions = 0
+    while subquestions + 1 in numbers:
+        subquestions += 1
+
+    has_options = all(question.get('option_' + letter) for letter in 'abc') or bool(
+        re.search(r'A\s*[.．、)）].*?B\s*[.．、)）].*?C\s*[.．、)）]', text, re.S)
+    )
+    # 复杂任务优先，避免“定义题中提到分解质因数”被当成普通计算。
+    if subquestions > 1:
+        space = 60
+    elif re.search(r'规定|定义|称为|证明', text):
+        space = 60
+    elif has_options or re.search(r'填空|判断[对正错误]|判断题', text):
+        space = 20
+    elif re.search(r'在数轴上表示|画出|作图|计算|化简|解方程|分解质因数', text):
+        space = 40
+    elif re.search(r'出租车|大桥|参赛作品|阅卷|观看区|工程|路程|速度|售价|利润|面积|体积|至少需要|共[有需]|多少[米元吨人件盏]', text):
+        space = 60
+    else:
+        space = 40
+    return space + max(0, subquestions - 1) * 20
+
+
 def build_document(title, questions):
     """生成不含用户 HTML 的打印模板及待渲染文本数据。"""
     texts = []
@@ -55,7 +86,12 @@ def build_document(title, questions):
             body += '<div class="solution-label">答案与解析</div>'
             body += field(question.get('answer'), f'题目 {identity} 答案')
             body += field(question.get('analysis'), f'题目 {identity} 解析')
-        blocks.append(f'<section class="question"><div class="question-header">{header}</div>{body}</section>')
+        space = get_answer_space_mm(question)
+        question_class = 'question'
+        if space:
+            question_class += ' math-question'
+            body += f'<div class="answer-space" style="height:{space}mm" aria-hidden="true"></div>'
+        blocks.append(f'<section class="{question_class}"><div class="question-header">{header}</div>{body}</section>')
     css_url = (ASSETS / 'katex.min.css').as_uri()
     settings = get_settings()
     font_css = ''
@@ -74,6 +110,7 @@ h1 {{ font-size: 18pt; text-align: center; margin: 0 0 5mm; }}
 .date {{ text-align: center; font-size: 9pt; margin-bottom: 7mm; }}
 .question {{ border-top: 1px solid #888; padding-top: 3mm; margin-bottom: 10mm; break-inside: avoid; }}
 .question.long {{ break-inside: auto; }}
+.question.math-question {{ margin-bottom: 0; }}
 .question-header {{ font-size: 9pt; color: #333; margin-bottom: 3mm; }}
 .math-field {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
 .katex {{ white-space: nowrap; }}

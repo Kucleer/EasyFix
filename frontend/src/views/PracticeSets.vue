@@ -96,7 +96,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : '暂无 PDF', disabled: !row.pdf_path, run: () => downloadPdf(row) }, { label: '批改', disabled: row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, { label: '批改', disabled: row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
       </el-table>
 
       <el-empty v-else description="暂无练习集" />
@@ -604,6 +604,22 @@ const fetchSubjects = async () => {
 
 const handleSelectionChange = (selection) => {
   selectedIds.value = selection.map(row => row.id)
+}
+
+const generatingPdfIds = ref([])
+
+const generatePdf = async (ps) => {
+  if (generatingPdfIds.value.includes(ps.id)) return
+  generatingPdfIds.value.push(ps.id)
+  try {
+    const { data } = await questionApi.generatePracticeSetPdf(ps.id)
+    ps.pdf_path = data.pdf_url.replace('/uploads/', '')
+    ElMessage.success('PDF已生成，可点击下载')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || 'PDF生成失败，请稍后重试')
+  } finally {
+    generatingPdfIds.value = generatingPdfIds.value.filter(id => id !== ps.id)
+  }
 }
 
 const downloadPdf = (ps) => {
