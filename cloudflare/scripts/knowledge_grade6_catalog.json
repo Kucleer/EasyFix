@@ -1,0 +1,901 @@
+{
+  "status": "reviewed_classification_20261110",
+  "scope": "grade_6",
+  "note": "按实际六年级错题及教材范围整理；不是教材原文或逐页复刻；不变更旧年级目录",
+  "points": [
+    {
+      "code": "M6-DIV",
+      "name": "整除与因倍数",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 0
+    },
+    {
+      "code": "M6-FRA",
+      "name": "分数基础与应用",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 10
+    },
+    {
+      "code": "M6-RAT",
+      "name": "有理数",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 20
+    },
+    {
+      "code": "M6-ALG",
+      "name": "简单的代数式",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 30
+    },
+    {
+      "code": "M6-EQU",
+      "name": "一元一次方程",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 40
+    },
+    {
+      "code": "M6-GEO",
+      "name": "图形与几何",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 50
+    },
+    {
+      "code": "M6-APP",
+      "name": "数量关系与应用",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 60
+    },
+    {
+      "code": "M6-PAT",
+      "name": "规律探索与综合应用",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 70
+    },
+    {
+      "code": "M6-LIN",
+      "name": "线段与角",
+      "subject": "数学",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 80
+    },
+    {
+      "code": "M6-DIV-01",
+      "name": "质因数分解",
+      "subject": "数学",
+      "parent_code": "M6-DIV",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 90,
+      "definition": "将正整数分解为素因数乘积，或依据质因数检验数的特征。"
+    },
+    {
+      "code": "M6-DIV-02",
+      "name": "最大公因数与最小公倍数",
+      "subject": "数学",
+      "parent_code": "M6-DIV",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 100,
+      "definition": "求公因数、公倍数及分组、铺砖、等距安装等应用。"
+    },
+    {
+      "code": "M6-DIV-03",
+      "name": "因数、整除与素合数",
+      "subject": "数学",
+      "parent_code": "M6-DIV",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 110,
+      "definition": "整数整除、因数、素数合数、互素及余数约束。"
+    },
+    {
+      "code": "M6-FRA-01",
+      "name": "分数意义与单位一",
+      "subject": "数学",
+      "parent_code": "M6-FRA",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 120,
+      "definition": "区分总量、单位一、每份数量及所占分率。"
+    },
+    {
+      "code": "M6-FRA-02",
+      "name": "真分数、假分数与基本性质",
+      "subject": "数学",
+      "parent_code": "M6-FRA",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 130,
+      "definition": "分数分类、等值变形及分子分母变化对分数值的影响。"
+    },
+    {
+      "code": "M6-FRA-03",
+      "name": "分数与小数互化",
+      "subject": "数学",
+      "parent_code": "M6-FRA",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 140,
+      "definition": "约分后分母质因数与有限小数的关系。"
+    },
+    {
+      "code": "M6-FRA-04",
+      "name": "分数大小比较",
+      "subject": "数学",
+      "parent_code": "M6-FRA",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 150,
+      "definition": "通过通分、互化、交叉相乘或基准量比较正分数。"
+    },
+    {
+      "code": "M6-FRA-05",
+      "name": "分数四则混合运算",
+      "subject": "数学",
+      "parent_code": "M6-FRA",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 160,
+      "definition": "分数、小数、带分数的四则及括号运算。"
+    },
+    {
+      "code": "M6-FRA-06",
+      "name": "分数数量关系应用",
+      "subject": "数学",
+      "parent_code": "M6-FRA",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 170,
+      "definition": "依据单位一求数量、分率或总量，处理实际分数关系。"
+    },
+    {
+      "code": "M6-RAT-01",
+      "name": "正负数意义与有理数分类",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 180,
+      "definition": "用正负数描述相反意义，认识自然数整数有理数及参考范围。"
+    },
+    {
+      "code": "M6-RAT-02",
+      "name": "数轴表示与大小比较",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 190,
+      "definition": "读数轴位置，将有理数排序或依据位置判断不等关系。"
+    },
+    {
+      "code": "M6-RAT-03",
+      "name": "数轴距离、中点与动点",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 200,
+      "definition": "在数轴上求距离、中点、移动后位置，按位置分类讨论。"
+    },
+    {
+      "code": "M6-RAT-04",
+      "name": "相反数与倒数",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 210,
+      "definition": "利用相反数和为零、倒数积为一及零的特殊性质。"
+    },
+    {
+      "code": "M6-RAT-05",
+      "name": "绝对值意义与非负性",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 220,
+      "definition": "绝对值是到原点的距离，利用绝对值及平方的非负性。"
+    },
+    {
+      "code": "M6-RAT-06",
+      "name": "绝对值化简与分类讨论",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 230,
+      "definition": "依据正负或区间去绝对值，求多解、最值与分段表达。"
+    },
+    {
+      "code": "M6-RAT-07",
+      "name": "有理数加减",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 240,
+      "definition": "有理数加减符号法则及相关大小和数量关系。"
+    },
+    {
+      "code": "M6-RAT-08",
+      "name": "有理数乘除与符号判断",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 250,
+      "definition": "乘除符号法则、除法转乘倒数、零与乘积性质。"
+    },
+    {
+      "code": "M6-RAT-09",
+      "name": "有理数乘方",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 260,
+      "definition": "幂的意义、底数与指数、负号与括号、奇偶次方。"
+    },
+    {
+      "code": "M6-RAT-10",
+      "name": "有理数混合运算与顺序",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 270,
+      "definition": "含乘方、括号及有理数四则的运算顺序。"
+    },
+    {
+      "code": "M6-RAT-11",
+      "name": "运算律与简便计算",
+      "subject": "数学",
+      "parent_code": "M6-RAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 280,
+      "definition": "运用交换律结合律分配律或倒数转化简化计算。"
+    },
+    {
+      "code": "M6-ALG-01",
+      "name": "去括号与代数式化简",
+      "subject": "数学",
+      "parent_code": "M6-ALG",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 290,
+      "definition": "正确处理括号前负号并化简表达式。"
+    },
+    {
+      "code": "M6-ALG-02",
+      "name": "代数式求值",
+      "subject": "数学",
+      "parent_code": "M6-ALG",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 300,
+      "definition": "代入给定的正负数，利用幂及和式求值。"
+    },
+    {
+      "code": "M6-EQU-01",
+      "name": "解一元一次方程",
+      "subject": "数学",
+      "parent_code": "M6-EQU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 310,
+      "definition": "依据等式性质求一元一次方程的解。"
+    },
+    {
+      "code": "M6-EQU-02",
+      "name": "列方程解决数量关系",
+      "subject": "数学",
+      "parent_code": "M6-EQU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 320,
+      "definition": "将文字中的等量关系写成方程并求未知量。"
+    },
+    {
+      "code": "M6-GEO-01",
+      "name": "平面图形周长与面积",
+      "subject": "数学",
+      "parent_code": "M6-GEO",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 330,
+      "definition": "长方形及梯形的周长面积与分数度量。"
+    },
+    {
+      "code": "M6-GEO-02",
+      "name": "正方体展开图与相对面",
+      "subject": "数学",
+      "parent_code": "M6-GEO",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 340,
+      "definition": "由正方体展开图判断相对面并使用给定数量关系。"
+    },
+    {
+      "code": "M6-APP-01",
+      "name": "有理数收支与行程应用",
+      "subject": "数学",
+      "parent_code": "M6-APP",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 350,
+      "definition": "用正负数及绝对值计算收支、库存、位移与总路程。"
+    },
+    {
+      "code": "M6-APP-02",
+      "name": "行程与相遇追及",
+      "subject": "数学",
+      "parent_code": "M6-APP",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 360,
+      "definition": "相向或同向运动的路程、速度和时间关系。"
+    },
+    {
+      "code": "M6-APP-03",
+      "name": "工作效率与合作",
+      "subject": "数学",
+      "parent_code": "M6-APP",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 370,
+      "definition": "工作总量、效率及轮流合作方案。"
+    },
+    {
+      "code": "M6-APP-04",
+      "name": "成本、盈利与亏损",
+      "subject": "数学",
+      "parent_code": "M6-APP",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 380,
+      "definition": "以各自成本为基准计算盈亏并合并结果。"
+    },
+    {
+      "code": "M6-APP-05",
+      "name": "时间单位换算",
+      "subject": "数学",
+      "parent_code": "M6-APP",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 390,
+      "definition": "小时与分钟换算并用最简分数表示。"
+    },
+    {
+      "code": "M6-PAT-01",
+      "name": "裂项与数列求和",
+      "subject": "数学",
+      "parent_code": "M6-PAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 400,
+      "definition": "裂项、配对或等比关系求有限项和。"
+    },
+    {
+      "code": "M6-PAT-02",
+      "name": "新定义运算与规则应用",
+      "subject": "数学",
+      "parent_code": "M6-PAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 410,
+      "definition": "按题目明示的新运算规则代入计算，不引入高年级概念。"
+    },
+    {
+      "code": "M6-PAT-03",
+      "name": "构造与幻方",
+      "subject": "数学",
+      "parent_code": "M6-PAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 420,
+      "definition": "按给定约束构造算式或利用三阶幻方关系求值。"
+    },
+    {
+      "code": "M6-PAT-04",
+      "name": "对折与倍增规律",
+      "subject": "数学",
+      "parent_code": "M6-PAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 430,
+      "definition": "理解重复对折带来的二倍关系及分数份额。"
+    },
+    {
+      "code": "M6-LIN-01",
+      "name": "线段和差与中点",
+      "subject": "数学",
+      "parent_code": "M6-LIN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 440,
+      "definition": "教材后续复习目录：线段长度关系及中点；无已审核题时题数为零。"
+    },
+    {
+      "code": "M6-LIN-02",
+      "name": "角的度量与和差",
+      "subject": "数学",
+      "parent_code": "M6-LIN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 450,
+      "definition": "教材后续复习目录：角的表示度量及和差，不据此猜测已入库题。"
+    },
+    {
+      "code": "M6-LIN-03",
+      "name": "角平分线",
+      "subject": "数学",
+      "parent_code": "M6-LIN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 460,
+      "definition": "教材后续复习目录：角平分线的定义及数量关系。"
+    },
+    {
+      "code": "E6-NOU",
+      "name": "名词与数量表达",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 470
+    },
+    {
+      "code": "E6-PRO",
+      "name": "代词",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 480
+    },
+    {
+      "code": "E6-TEN",
+      "name": "动词与时态",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 490
+    },
+    {
+      "code": "E6-ADJ",
+      "name": "形容词与副词",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 500
+    },
+    {
+      "code": "E6-PRE",
+      "name": "冠词与介词",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 510
+    },
+    {
+      "code": "E6-SYN",
+      "name": "句法",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 520
+    },
+    {
+      "code": "E6-COM",
+      "name": "交际表达",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 530
+    },
+    {
+      "code": "E6-LEX",
+      "name": "词汇与搭配",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 540
+    },
+    {
+      "code": "E6-PHO",
+      "name": "语音",
+      "subject": "英语",
+      "level": 1,
+      "grade": 6,
+      "sort_order": 550
+    },
+    {
+      "code": "E6-NOU-01",
+      "name": "名词复数变化",
+      "subject": "英语",
+      "parent_code": "E6-NOU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 560,
+      "definition": "规则和不规则复数、以特殊字母结尾的名词复数。"
+    },
+    {
+      "code": "E6-NOU-02",
+      "name": "复合名词复数",
+      "subject": "英语",
+      "parent_code": "E6-NOU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 570,
+      "definition": "woman teacher 与 girl student 等复合名词的复数规则。"
+    },
+    {
+      "code": "E6-NOU-03",
+      "name": "可数与不可数名词",
+      "subject": "英语",
+      "parent_code": "E6-NOU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 580,
+      "definition": "依语义与数量修饰判断可数性。"
+    },
+    {
+      "code": "E6-NOU-04",
+      "name": "数量词与数量修饰",
+      "subject": "英语",
+      "parent_code": "E6-NOU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 590,
+      "definition": "few/little、many/much、plenty of 等与名词或数量意义的搭配。"
+    },
+    {
+      "code": "E6-NOU-05",
+      "name": "量词短语",
+      "subject": "英语",
+      "parent_code": "E6-NOU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 600,
+      "definition": "量词中心词的复数及其与所量物的搭配。"
+    },
+    {
+      "code": "E6-NOU-06",
+      "name": "some与any",
+      "subject": "英语",
+      "parent_code": "E6-NOU",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 610,
+      "definition": "肯定否定及委婉请求中 some/any 的用法。"
+    },
+    {
+      "code": "E6-PRO-01",
+      "name": "物主代词与所属提问",
+      "subject": "英语",
+      "parent_code": "E6-PRO",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 620,
+      "definition": "形容词性物主代词与 whose 所属问句。"
+    },
+    {
+      "code": "E6-PRO-02",
+      "name": "人称代词主宾格",
+      "subject": "英语",
+      "parent_code": "E6-PRO",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 630,
+      "definition": "主语与介词后宾语位置的代词形式。"
+    },
+    {
+      "code": "E6-PRO-03",
+      "name": "so的指代用法",
+      "subject": "英语",
+      "parent_code": "E6-PRO",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 640,
+      "definition": "用 so 代指上文陈述内容。"
+    },
+    {
+      "code": "E6-TEN-01",
+      "name": "一般现在时",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 650,
+      "definition": "习惯、客观事实、主谓一致及 do/does 问句。"
+    },
+    {
+      "code": "E6-TEN-02",
+      "name": "现在进行时",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 660,
+      "definition": "be+现在分词及正在进行的语境。"
+    },
+    {
+      "code": "E6-TEN-03",
+      "name": "一般现在时与现在进行时辨析",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 670,
+      "definition": "对比日常习惯和当前正在发生的动作。"
+    },
+    {
+      "code": "E6-TEN-04",
+      "name": "一般过去时",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 680,
+      "definition": "过去事件的动词形式和 did 疑问句。"
+    },
+    {
+      "code": "E6-TEN-05",
+      "name": "过去进行时",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 690,
+      "definition": "过去某时正在进行的动作，was/were+现在分词。"
+    },
+    {
+      "code": "E6-TEN-06",
+      "name": "主将从现",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 700,
+      "definition": "将来条件或时间从句使用一般现在时。"
+    },
+    {
+      "code": "E6-TEN-07",
+      "name": "非谓语动词与动词搭配",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 710,
+      "definition": "let sb do、介词后 doing、stop doing、ask sb to do。"
+    },
+    {
+      "code": "E6-TEN-08",
+      "name": "there be与主谓一致",
+      "subject": "英语",
+      "parent_code": "E6-TEN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 720,
+      "definition": "依据实际中心主语确定 be 动词，不按距离最近的名词猜测。"
+    },
+    {
+      "code": "E6-ADJ-01",
+      "name": "形容词与副词辨析",
+      "subject": "英语",
+      "parent_code": "E6-ADJ",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 730,
+      "definition": "系动词后表语、宾补以及 good/well 的词性。"
+    },
+    {
+      "code": "E6-ADJ-02",
+      "name": "复合形容词",
+      "subject": "英语",
+      "parent_code": "E6-ADJ",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 740,
+      "definition": "数词与单数名词以连字符组成前置定语。"
+    },
+    {
+      "code": "E6-ADJ-03",
+      "name": "程度修饰与最高级",
+      "subject": "英语",
+      "parent_code": "E6-ADJ",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 750,
+      "definition": "most 及 a little 等对程度的表达。"
+    },
+    {
+      "code": "E6-PRE-01",
+      "name": "冠词的选择",
+      "subject": "英语",
+      "parent_code": "E6-PRE",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 760,
+      "definition": "不定冠词按发音选择以及后文特指定冠词。"
+    },
+    {
+      "code": "E6-PRE-02",
+      "name": "介词意义与搭配",
+      "subject": "英语",
+      "parent_code": "E6-PRE",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 770,
+      "definition": "as 表身份用途、for 表目的对象等。"
+    },
+    {
+      "code": "E6-SYN-01",
+      "name": "特殊疑问句",
+      "subject": "英语",
+      "parent_code": "E6-SYN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 780,
+      "definition": "how many/how much/how long/which/when 与疑问句语序。"
+    },
+    {
+      "code": "E6-SYN-02",
+      "name": "情态或助动词疑问句",
+      "subject": "英语",
+      "parent_code": "E6-SYN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 790,
+      "definition": "have to 等结构的一般疑问句及动词原形。"
+    },
+    {
+      "code": "E6-SYN-03",
+      "name": "连词成句与语序",
+      "subject": "英语",
+      "parent_code": "E6-SYN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 800,
+      "definition": "根据给定词组组织主谓宾及状语位置。"
+    },
+    {
+      "code": "E6-SYN-04",
+      "name": "常用句型与转换",
+      "subject": "英语",
+      "parent_code": "E6-SYN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 810,
+      "definition": "It is time/kind 等常用句型与 help 句型转换。"
+    },
+    {
+      "code": "E6-SYN-05",
+      "name": "原因状语从句",
+      "subject": "英语",
+      "parent_code": "E6-SYN",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 820,
+      "definition": "because 连接原因与结果。"
+    },
+    {
+      "code": "E6-COM-01",
+      "name": "建议及应答",
+      "subject": "英语",
+      "parent_code": "E6-COM",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 830,
+      "definition": "Shall we、Let us 等建议句及恰当回应。"
+    },
+    {
+      "code": "E6-COM-02",
+      "name": "感谢、赞扬与提供帮助",
+      "subject": "英语",
+      "parent_code": "E6-COM",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 840,
+      "definition": "根据上下文选择感谢、赞扬或提供帮助的表达。"
+    },
+    {
+      "code": "E6-COM-03",
+      "name": "询问许可",
+      "subject": "英语",
+      "parent_code": "E6-COM",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 850,
+      "definition": "Can/May I 询问是否允许进行某行为。"
+    },
+    {
+      "code": "E6-LEX-01",
+      "name": "词形转换",
+      "subject": "英语",
+      "parent_code": "E6-LEX",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 860,
+      "definition": "根据句法位置和语境在名词动词形容词等词形间转换；原题拼写疑点不擅改。"
+    },
+    {
+      "code": "E6-LEX-02",
+      "name": "分词作定语",
+      "subject": "英语",
+      "parent_code": "E6-LEX",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 870,
+      "definition": "frozen/fried/boiling 等词形作为名词前定语。"
+    },
+    {
+      "code": "E6-LEX-03",
+      "name": "固定搭配与近义表达",
+      "subject": "英语",
+      "parent_code": "E6-LEX",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 880,
+      "definition": "introduce to、at work、be pleased with 等固定搭配及近义改写。"
+    },
+    {
+      "code": "E6-LEX-04",
+      "name": "词义与语境选词",
+      "subject": "英语",
+      "parent_code": "E6-LEX",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 890,
+      "definition": "依据上下文区分词义，选取符合句意的词。"
+    },
+    {
+      "code": "E6-LEX-05",
+      "name": "学校生活短语与翻译",
+      "subject": "英语",
+      "parent_code": "E6-LEX",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 900,
+      "definition": "学校生活主题短语、时间表达和句子翻译。"
+    },
+    {
+      "code": "E6-LEX-06",
+      "name": "食物词汇与语境辨析",
+      "subject": "英语",
+      "parent_code": "E6-LEX",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 910,
+      "definition": "食物类别、烹饪词义和健康饮食语境；不由此断言课文配方或答案。"
+    },
+    {
+      "code": "E6-PHO-01",
+      "name": "字母与字母组合发音",
+      "subject": "英语",
+      "parent_code": "E6-PHO",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 920,
+      "definition": "比较单词发音；下划线缺失时不推断具体考查字母。"
+    }
+  ]
+}
