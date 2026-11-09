@@ -275,3 +275,28 @@ python cloudflare/scripts/knowledge_backfill.py \
 - `GET /api/stats/knowledge-points` 返回结构由数组改为对象（含 `items`），旧调用方需同步；本项目前端已迁移。
 - 题目累计计数器 `review_count/correct_count/error_count` 未改动，仍用于题目级展示与 `accuracy_range` 筛选；“模块练习正确率”是另一套口径，界面已分开命名。
 - 阅读练习的 topic 不再冒充知识点；阅读/单词练习不计入错题模块正确率。
+- `cloudflare/pdf/index.js` 未改动：打印模板已经读取并转义 `knowledge_point`，本次只把该字段改为“一级 / 二级（主考点）”并在指纹中加入结构；`cloudflare/src/cache.py` 未改动：目录写入在同批次递增 `data_revision`，现有统计缓存键因此失效。
+
+## 6. Review 指引
+
+建议按以下顺序检查：
+
+1. `cloudflare/migrations/0009_knowledge_hierarchy.sql`：唯一索引、触发器与 `write_guard`/`knowledge_assert` 断言是否覆盖方案 4.1/4.2 的不变量。
+2. `cloudflare/src/questions.py` 的 `save()`/`batch()`：分类变化的 guard、旧关联清理、改学科顺序、末尾结构断言是否在同一 batch；旧的 `knowledge_point` 文本只作为兼容输入，不再作为写入事实。
+3. `cloudflare/src/knowledge.py` 的 `resolve_many`/`link_statements`/`plan_knowledge`：4.3 兼容规则与主考点唯一性。
+4. `cloudflare/src/knowledge_stats.py`：一级题数/主考点占比/复习覆盖/模块练习正确率的去重与时间窗口。
+5. `cloudflare/src/reports.py` 与 `prompts.py`：模型是否仍可能输出计数，服务端是否覆盖 `metrics`/`overview`/分布数值。
+6. 前端 `KnowledgePointPicker` 与 `Questions/Upload/PracticeSets/Management/Analysis/Reports`：是否所有写入都改为 ID + 主考点 + 版本，是否仍有自由文本知识点入口。
+7. 运行：
+   ```text
+   python -m compileall -q cloudflare/src
+   python cloudflare/scripts/knowledge_invariants_test.py
+   python cloudflare/scripts/knowledge_api_test.py
+   cd frontend && npm run build
+   ```
+   本地 D1 验证（不改生产）：
+   ```text
+   node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.jsonc --local --file cloudflare/migrations/0009_knowledge_hierarchy.sql --yes
+   ```
+
+已知风险：生产迁移、维护开关切换、Time Travel 恢复与外部 Agent 提示词均未执行；二级种子与逐题映射仍需人工审核。`cloudflare/pages/_worker.js` 对所有 `/api/*` 透传，无需为新路由添加白名单。
