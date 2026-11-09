@@ -221,7 +221,7 @@ python cloudflare/scripts/knowledge_backfill.py \
 - `99-versions.sql`：全部批次通过一致性校验后再执行；
 - `manifest.json`：数量、文件顺序与生成参数。
 
-注意：D1 导入不支持 `BEGIN/COMMIT`（官方导入文档要求移除），因此批次文件不包含显式事务。应用层单题写入使用 D1 `batch()`，具备事务语义；迁移脚本依靠批次守卫、结构断言、逐批一致性校验与 Time Travel 书签控制风险。若需要严格文件级原子性，应改由 Worker `batch()` 执行，但本期按方案要求不新增可绕过维护开关的公共接口。
+注意：D1 要求导入文件移除 `BEGIN/COMMIT`，并由平台把一次文件导入作为事务执行（Wrangler 提示“D1 runs your SQL in a transaction for you”）；本地 D1 验证中，含失败语句的文件整体回滚。批次文件仍逐批执行，配合版本守卫、结构断言与逐批一致性校验。应用层单题写入使用 D1 `batch()`，同样具备事务语义。
 
 ### 3.4 生产执行顺序
 
@@ -260,7 +260,7 @@ python cloudflare/scripts/knowledge_backfill.py \
   - `/api/stats/knowledge-points` 一级/二级口径、零作答 `accuracy=null`、二级缺 `parent_id` 返回 422；
   - 学习报告 `schema_version=2`、`content.metrics`、服务端分布数值、提示词要求“不要输出任何计数”、不含 `top_error_knowledge_points` 输出字段。
 - 预检脚本在 2026-11-09 的迁移前快照上只读运行成功（557 道有效题、83 个目录行、137 条旧文本），并正确提示缺少 `runtime_config/write_guard`。
-- 本地 D1（`wrangler d1 execute --local`，Miniflare）应用 `0009_knowledge_hierarchy.sql` 成功：`CREATE TRIGGER`、部分唯一索引与 `ALTER TABLE` 均可执行；回读确认 10 个触发器与 4 个 `question_knowledge_point` 索引存在。插入三级节点实际返回 `KP_LEVEL:...: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`，应用层 `map_error` 会剥离 SQLite 后缀并映射 422。此项为本地验证，不等于生产 D1 已迁移。
+- 本地 D1（`wrangler d1 execute --local`，Miniflare）应用 `0009_knowledge_hierarchy.sql` 成功：`CREATE TRIGGER`、部分唯一索引与 `ALTER TABLE` 均可执行；回读确认 10 个触发器与 4 个 `question_knowledge_point` 索引存在。插入三级节点实际返回 `KP_LEVEL:...: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`，应用层 `map_error` 会剥离 SQLite 后缀并映射 422。另验证含失败语句的导入文件整体回滚，成功文件用 `json_each` 横向展开批量关联并回读主/次考点正确。此项为本地验证，不等于生产 D1 已迁移。
 - 回填脚本在本地 SQLite 快照上生成并执行 `00-catalog/batch-001/99-versions`，回读主考点与关联正确，一致性校验零阻断性违规。
 - 同一套回填文件在本地 D1（`wrangler d1 execute --local`）执行成功：题目 900 回读 `knowledge_point=测试考点`、`knowledge_revision=1`、主考点关联 1 条、父级路径正确，`taxonomy_version` 从 0 递增为 1。验证了 D1 对 JSON 集合、`ON CONFLICT`、守卫与结构断言的实际支持。
 - `npm run build`（frontend）：通过；仅有既有的大 chunk 体积提示。
@@ -271,7 +271,7 @@ python cloudflare/scripts/knowledge_backfill.py \
 - 二级考点种子清单、逐题映射与外部 Agent 提示词不在本仓库；Agent 调用方需改为先取 `/api/knowledge-points/tree`，再提交 `knowledge_point_ids`/`primary_knowledge_point_id`。在 Agent 更新前，无法唯一匹配的旧文本会进入单题 `errors`。
 - 教材章节与知识点的多对多映射不在本期范围。
 - 旧 `kp_error_type` 行仍挂在 `level IS NULL` 的旧目录上，只读保留；新二级的错误类型必须在审核映射的 `error_type_ids` 中逐条指定，本期不做自动合并或清空。已有错误类型不会因分类变化被判定为错误。
-- D1 文件导入不是显式事务；“逐批执行 + 守卫 + 一致性校验”是本期迁移协议。该限制已在运行手册中说明。
+- D1 文件导入不支持显式 `BEGIN/COMMIT`；平台按文件事务执行，本地验证失败文件会整体回滚。迁移仍按批次拆分，便于定位与逐批校验。
 - `GET /api/stats/knowledge-points` 返回结构由数组改为对象（含 `items`），旧调用方需同步；本项目前端已迁移。
 - 题目累计计数器 `review_count/correct_count/error_count` 未改动，仍用于题目级展示与 `accuracy_range` 筛选；“模块练习正确率”是另一套口径，界面已分开命名。
 - 阅读练习的 topic 不再冒充知识点；阅读/单词练习不计入错题模块正确率。
