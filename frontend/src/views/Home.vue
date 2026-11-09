@@ -8,6 +8,9 @@
         <p class="hero-sub">把不懂的弄懂，把会的记牢。</p>
       </div>
       <div class="hero-right">
+        <el-select :model-value="selectedGrade" class="grade-select" aria-label="年级" @change="onGradeChange">
+          <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
+        </el-select>
         <div class="date-chip">
           <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -150,21 +153,6 @@
     </section>
 
     <!-- Global Grade Switcher -->
-    <section class="grade-switch-bar">
-      <div class="grade-switch-label">年级</div>
-      <div class="grade-switch-chips">
-        <button
-          v-for="g in gradeOptions"
-          :key="g.value"
-          class="grade-switch-chip"
-          :class="{ active: selectedGrade === g.value }"
-          @click="onGradeChange(g.value)"
-        >
-          {{ g.label }}
-        </button>
-      </div>
-      <div class="grade-switch-note">不区分上下学期 · 切换后整页数据联动</div>
-    </section>
 
     <!-- Content Grid -->
     <section class="content-grid">
@@ -697,6 +685,8 @@ onMounted(async () => {
   font-size:13px;
   margin:0;
   color:var(--text-muted)}
+.hero-right { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.grade-select { width:120px; }
 .date-chip {
   display:flex;
   align-items:center;

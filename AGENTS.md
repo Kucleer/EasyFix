@@ -54,6 +54,14 @@ npm run build                   # 生产构建，输出到 dist/
 
 ## 代码规范
 
+## 分支与发布流程
+
+- 每次修改先创建独立的 `codex/` 分支，避免直接在主分支开发。
+- 仅提交本次任务相关文件，保留工作区已有修改，不提交敏感数据及生成目录。
+- 完成构建与必要验证后，将修改分支合并到 `main`，推送远端，再部署 Cloudflare。
+- 前端使用 `python backend/scripts/prepare_cloudflare_frontend.py` 构建，按 `docs/cloudflare-migration-status.md` 的日常部署命令发布 Pages；后端有变更时才部署 Worker。
+- 部署后核对正式入口与发布状态，记录提交及部署结果。
+
 - 后端：全部 `snake_case`，函数前写中文文档字符串。
 - 前端：Vue 3 Composition API + `<script setup>`，UI 组件用 Element Plus。
 - 数据库：只做软删除，查询时必须加 `deleted=False` 过滤。
