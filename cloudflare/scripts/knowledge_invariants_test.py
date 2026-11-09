@@ -108,9 +108,9 @@ class SQLiteDB:
             raise
 
 
-def build_database():
+def build_database(check_same_thread=True):
     """建立内存库并应用迁移。"""
-    connection = sqlite3.connect(':memory:')
+    connection = sqlite3.connect(':memory:', check_same_thread=check_same_thread)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA)
     connection.executescript((ROOT / 'migrations' / '0009_knowledge_hierarchy.sql').read_text(encoding='utf-8'))

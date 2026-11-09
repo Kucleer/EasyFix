@@ -210,7 +210,7 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
                   tag_ids: str | None = None, accuracy_range: str | None = None):
     """读取错题分页；知识点筛选走结构化关联，不再依赖文本子串。"""
     db = Database(request.scope['env'].DB)
-    validate_filter_ids(db, subject_id, knowledge_parent_id, knowledge_point_id)
+    await validate_filter_ids(db, subject_id, knowledge_parent_id, knowledge_point_id)
     if unclassified and (knowledge_parent_id is not None or knowledge_point_id is not None or knowledge_point):
         raise HTTPException(422, '未分类筛选不能与具体知识点筛选项同时使用')
     filters, values = ['q.deleted=0'], []
