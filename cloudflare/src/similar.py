@@ -4,6 +4,7 @@ import html
 from fastapi import APIRouter,HTTPException,Request
 from database import Database
 from analytics import now
+from knowledge import question_links
 from settings import generate_json
 from prompts import PromptLibrary
 
@@ -16,9 +17,12 @@ async def generate(question_id:int,request:Request):
     db=Database(request.scope['env'].DB)
     original=await db.first('SELECT q.*,s.name AS subject_name FROM question q JOIN subject s ON s.id=q.subject_id AND s.deleted=0 WHERE q.id=? AND q.deleted=0',(question_id,))
     if not original:raise HTTPException(404,'错题不存在')
-    text=original['parsed_question'] or original['original_text']
-    if not text:raise HTTPException(400,'错题文本为空，无法生成相似题')
-    result=await generate_json(request,PromptLibrary()._build_prompt(text,original['answer'] or '',original['subject_name'],original['knowledge_point'] or ''))
+    text = original['parsed_question'] or original['original_text']
+    if not text:
+        raise HTTPException(400, '错题文本为空，无法生成相似题')
+    links = (await question_links(db, [question_id])).get(question_id, [])
+    result = await generate_json(request, PromptLibrary()._build_prompt(
+        text, original['answer'] or '', original['subject_name'], links))
     if not result.get('similar_question') or not result.get('similar_answer'):raise HTTPException(502,'生成的题目或答案为空')
     text,answer=html.unescape(result['similar_question']),html.unescape(result['similar_answer'])
     if original['subject_name']=='数学':

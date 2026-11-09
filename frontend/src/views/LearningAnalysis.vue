@@ -5,9 +5,16 @@
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="load-error" />
     <div v-loading="loading">
       <div class="analysis-metrics"><article v-for="metric in metrics" :key="metric.label" class="metric"><span>{{ metric.label }}</span><strong>{{ loaded ? metric.value : '—' }}</strong><small>{{ metric.note }}</small></article></div>
+      <el-alert v-if="unclassifiedCount" class="load-error" type="warning" :closable="false" show-icon>
+        <template #title>
+          未分类错题 {{ unclassifiedCount }} 道，未计入任何知识模块占比。
+          <el-button link type="primary" @click="goUnclassified">去错题列表处理</el-button>
+        </template>
+      </el-alert>
       <el-tabs v-model="activeTab">
         <el-tab-pane label="错题与知识点" name="questions">
-          <div class="analysis-grid"><el-card class="full"><template #header>高频错题知识点</template><p class="chart-note">按收录错题数量排序，数量不等同于掌握率。</p><SubjectKnowledgeRanking :items="knowledgePoints" :subjects="subjects" :subject-id="selectedSubject || null" /></el-card><el-card><template #header>错题复习覆盖</template><VChart v-if="reviewTotal" :option="reviewOption" autoresize class="chart" /><el-empty v-else description="暂无错题复习数据" /></el-card>
+          <div class="analysis-grid"><el-card class="full"><template #header>一级知识模块</template><p class="chart-note">默认按一级模块聚合，点击模块可下钻二级。题数按任一关联去重；占比只按主考点归属，未分类单独计数。“模块练习正确率”来自练习最终批改状态，与题目累计批改次数不同。</p><SubjectKnowledgeRanking :items="knowledgePoints" :subjects="subjects" :subject-id="selectedSubject || null" @select="drillDown" /></el-card><el-card><template #header>错题复习覆盖</template><VChart v-if="reviewTotal" :option="reviewOption" autoresize class="chart" /><el-empty v-else description="暂无错题复习数据" /></el-card>
+          <el-card v-if="drillParent" class="full"><template #header><div class="card-header"><span>{{ drillParent.name }} · 二级考点下钻</span><el-button size="small" @click="clearDrill">返回一级</el-button></div></template><p class="chart-note">占比为模块内主考点占比；正确率相同时按题数排序。</p><el-table v-loading="drillLoading" :data="drillItems" empty-text="该模块暂无有效二级记录"><el-table-column prop="name" label="二级考点" min-width="180" /><el-table-column prop="question_count" label="收录题数" width="100" align="right" /><el-table-column label="模块内占比" width="110" align="right"><template #default="{row}">{{ row.parent_share_percent ?? 0 }}%</template></el-table-column><el-table-column label="复习覆盖" width="110" align="right"><template #default="{row}">{{ row.review_coverage == null ? '—' : row.review_coverage + '%' }}</template></el-table-column><el-table-column label="模块练习正确率" width="140" align="right"><template #default="{row}"><span v-if="row.accuracy == null" class="text-muted">暂无练习记录</span><span v-else>{{ row.accuracy }}%</span></template></el-table-column><el-table-column label="操作" width="100"><template #default="{row}"><el-button link type="primary" @click="viewPointQuestions(row)">查看错题</el-button></template></el-table-column></el-table></el-card>
           <el-card><template #header>错误类型分布</template><p class="chart-note">一道题可包含多个错误类型，计数可超过错题总数。</p><VChart v-if="Object.keys(questionStats.by_error_type || {}).length" :option="errorOption" autoresize class="chart" /><el-empty v-else description="暂无错误类型记录" /></el-card><el-card><template #header>错题累计正确率趋势</template><p class="chart-note">按已批阅错题练习的创建日期统计累计正确率。</p><VChart v-if="questionStats.accuracy_trend?.length" :option="questionTrend" autoresize class="chart" /><el-empty v-else description="完成并批阅练习后显示" /></el-card></div>
         </el-tab-pane>
         <el-tab-pane label="单词温习" name="words"><div class="analysis-grid"><el-card><template #header>单词复习次数分布</template><p class="chart-note">未复习 / 1–3 次 / 4 次及以上；仅表示复习次数。</p><VChart v-if="wordStats.total" :option="wordOption" autoresize class="chart" /><el-empty v-else description="暂无单词" /></el-card><el-card><template #header>单词复习频率</template><VChart v-if="wordStats.frequency_trend?.length" :option="frequencyOption" autoresize class="chart" /><el-empty v-else description="暂无复习记录" /></el-card><el-card class="full"><template #header>需要关注的单词</template><p class="chart-note">已复习且正确率低于 70% 的单词，最多显示 20 个。</p><el-table :data="wordStats.low_accuracy_words || []" empty-text="暂无低正确率单词"><el-table-column prop="word" label="单词" min-width="160" /><el-table-column label="正确率" width="120"><template #default="{row}">{{ row.accuracy }}%</template></el-table-column></el-table></el-card></div></el-tab-pane>
@@ -21,6 +28,7 @@
 import SubjectKnowledgeRanking from '@/components/SubjectKnowledgeRanking.vue'
 import PageHeading from '@/components/PageHeading.vue'
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { questionApi } from '@/api/question'
 import { learningAnalysisApi } from '@/api/learning_analysis'
 import VChart from 'vue-echarts'
@@ -32,8 +40,9 @@ use([CanvasRenderer, PieChart, BarChart, LineChart, TooltipComponent, LegendComp
 const activeTab = ref('questions')
 const selectedSubject = ref(null)
 const subjects = ref([])
+const router = useRouter()
 questionApi.listSubjects().then(({data}) => { subjects.value = data }).catch(() => {})
-function changeSubject() { suggestions.value = []; suggestionError.value = ''; loadStats() }
+function changeSubject() { suggestions.value = []; suggestionError.value = ''; clearDrill(); loadStats() }
 const loading = ref(false)
 const loaded = ref(false)
 const error = ref('')
@@ -46,7 +55,69 @@ const wordStats = computed(() => data.value.word_stats || {})
 const practiceStats = computed(() => data.value.practice_stats || {})
 const review = computed(() => questionStats.value.review_effectiveness || {})
 const reviewTotal = computed(() => Object.values(review.value).reduce((a,b) => a + b, 0))
-const knowledgePoints = computed(() => (questionStats.value.top_error_knowledge_points || []).map(x => ({ ...x, point: x.point?.trim() || '未标注知识点' })))
+const knowledge = computed(() => data.value.knowledge || {})
+const knowledgeModules = computed(() => knowledge.value.modules || [])
+const unclassifiedCount = computed(() => knowledge.value.unclassified_count || 0)
+const knowledgePoints = computed(() => {
+  if (knowledgeModules.value.length) {
+    return knowledgeModules.value.map(module => ({
+      module_id: module.id,
+      id: module.id,
+      point: module.name,
+      subject_id: module.subject_id,
+      subject_name: module.subject_name,
+      count: module.question_count,
+      accuracy: module.accuracy,
+      review_coverage: module.review_coverage,
+      share_percent: module.share_percent,
+    }))
+  }
+  return (questionStats.value.top_error_knowledge_points || []).map(item => ({
+    ...item,
+    point: item.point?.trim() || '未标注知识点',
+  }))
+})
+const drillParent = ref(null)
+const drillItems = ref([])
+const drillLoading = ref(false)
+
+async function drillDown(row) {
+  const moduleId = row?.module_id ?? row?.id
+  if (!moduleId) return
+  drillParent.value = { id: moduleId, name: row.point }
+  drillLoading.value = true
+  try {
+    const { data: response } = await learningAnalysisApi.getKnowledgeStats({
+      subject_id: selectedSubject.value || row.subject_id || undefined,
+      level: 2,
+      parent_id: moduleId,
+    })
+    drillItems.value = response.items || []
+  } catch (error) {
+    drillItems.value = []
+    error.value = error.response?.data?.detail || '二级下钻加载失败'
+  } finally {
+    drillLoading.value = false
+  }
+}
+function clearDrill() {
+  drillParent.value = null
+  drillItems.value = []
+  drillLoading.value = false
+}
+function goUnclassified() {
+  router.push({ path: '/questions', query: { unclassified: '1', ...(selectedSubject.value ? { subject_id: selectedSubject.value } : {}) } })
+}
+function viewPointQuestions(row) {
+  router.push({
+    path: '/questions',
+    query: {
+      ...(selectedSubject.value ? { subject_id: selectedSubject.value } : {}),
+      knowledge_parent_id: drillParent.value?.id,
+      knowledge_point_id: row.id,
+    },
+  })
+}
 const metrics = computed(() => [
   { label: '累计错题', value: questionStats.value.total || 0, note: '全部未删除错题' },
   { label: '尚未复习错题', value: review.value.not_reviewed || 0, note: '复习次数为 0' },

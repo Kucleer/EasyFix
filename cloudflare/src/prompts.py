@@ -1,16 +1,38 @@
-"""从现有服务提取的纯提示词模板。"""
+"""手写提示词模板；本文件是云端提示词的唯一来源。
+
+不再由 backend/scripts/prepare_cloudflare_prompts.py 生成，避免覆盖两级知识点改造。
+学习报告提示词只要求叙述与建议，数值由服务端写入 content.metrics。
+"""
+
 from typing import Optional
+
 
 class PromptLibrary:
 
-    def _build_prompt(self, question: str, answer: str, subject: str, knowledge_point: str) -> str:
+    def _build_prompt(self, question: str, answer: str, subject: str, knowledge_points=None) -> str:
+        """生成相似题提示词，主考点必考，其他关联考点作为背景。"""
         subject_info = f'学科：{subject}' if subject else '学科：未知'
-        knowledge_info = f'知识点：{knowledge_point}' if knowledge_point else ''
-        prompt = f'请根据以下题目生成一道相似的练习题，要求：\n1. 题型相似、难度相近\n2. 考察的知识点相同\n3. 但具体数值或情境不同\n\n{subject_info}\n{knowledge_info}\n\n原题目：\n{question}\n\n原答案：\n{answer}\n\n请以以下JSON格式返回结果：\n{{\n    "similar_question": "生成的相似题目",\n    "similar_answer": "相似题目的答案",\n    "explanation": "简要解析"\n}}\n'
-        return prompt
+        points = []
+        if isinstance(knowledge_points, str):
+            knowledge_points = [{'name': knowledge_points, 'is_primary': True}] if knowledge_points else []
+        for point in knowledge_points or []:
+            path = (point.get('parent_name') + ' / ' if point.get('parent_name') else '') + str(point.get('name') or '')
+            points.append(('主考点：' if point.get('is_primary') else '关联考点：') + path)
+        knowledge_info = '\n'.join(points) if points else '知识点：未分类'
+        return (
+            '请根据以下题目生成一道相似的练习题，要求：\n'
+            '1. 题型相似、难度相近\n'
+            '2. 必须考察主考点；其他关联考点作为背景，不保证全部覆盖\n'
+            '3. 但具体数值或情境不同\n\n'
+            f'{subject_info}\n{knowledge_info}\n\n原题目：\n{question}\n\n原答案：\n{answer}\n\n'
+            '请以以下JSON格式返回结果：\n'
+            '{\n    "similar_question": "生成的相似题目",\n'
+            '    "similar_answer": "相似题目的答案",\n'
+            '    "explanation": "简要解析"\n}\n')
 
-    def _build_learning_report_prompt(self, subject_name: Optional[str], grade: Optional[int], time_range_days: Optional[int], data_summary: dict) -> str:
-        """构建学习报告生成的Prompt"""
+    def _build_learning_report_prompt(self, subject_name: Optional[str], grade: Optional[int],
+                                      time_range_days: Optional[int], data_summary: dict) -> str:
+        """构建学习报告提示词：模型只写叙述，不输出任何计数或正确率数字。"""
         import json
         scope_info = []
         if subject_name:
@@ -22,10 +44,39 @@ class PromptLibrary:
         if not scope_info:
             scope_info.append('范围：全学科、全年级、所有时间')
         scope_text = '，'.join(scope_info)
-        prompt = f'你是一位专业的学习分析师。请根据以下学习数据，生成一份详细的多维度学习状态分析报告。\n\n## 分析范围\n{scope_text}\n\n## 数据摘要\n{json.dumps(data_summary, ensure_ascii=False, indent=2)}\n\n## 报告要求\n\n请生成一份结构化的多维度学习分析报告，包含以下维度：\n\n### 1. 整体概况\n- 学习数据总量（错题数量、单词数量）\n- 整体正确率/准确率\n\n### 2. 错题分析\n- **难度分布**：各难度级别（1-5）的错题数量和占比\n- **错误类型分析**：计算错误、概念错误、审题错误、其他错误的分布\n- **知识点分布**：高频出错知识点TOP10。输入中的“学科 · 知识点”是完整身份，输出 point 必须保留学科前缀，不得合并不同学科的同名知识点。\n- **复习效果**：错题的复习次数分布，未复习/复习1次/复习多次的比例\n\n### 3. 单词分析（如有数据）\n- 总体掌握率\n- 低准确率单词（正确率低于70%的单词）\n- 复习间隔建议\n\n### 4. 学习建议\n- 针对薄弱知识点推荐练习方向\n- 记忆类科目的复习策略建议\n- 下一阶段学习重点\n\n### 5. 总结\n- 简明扼要的核心发现（3-5条）\n- 优先改进项（最多3条）\n\n## 输出格式\n\n请以JSON格式返回报告内容：\n{{\n    "overview": {{\n        "total_questions": number,\n        "total_words": number,\n        "overall_accuracy": number\n    }},\n    "question_analysis": {{\n        "difficulty_distribution": {{"1": count, "2": count, ...}},\n        "error_type_distribution": {{"计算": count, "概念": count, ...}},\n        "top_error_knowledge_points": [{{"point": "知识点名", "count": number}}],\n        "review_effectiveness": {{"not_reviewed": count, "reviewed_1": count, "reviewed_multiple": count}}\n    }},\n    "word_analysis": {{\n        "mastery_rate": number,\n        "low_accuracy_words": [{{"word": "单词", "accuracy": number}}],\n        "recommended_review_interval": "建议"\n    }},\n    "suggestions": [\n        {{"type": "练习", "content": "建议内容"}}\n    ],\n    "summary": {{\n        "key_findings": ["发现1", "发现2", ...],\n        "priority_improvements": ["优先项1", "优先项2", ...]\n    }}\n}}\n\n请确保返回的是合法的JSON格式，不要包含markdown代码块标记。'
-        return prompt
+        return (
+            '你是一位专业的学习分析师。请根据以下学习数据，生成多维度学习状态分析。\n\n'
+            f'## 分析范围\n{scope_text}\n\n'
+            f'## 数据摘要\n{json.dumps(data_summary, ensure_ascii=False, indent=2)}\n\n'
+            '## 硬性要求\n'
+            '1. 不要输出任何计数、占比、正确率或排名数字；这些数值由服务端写入，模型只负责解释。\n'
+            '2. 分析知识点时必须引用数据摘要中 knowledge_modules 的 module_id 与 name，不得自造分类，'
+            '不得合并不同学科的同名模块。\n'
+            '3. 未分类题目单独说明，不要为它们虚构模块。\n'
+            '4. “模块练习正确率”来自练习最终批改状态；不得把它解释为题目累计复习次数。\n'
+            '5. 结论要可执行，避免空泛鼓励。\n\n'
+            '## 输出格式（仅返回合法 JSON，不要 markdown 代码块）\n'
+            '{\n'
+            '    "narrative": {\n'
+            '        "overall": "整体学习状态叙述",\n'
+            '        "knowledge_modules": [\n'
+            '            {"module_id": number, "module_name": "一级模块名", '
+            '"reason": "薄弱原因", "suggestion": "练习建议"}\n'
+            '        ],\n'
+            '        "review_strategy": "复习策略",\n'
+            '        "word_strategy": "单词或记忆类策略，没有数据时留空字符串"\n'
+            '    },\n'
+            '    "suggestions": [\n'
+            '        {"type": "练习", "content": "建议内容", "priority": 1}\n'
+            '    ],\n'
+            '    "summary": {\n'
+            '        "key_findings": ["发现1", "发现2"],\n'
+            '        "priority_improvements": ["优先项1", "优先项2"]\n'
+            '    }\n'
+            '}\n')
 
     def _get_grade_name(self, grade: int) -> str:
         """转换年级数字为名称"""
-        grade_map = {1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级', 5: '五年级', 6: '六年级', 7: '初一', 8: '初二', 9: '初三', 10: '高一', 11: '高二', 12: '高三'}
+        grade_map = {1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级', 5: '五年级', 6: '六年级',
+                     7: '初一', 8: '初二', 9: '初三', 10: '高一', 11: '高二', 12: '高三'}
         return grade_map.get(grade, f'{grade}年级')

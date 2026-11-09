@@ -1750,3 +1750,19 @@ MAX_UPLOAD_SIZE=10485760  # 10MB
 | 400 | 请求参数错误 |
 | 404 | 资源不存在 |
 | 500 | 服务器内部错误 |
+
+---
+
+## 十一、两级知识点（2026-11-10，云端正式实现）
+
+本节取代前文关于“知识点为平铺目录/单一文本字段”的描述；完整规格见 `docs/knowledge-hierarchy-final-plan.md`，实现与迁移说明见 `docs/knowledge-hierarchy-implementation-notes.md`。
+
+- 目录固定两级：一级为学科知识模块，二级为具体考点；二级必须属于同一学科的一级。只允许两级。
+- 新增 `question_knowledge_point` 关联表；一道题可关联多个二级，有且仅有一个主考点（未分类题除外）。
+- 错题保留 `knowledge_point` 作为主考点名兼容投影，新增只读 `legacy_knowledge_point` 保存切换前原文本；新业务查询、统计和生成不得依赖文本字段。
+- 题目写入新增 `knowledge_point_ids`、`primary_knowledge_point_id`、`knowledge_revision`；分类或学科实际变化时必须携带读取时的版本，过期返回 409。
+- 统计默认按一级聚合，支持 `level=2&parent_id=` 下钻；占比只按主考点，未分类单独计数。
+- “模块练习正确率”来自 `practice_set_question` 最终批改状态；原题目累计计数器仍保留，仅用于题目级展示与 `accuracy_range` 筛选，两者在界面分开命名。
+- 目录接口新增 `GET /api/knowledge-points/tree`；知识点 CRUD 由 `cloudflare/src/knowledge.py` 实现，并用 D1 触发器保护层级、学科、移动与删除引用。
+- 学习报告 `schema_version=2`，模块指标由服务端写入 `content.metrics`，模型只生成叙述；旧报告保留原样并标注旧口径。
+- 维护写开关存于 D1 `runtime_config.write_maintenance`，开启时所有非只读请求（含 Bearer Agent）返回 503；不修改 `MIGRATION_READY`。

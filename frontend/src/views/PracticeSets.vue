@@ -244,7 +244,11 @@
         </el-row>
         <div class="detail-meta">
           <span>题目ID: {{ gradingQuestionDetail.question_id }}</span>
-          <KnowledgeTag v-if="gradingQuestionDetail.knowledge_point" :name="gradingQuestionDetail.knowledge_point" :subject-id="gradingQuestionDetail.subject_id" />
+          <div v-if="gradingQuestionDetail.knowledge_points?.length" class="grading-knowledge">
+            <KnowledgeTag v-for="point in gradingQuestionDetail.knowledge_points" :key="point.id" :point="point" :primary="point.is_primary" :subject-id="gradingQuestionDetail.subject_id" show-path />
+          </div>
+          <span v-else-if="gradingQuestionDetail.legacy_knowledge_point" class="legacy-knowledge">原标签：{{ gradingQuestionDetail.legacy_knowledge_point }}</span>
+          <span v-else-if="currentReviewPs?.source_type === 'question'" class="text-muted">未分类</span>
           <span v-if="gradingQuestionDetail.error_type">错误类型: {{ gradingQuestionDetail.error_type }}</span>
         </div>
       </div>
@@ -268,8 +272,12 @@
           <el-form-item label="答案">
             <MathEditor v-model="gradingQuestionEditForm.original_answer" :rows="3" placeholder="请输入答案" />
           </el-form-item>
-          <el-form-item label="知识点">
-            <el-input v-model="gradingQuestionEditForm.knowledge_point" placeholder="请输入知识点" />
+          <el-form-item v-if="currentReviewPs?.source_type === 'question'" label="知识点">
+            <KnowledgePointPicker
+              v-model="gradingQuestionEditForm.knowledge_point_ids"
+              v-model:primary-id="gradingQuestionEditForm.primary_knowledge_point_id"
+              :subject-id="gradingQuestionDetail.subject_id || currentReviewPs?.subject_id"
+            />
           </el-form-item>
           <el-form-item label="错误类型">
             <el-input v-model="gradingQuestionEditForm.error_type" placeholder="请输入错误类型" />
@@ -527,6 +535,7 @@
 import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
+import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -668,7 +677,9 @@ const gradingQuestionEditForm = reactive({
   original_question_text: '',
   original_image: '',
   original_answer: '',
-  knowledge_point: '',
+  knowledge_point_ids: [],
+  primary_knowledge_point_id: null,
+  knowledge_revision: 0,
   error_type: '',
   difficulty: 3
 })
@@ -684,7 +695,10 @@ const startEditGradingQuestion = () => {
   gradingQuestionEditForm.original_question_text = gradingQuestionDetail.value.original_question_text || ''
   gradingQuestionEditForm.original_image = gradingQuestionDetail.value.original_image || ''
   gradingQuestionEditForm.original_answer = gradingQuestionDetail.value.original_answer || ''
-  gradingQuestionEditForm.knowledge_point = gradingQuestionDetail.value.knowledge_point || ''
+  const points = gradingQuestionDetail.value.knowledge_points || []
+  gradingQuestionEditForm.knowledge_point_ids = points.map(point => point.id)
+  gradingQuestionEditForm.primary_knowledge_point_id = points.find(point => point.is_primary)?.id ?? null
+  gradingQuestionEditForm.knowledge_revision = gradingQuestionDetail.value.knowledge_revision || 0
   gradingQuestionEditForm.error_type = gradingQuestionDetail.value.error_type || ''
   gradingQuestionEditForm.difficulty = gradingQuestionDetail.value.difficulty || 3
   isEditingGradingQuestion.value = true
@@ -695,28 +709,46 @@ const cancelEditGradingQuestion = () => {
 }
 
 const saveGradingQuestion = async () => {
+  if (gradingQuestionEditForm.knowledge_point_ids.length && !gradingQuestionEditForm.primary_knowledge_point_id) {
+    ElMessage.warning('请为所选知识点指定主考点')
+    return
+  }
   gradingEditLoading.value = true
   try {
-    await questionApi.update(gradingQuestionDetail.value.question_id, {
+    const { data } = await questionApi.update(gradingQuestionDetail.value.question_id, {
       parsed_question: gradingQuestionEditForm.original_question_text,
       original_image: gradingQuestionEditForm.original_image,
       answer: gradingQuestionEditForm.original_answer,
-      knowledge_point: gradingQuestionEditForm.knowledge_point,
+      knowledge_point_ids: gradingQuestionEditForm.knowledge_point_ids,
+      primary_knowledge_point_id: gradingQuestionEditForm.primary_knowledge_point_id,
+      knowledge_revision: gradingQuestionEditForm.knowledge_revision,
       error_type: gradingQuestionEditForm.error_type,
       difficulty: gradingQuestionEditForm.difficulty
     })
     ElMessage.success('保存成功')
     isEditingGradingQuestion.value = false
-    // 更新列表中的题目数据
+    // 使用服务端响应刷新本地条目，不合并表单，避免旧分类残留。
     const idx = currentPsQuestions.value.findIndex(q => q.question_id === gradingQuestionDetail.value.question_id)
     if (idx !== -1) {
+      const text = data.parsed_question || data.original_text || ''
       currentPsQuestions.value[idx] = {
         ...currentPsQuestions.value[idx],
-        ...gradingQuestionEditForm
+        question_text: text,
+        original_question_text: text,
+        original_answer: data.answer || '',
+        answer: data.answer || '',
+        original_image: data.original_image || '',
+        knowledge_points: data.knowledge_points || [],
+        knowledge_point: data.knowledge_point || null,
+        legacy_knowledge_point: data.legacy_knowledge_point || null,
+        knowledge_revision: data.knowledge_revision || 0,
+        error_type: data.error_type || '',
+        difficulty: data.difficulty || 3,
       }
+      gradingQuestionDetail.value = currentPsQuestions.value[idx]
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(error.response?.data?.detail || '保存失败')
   } finally {
     gradingEditLoading.value = false
   }
@@ -789,7 +821,7 @@ const submitGrading = async () => {
       fetchPracticeSets()
     }
   } catch (error) {
-    ElMessage.error('批改提交失败')
+    ElMessage.error(error.response?.data?.detail || '批改提交失败')
   }
 }
 
@@ -2832,6 +2864,8 @@ onMounted(() => {
 }
 
 .ps-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.7; }
+.grading-knowledge { display: flex; flex-wrap: wrap; gap: 4px; }
+.legacy-knowledge { color: var(--text-muted); font-size: 12px; font-style: italic; }
 </style>
 <style>
 .practice-detail-dialog .el-descriptions--small .el-descriptions__body .el-descriptions__table .el-descriptions__cell  {

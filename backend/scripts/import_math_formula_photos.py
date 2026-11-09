@@ -48,6 +48,8 @@ def main():
     parser.add_argument('--backup-dir', type=Path, required=True)
     parser.add_argument('--apply', action='store_true', help='不传时只验证，不写正式数据库')
     args = parser.parse_args()
+    print('注意：旧 backend 数据库已冻结为只读；本脚本仅保留历史预检证据，不能作为生产写入通道。')
+    print('两级知识点改造后的正式分类请使用 cloudflare/scripts/knowledge_backfill.py 生成 SQL。')
     images = [args.image_one.resolve(), args.image_two.resolve()]
     backup = args.backup_dir.resolve()
     from backup_data import verify_backup

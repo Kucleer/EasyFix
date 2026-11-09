@@ -61,6 +61,9 @@ export const questionApi = {
   listKnowledgePoints(params) {
     return api.get('/knowledge-points', { params })
   },
+  getKnowledgePointTree(params) {
+    return api.get('/knowledge-points/tree', { params })
+  },
   createKnowledgePoint(data) {
     return api.post('/knowledge-points', data)
   },
@@ -105,9 +108,10 @@ export const questionApi = {
     }
     return api.post(`/practice-sets/${id}/mark-reviewed`)
   },
-  markPracticeSetReviewedWithGrading(id, questionResults) {
+  markPracticeSetReviewedWithGrading(id, questionResults, questionKnowledge = null) {
     const formData = new FormData()
     formData.append('question_results', JSON.stringify(questionResults))
+    if (questionKnowledge) formData.append('question_knowledge', JSON.stringify(questionKnowledge))
     return api.post(`/practice-sets/${id}/mark-reviewed`, formData)
   },
   getPracticeSetDetail(id) {
@@ -162,8 +166,8 @@ export const statsApi = {
   getTodayStats() {
     return api.get('/stats/today')
   },
-  getKnowledgePoints() {
-    return api.get('/stats/knowledge-points')
+  getKnowledgePoints(params) {
+    return api.get('/stats/knowledge-points', { params })
   },
 }
 

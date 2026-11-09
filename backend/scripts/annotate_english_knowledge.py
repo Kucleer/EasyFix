@@ -5,6 +5,8 @@ ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT/'backend'));
 def main():
     """校验题目快照和备份后，在单一事务内只更新知识点。"""
     parser=argparse.ArgumentParser();parser.add_argument('--apply',action='store_true');parser.add_argument('--backup-dir',type=Path);args=parser.parse_args()
+    print('注意：旧 backend 数据库已冻结为只读；本脚本仅保留历史预检证据，不能作为生产写入通道。')
+    print('两级知识点改造后的正式写入请使用 cloudflare/scripts/knowledge_backfill.py 生成 SQL。')
     if args.backup_dir:args.backup_dir=args.backup_dir.resolve()
     plan=json.loads((ROOT/'backend/data/annotations/english-knowledge-20261108.json').read_text(encoding='utf-8'));os.chdir(ROOT/'backend')
     from app.database import SessionLocal

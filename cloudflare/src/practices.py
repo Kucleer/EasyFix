@@ -5,6 +5,9 @@ import random
 from fastapi import APIRouter,HTTPException,Query,Request
 from database import Database
 from analytics import now
+from knowledge import (ensure_guard_rows,guard_statement,link_statements,
+                       question_links,resolve_many,structure_statement)
+from knowledge_model import projection_name
 
 router=APIRouter(prefix='/api/practice-sets')
 
@@ -33,12 +36,13 @@ async def get(db,practice_id,details=True):
         if passage:
             row['passage']=passage
             for item in await db.all('SELECT * FROM reading_question WHERE passage_id=? AND deleted=0 ORDER BY question_number',(row['passage_id'],)):
-                row['questions'].append({'id':item['id'],'question_id':item['id'],'display_order':item['question_number']-1,'question_text':item['question_text'],'answer':item['correct_answer'],'original_question_text':item['question_text'],'original_answer':item['correct_answer'],'difficulty':passage['difficulty'],'knowledge_point':'阅读理解-'+passage['topic'],'is_correct':None,'is_reading_question':True,'tags':[],**{key:item[key] for key in ('option_a','option_b','option_c','option_d','explanation')}})
+                row['questions'].append({'id':item['id'],'question_id':item['id'],'display_order':item['question_number']-1,'question_text':item['question_text'],'answer':item['correct_answer'],'original_question_text':item['question_text'],'original_answer':item['correct_answer'],'difficulty':passage['difficulty'],'topic':passage['topic'],'knowledge_point':None,'knowledge_points':[],'legacy_knowledge_point':None,'is_correct':None,'is_reading_question':True,'tags':[],**{key:item[key] for key in ('option_a','option_b','option_c','option_d','explanation')}})
     elif row['source_type']=='word':
         logs=await db.all('SELECT l.*,w.english,w.chinese,w.phonetic FROM word_review_session s JOIN word_review_log l ON l.reviewed_at=s.reviewed_at AND l.deleted=0 JOIN word w ON w.id=l.word_id AND w.deleted=0 WHERE s.deleted=0 AND s.practice_set_id=? ORDER BY l.id',(practice_id,))
-        row['questions']=[{'id':item['id'],'question_id':item['word_id'],'display_order':index,'question_text':item['english'],'answer':item['chinese'],'phonetic':item['phonetic'],'is_correct':bool(item['is_correct']),'user_answer':item['user_answer'],'tags':[]} for index,item in enumerate(logs)]
+        row['questions']=[{'id':item['id'],'question_id':item['word_id'],'display_order':index,'question_text':item['english'],'answer':item['chinese'],'phonetic':item['phonetic'],'is_correct':bool(item['is_correct']),'user_answer':item['user_answer'],'knowledge_point':None,'knowledge_points':[],'tags':[]} for index,item in enumerate(logs)]
     else:
-        rows=await db.all('SELECT pq.*,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.error_type,q.review_count,q.original_image,s.similar_text,s.similar_answer FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(practice_id,))
+        rows=await db.all('SELECT pq.*,q.subject_id,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.legacy_knowledge_point,q.knowledge_revision,q.error_type,q.review_count,q.original_image,s.similar_text,s.similar_answer FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(practice_id,))
+        link_map=await question_links(db,[item['question_id'] for item in rows])
         for item in rows:
             original=item['parsed_question'] or item['original_text'] or ''
             item['original_question_text']=original
@@ -46,6 +50,10 @@ async def get(db,practice_id,details=True):
             item['question_text']=item['similar_text'] if row['question_type']=='similar' and item['similar_question_id'] else original
             if row['question_type']=='similar' and item['similar_question_id']:item['answer']=item['similar_answer']
             item['is_correct']=bool(item['is_correct']) if item['is_correct'] is not None else None
+            links=link_map.get(item['question_id'],[])
+            item['knowledge_points']=links
+            item['knowledge_point']=projection_name(links)
+            item['knowledge_revision']=item.get('knowledge_revision') or 0
             row['questions'].append(item)
     return row
 
@@ -155,9 +163,50 @@ async def images(practice_set_id:int,request:Request):
     return {'message':'更新成功','review_images':images}
 
 
+async def knowledge_review_statements(db,practice,payload,stamp):
+    """构造批改时编辑知识点的写入语句，返回 (语句, 实际改动的题目 ID)。"""
+    edits=payload.get('question_knowledge') or []
+    if isinstance(edits,str):
+        try:edits=json.loads(edits)
+        except ValueError:raise HTTPException(422,'知识点批改数据无效')
+    if not edits:return [], []
+    if practice['source_type']!='question':raise HTTPException(422,'只有错题练习可以修改知识点')
+    if not isinstance(edits,list):raise HTTPException(422,'知识点批改数据无效')
+    valid={}
+    for item in edits:
+        if not isinstance(item,dict) or type(item.get('question_id')) is not int:raise HTTPException(422,'知识点批改数据无效')
+        valid[item['question_id']]=item
+    practice_ids={item['question_id'] for item in practice['questions']}
+    if set(valid)-practice_ids:raise HTTPException(422,'知识点批改包含不属于本次练习的题目')
+    old_map=await question_links(db,sorted(valid))
+    entries=[({'knowledge_point_ids':item.get('knowledge_point_ids'),
+               'primary_knowledge_point_id':item.get('primary_knowledge_point_id')},
+              None,old_map.get(question_id,[]),False) for question_id,item in valid.items()]
+    resolved=await resolve_many(db,practice['subject_id'],entries)
+    statements=[];changed=[]
+    for (question_id,item),(result,detail) in zip(valid.items(),resolved):
+        if detail:raise HTTPException(422,detail)
+        if not result['changed']:continue
+        expected=item.get('knowledge_revision')
+        if expected is None:raise HTTPException(409,'分类已变更，请刷新批改数据后重试')
+        if type(expected) is not int:raise HTTPException(422,'knowledge_revision 参数无效')
+        statements.append(guard_statement(
+            'EXISTS(SELECT 1 FROM write_guard WHERE id=1 AND deleted=0) AND '
+            'COALESCE((SELECT knowledge_revision FROM question WHERE id=? AND deleted=0),-1)=?',
+            (question_id,expected)))
+        changed.append((question_id,result))
+    if changed:await ensure_guard_rows(db)
+    for question_id,result in changed:
+        statements+=link_statements(question_id,result['ids'],result['primary'],'manual',stamp)
+        name=result['points'][result['primary']]['name'] if result['primary'] else None
+        statements.append(('UPDATE question SET knowledge_revision=knowledge_revision+1,knowledge_point=?,updated_at=? WHERE id=? AND deleted=0',(name,stamp,question_id)))
+    if changed:statements.append(structure_statement([item[0] for item in changed]))
+    return statements,[item[0] for item in changed]
+
+
 @router.post('/{practice_set_id}/mark-reviewed')
 async def reviewed(practice_set_id:int,request:Request):
-    """在同一批处理中保存逐题批改、计数与练习正确率。"""
+    """在同一批处理中保存逐题批改、知识点编辑、计数与练习正确率。"""
     db=Database(request.scope['env'].DB);practice=await get(db,practice_set_id)
     payload=await request.json() if 'application/json' in request.headers.get('content-type','') else dict(await request.form())
     results=payload.get('question_results') or []
@@ -165,7 +214,9 @@ async def reviewed(practice_set_id:int,request:Request):
     if not isinstance(results,list):raise HTTPException(422,'批改数据无效')
     mapping={item.get('question_id'):item.get('is_correct') for item in results}
     all_correct=payload.get('is_all_correct') in (True,'true','1')
-    stamp=now().isoformat(' ');statements=[];correct=0;plan=[]
+    stamp=now().isoformat(' ')
+    knowledge_statements,changed_ids=await knowledge_review_statements(db,practice,payload,stamp)
+    statements=list(knowledge_statements);correct=0;plan=[]
     for item in practice['questions']:
         result=True if all_correct else mapping.get(item['question_id'])
         if result is not None and type(result) is not bool:raise HTTPException(422,'批改结果需为布尔值')
@@ -183,10 +234,17 @@ async def reviewed(practice_set_id:int,request:Request):
     if isinstance(images,list):images=json.dumps(images,ensure_ascii=False)
     statements.append(('UPDATE practice_set SET reviewed=1,review_count=COALESCE(review_count,0)+1,last_reviewed_at=?,accuracy=?,review_images=COALESCE(?,review_images) WHERE id=? AND deleted=0',(stamp,accuracy,images,practice_set_id)))
     await db.batch(statements)
+    question_knowledge=[]
+    if changed_ids:
+        link_map=await question_links(db,changed_ids)
+        revisions={row['id']:row['knowledge_revision'] for row in await db.all('SELECT id,knowledge_revision FROM question WHERE id IN ('+','.join('?' for _ in changed_ids)+')',changed_ids)}
+        for question_id in changed_ids:
+            links=link_map.get(question_id,[])
+            question_knowledge.append({'question_id':question_id,'knowledge_revision':revisions.get(question_id,0),'knowledge_points':links,'knowledge_point':projection_name(links)})
     from motivation import trigger
     try:await trigger(db,'review_practice_set','复习练习集')
     except HTTPException:pass
-    return {'message':'已标记为复习','review_count':(practice['review_count'] or 0)+1,'accuracy':accuracy}
+    return {'message':'已标记为复习','review_count':(practice['review_count'] or 0)+1,'accuracy':accuracy,'question_knowledge':question_knowledge}
 
 
 async def remove(db,practice_id):

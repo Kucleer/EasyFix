@@ -6,6 +6,7 @@ import hmac
 import time
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from database import Database
 
 router = APIRouter()
 LOGIN = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 EasyFix</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f7fb;font:16px system-ui;color:#243149}main{width:min(320px,80vw);padding:32px;background:white;border-radius:16px;box-shadow:0 12px 40px #24314912}h1{margin-top:0}label{display:block;margin-bottom:12px}input,button{box-sizing:border-box;width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}button{margin-top:16px;color:white;background:#3468df;border:0;cursor:pointer}#error{color:#b42318;min-height:24px}</style><main><h1>EasyFix</h1><p>登录后继续整理错题和练习。</p><form id="login"><label for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required autofocus><button>登录</button><p id="error" role="alert"></p></form></main><script>document.getElementById('login').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;try{const r=await fetch('/api/auth/verify-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('password').value})});if(r.ok)location.replace('/');else document.getElementById('error').textContent='密码不正确，请重试。'}catch{document.getElementById('error').textContent='连接失败，请稍后重试。'}finally{b.disabled=false}};</script></html>'''
@@ -27,8 +28,20 @@ def valid_session(request):
         return False
 
 
+async def maintenance_enabled(request):
+    """读取 D1 维护写开关；读取失败按维护中处理，避免默认放行写入。"""
+    try:
+        row = await Database(request.scope['env'].DB).first(
+            "SELECT value FROM runtime_config WHERE name='write_maintenance' AND deleted=0")
+    except Exception:
+        return True
+    if row is None:
+        return False
+    return str(row.get('value')).strip().lower() in ('1', 'true', 'on', 'yes')
+
+
 async def guard(request, call_next):
-    """统一保护应用、API 和附件，并校验浏览器写入来源。"""
+    """统一保护应用、API 和附件，并校验浏览器写入来源与维护开关。"""
     path = request.url.path
     if path in ('/health', '/login', '/api/auth/verify-password'):
         return await call_next(request)
@@ -40,6 +53,9 @@ async def guard(request, call_next):
     ready=str(getattr(request.scope['env'],'MIGRATION_READY','')).lower()=='true'
     if not ready and not migration_agent and request.method not in ('GET','HEAD','OPTIONS'):
         return JSONResponse({'detail':'云端正在迁移验证，请暂时继续使用原入口'},status_code=503)
+    if request.method not in ('GET', 'HEAD', 'OPTIONS') and await maintenance_enabled(request):
+        # 维护开关覆盖 Bearer（Agent）写入；只读请求、健康检查和登录不受影响。
+        return JSONResponse({'detail': '系统维护中，请稍后再试'}, status_code=503)
     origin = request.headers.get('origin')
     if request.method not in ('GET', 'HEAD', 'OPTIONS') and origin and origin != str(request.url).split(request.url.path, 1)[0]:
         return JSONResponse({'detail': '请求来源无效'}, status_code=403)

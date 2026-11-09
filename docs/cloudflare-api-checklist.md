@@ -104,3 +104,19 @@
 - [x] `PUT /api/rewards/{reward_id}`
 - [x] `PUT /api/stars/actions/{action_id}`
 - [x] `PUT /api/words/{word_id}`
+
+## 两级知识点改造新增/调整（2026-11-10）
+
+- [x] `GET /api/knowledge-points/tree`：返回两级树与 `taxonomy_version`，必须注册在 `/{kp_id}` 之前。
+- [x] `GET /api/knowledge-points`：平铺响应增加 `level`、`parent_id`、`parent_name`、`code`、`sort_order`、引用计数；支持 `level`、`parent_id`、`keyword`、`include_legacy`。
+- [x] `POST/PUT/DELETE /api/knowledge-points`：改由 `cloudflare/src/knowledge.py` 实现；触发器兜底层级、学科、移动与删除引用约束，错误码 `KP_*` 映射 409/422。
+- [x] `GET /api/questions`：新增 `knowledge_parent_id`、`knowledge_point_id`、`unclassified`；旧 `knowledge_point` 改为精确 `name_key` 匹配，不再子串匹配。
+- [x] `POST/PUT /api/questions`：新增 `knowledge_point_ids`、`primary_knowledge_point_id`、`knowledge_revision`；响应增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`。
+- [x] `POST /api/questions/batch`：单题知识点无效只进入该题 `errors`，其余题目正常入库。
+- [x] `GET /api/questions/filter-options/{subject_id}`：增加 `knowledge_point_options`、`knowledge_modules`，旧 `knowledge_points` 保留供过渡。
+- [x] `GET /api/practice-sets/{id}`：条目增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`；阅读条目改用 `topic`。
+- [x] `POST /api/practice-sets/{id}/mark-reviewed`：支持 `question_knowledge` 并在同一批次写入分类；响应返回更新后的题目知识点。
+- [x] `GET /api/stats/knowledge-points`：新增 `level`（默认 1）、`parent_id`、`grade`、`days`；返回 `taxonomy_version`、`counting_mode`、`unclassified_count` 与模块指标。
+- [x] `GET /api/stats/summary`、`/api/stats/analysis/full`：知识点部分统一按一级模块；`knowledge_graph` 返回一级/二级节点与父子边。
+- [x] `POST /api/learning-reports/generate`：模块指标由服务端写入 `content.metrics`，`schema_version=2`，模型只输出叙述。
+- [x] `POST /api/words/{word_id}/audio` 与所有写请求：维护开关开启时 Bearer 写入同样返回 503；音频缓存未命中不写 R2。

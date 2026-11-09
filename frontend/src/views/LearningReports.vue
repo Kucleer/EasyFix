@@ -107,9 +107,28 @@
             <el-tag v-if="currentReport.subject_name">{{ currentReport.subject_name }}</el-tag>
             <el-tag v-else type="info">全科</el-tag>
             <el-tag v-if="currentReport.grade">{{ formatGrade(currentReport.grade) }}</el-tag>
+            <el-tag v-if="currentReport.legacy_schema" type="info">旧版分类口径</el-tag>
+            <el-tag v-else type="success">新版两级口径</el-tag>
             <span class="accuracy">整体准确率: <strong>{{ currentReport.overall_accuracy }}%</strong></span>
           </div>
         </div>
+
+        <el-alert
+          v-if="currentReport.legacy_schema"
+          type="info"
+          :closable="false"
+          show-icon
+          title="旧版分类口径；知识点排行未按新口径复核。报告为生成时快照，不会按当前目录重写。"
+          class="legacy-alert"
+        />
+        <el-alert
+          v-else
+          type="success"
+          :closable="false"
+          show-icon
+          :title="'目录版本 ' + (currentReport.content?.metrics?.taxonomy_version || '-') + '；数值由服务端写入，模型只生成叙述。'"
+          class="legacy-alert"
+        />
 
         <!-- 整体概况 -->
         <div v-if="currentReport.content?.overview" class="report-section">
@@ -136,6 +155,57 @@
               </div>
             </el-col>
           </el-row>
+        </div>
+
+        <!-- 新版：服务端模块指标 -->
+        <div v-if="!currentReport.legacy_schema && currentReport.content?.metrics" class="report-section">
+          <h3>一级知识模块指标</h3>
+          <p class="chart-note">题数按任一关联去重；占比只按主考点归属，未分类单独计数。“模块练习正确率”来自练习最终批改状态，与题目累计批改次数不同。</p>
+          <el-table :data="currentReport.content.metrics.modules || []" empty-text="本次筛选没有一级模块记录" size="small">
+            <el-table-column prop="name" label="一级模块" min-width="150" />
+            <el-table-column prop="question_count" label="收录题数" width="100" align="right" />
+            <el-table-column label="占比" width="90" align="right">
+              <template #default="{ row }">{{ row.share_percent }}%</template>
+            </el-table-column>
+            <el-table-column label="复习覆盖" width="100" align="right">
+              <template #default="{ row }">{{ row.review_coverage == null ? '—' : row.review_coverage + '%' }}</template>
+            </el-table-column>
+            <el-table-column label="模块练习正确率" width="140" align="right">
+              <template #default="{ row }">
+                <span v-if="row.accuracy == null" class="text-muted">暂无练习记录</span>
+                <span v-else>{{ row.accuracy }}%</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-alert
+            v-if="currentReport.content.metrics.unclassified_count"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="'未分类错题 ' + currentReport.content.metrics.unclassified_count + ' 道，未计入任何模块占比。'"
+          />
+        </div>
+
+        <!-- 新版：模型叙述 -->
+        <div v-if="!currentReport.legacy_schema && currentReport.content?.narrative" class="report-section">
+          <h3>学习状态叙述</h3>
+          <p v-if="currentReport.content.narrative.overall" class="narrative-text">{{ currentReport.content.narrative.overall }}</p>
+          <div v-if="currentReport.content.narrative.knowledge_modules?.length" class="subsection">
+            <h4>模块薄弱点与建议</h4>
+            <el-card v-for="(item, idx) in currentReport.content.narrative.knowledge_modules" :key="idx" class="suggestion-card">
+              <el-tag type="warning" style="margin-right: 10px">{{ item.module_name }}</el-tag>
+              <p><strong>原因：</strong>{{ item.reason }}</p>
+              <p><strong>建议：</strong>{{ item.suggestion }}</p>
+            </el-card>
+          </div>
+          <div v-if="currentReport.content.narrative.review_strategy" class="subsection">
+            <h4>复习策略</h4>
+            <p class="narrative-text">{{ currentReport.content.narrative.review_strategy }}</p>
+          </div>
+          <div v-if="currentReport.content.narrative.word_strategy" class="subsection">
+            <h4>单词与记忆</h4>
+            <p class="narrative-text">{{ currentReport.content.narrative.word_strategy }}</p>
+          </div>
         </div>
 
         <!-- 错题分析 -->
@@ -169,8 +239,8 @@
           </div>
 
           <div v-if="currentReport.content.question_analysis.top_error_knowledge_points?.length" class="subsection">
-            <h4>高频出错知识点 TOP10</h4>
-            <SubjectKnowledgeRanking :items="currentReport.content.question_analysis.top_error_knowledge_points" :subjects="subjects" :subject-id="currentReport.subject_id || null" count-label="错误次数" />
+            <h4>高频收录错题模块（旧口径）</h4>
+            <SubjectKnowledgeRanking :items="currentReport.content.question_analysis.top_error_knowledge_points" :subjects="subjects" :subject-id="currentReport.subject_id || null" count-label="题数（旧口径）" :show-accuracy="false" />
           </div>
 
           <div class="subsection">
@@ -672,4 +742,15 @@ onMounted(async () => {
   color:var(--accent-blue)}
 .summary-box {
   padding:16px}
+.chart-note {
+  margin:0 0 12px;
+  color:var(--text-muted);
+  font-size:12px;
+  line-height:1.7}
+.legacy-alert {
+  margin-bottom:18px}
+.narrative-text {
+  margin:0;
+  line-height:1.9;
+  color:var(--text-secondary)}
 </style>

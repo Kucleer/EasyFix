@@ -110,10 +110,24 @@
         <!-- 知识点管理 -->
         <el-tab-pane label="知识点管理" name="knowledgePoints">
           <div class="tab-content">
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              class="kp-tip"
+              title="两级目录：一级是知识模块，二级是具体考点。删除有子级或有题目引用的节点会被拒绝；有引用的节点也不能改学科或移动。"
+            />
             <div class="action-bar">
-              <el-button type="primary" @click="openKnowledgeDialog">
+              <el-button type="primary" @click="openKnowledgeDialog(1)">
                 <el-icon><Plus /></el-icon>
-                新增知识点
+                新增一级模块
+              </el-button>
+              <el-button @click="openKnowledgeDialog(2)">
+                <el-icon><Plus /></el-icon>
+                新增二级考点
+              </el-button>
+              <el-button v-if="legacyKnowledgePoints.length" plain type="warning" @click="showLegacy = !showLegacy">
+                待处理旧目录 {{ legacyKnowledgePoints.length }}
               </el-button>
             </div>
             <div class="filters">
@@ -127,23 +141,59 @@
                 <el-option label="上学期" :value="1" />
                 <el-option label="下学期" :value="2" />
               </el-select>
+              <el-input v-model="kpFilters.keyword" placeholder="搜索名称" clearable @change="fetchKnowledgePoints" style="width: 180px" />
             </div>
-            <el-table :data="knowledgePoints" stripe style="width: 100%; margin-top: 15px">
-              <el-table-column prop="id" label="ID" width="80" />
-              <el-table-column prop="name" label="知识点名称"><template #default="{ row }"><KnowledgeTag :name="row.name" :subject-id="row.subject_id" /></template></el-table-column>
-              <el-table-column prop="subject_name" label="学科" width="100" />
-              <el-table-column prop="grade" label="年级" width="80">
+            <el-table :data="knowledgePoints" row-key="id" :tree-props="{ children: 'children' }" default-expand-all stripe style="width: 100%; margin-top: 15px" empty-text="暂无目录数据">
+              <el-table-column label="知识点" min-width="230">
                 <template #default="{ row }">
-                  {{ getGradeLabel(row.grade) }}
+                  <KnowledgeTag :point="row" :subject-id="row.subject_id" :show-path="row.level === 2" />
+                  <el-tag size="small" :type="row.level === 1 ? 'primary' : 'info'">{{ row.level === 1 ? '一级' : '二级' }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="semester" label="学期" width="80">
+              <el-table-column prop="code" label="编码" width="170" />
+              <el-table-column prop="subject_name" label="学科" width="90" />
+              <el-table-column label="题数" width="80" align="right">
+                <template #default="{ row }">{{ row.question_count || 0 }}</template>
+              </el-table-column>
+              <el-table-column label="子级 / 错误类型" min-width="180">
                 <template #default="{ row }">
-                  {{ row.semester === 1 ? '上学期' : '下学期' }}
+                  <span v-if="row.level === 1">子级 {{ row.child_count || 0 }} 个</span>
+                  <div v-else class="kp-errors">
+                    <el-tag v-for="et in row.error_types || []" :key="et.id" size="small">{{ et.name }}</el-tag>
+                    <span v-if="!row.error_types?.length" class="text-muted">未配置</span>
+                  </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editKnowledgePoint(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteKnowledgePoint(row), disabled: false, danger: true }]" /></template></el-table-column>
+              <el-table-column prop="sort_order" label="排序" width="70" align="right" />
+              <el-table-column label="操作" width="190" fixed="right">
+                <template #default="{ row }">
+                  <ListActions
+                    :primary="{ label: '编辑', run: () => editKnowledgePoint(row) }"
+                    :actions="[
+                      ...(row.level === 1 ? [{ label: '新增二级', run: () => openKnowledgeDialog(2, row) }] : []),
+                      { label: '删除', run: () => deleteKnowledgePoint(row), danger: true },
+                    ]"
+                  />
+                </template>
+              </el-table-column>
             </el-table>
+            <div v-if="showLegacy" class="legacy-panel">
+              <h4>待处理旧目录（level 为空，不参与新树与新统计）</h4>
+              <el-table :data="legacyKnowledgePoints" size="small" empty-text="没有待处理旧目录">
+                <el-table-column prop="id" label="ID" width="80" />
+                <el-table-column prop="name" label="原名称" />
+                <el-table-column prop="subject_name" label="学科" width="100" />
+                <el-table-column label="题数" width="80" align="right">
+                  <template #default="{ row }">{{ row.question_count || 0 }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="160">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="promoteLegacy(row)">转为二级</el-button>
+                    <el-button link type="danger" :disabled="row.question_count > 0" @click="deleteKnowledgePoint(row)">软删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
           </div>
         </el-tab-pane>
 
@@ -339,31 +389,53 @@
     </el-dialog>
 
     <!-- 新增/编辑知识点弹窗 -->
-    <el-dialog v-model="showKnowledgeDialog" :title="editKnowledgeData ? '编辑知识点' : '新增知识点'" width="500px">
+    <el-dialog v-model="showKnowledgeDialog" :title="editKnowledgeData ? '编辑知识点' : '新增知识点'" width="560px">
       <el-form :model="knowledgeForm" label-width="100px">
-        <el-form-item label="知识点名称" required>
-          <el-input v-model="knowledgeForm.name" placeholder="请输入知识点名称" />
+        <el-form-item label="层级" required>
+          <el-radio-group v-model="knowledgeForm.level" :disabled="!!editKnowledgeData">
+            <el-radio :value="1">一级模块</el-radio>
+            <el-radio :value="2">二级考点</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="knowledgeForm.level === 2" label="所属一级" required>
+          <el-select v-model="knowledgeForm.parent_id" placeholder="选择一级模块" style="width: 100%" :disabled="!!editKnowledgeData">
+            <el-option v-for="module in moduleOptions" :key="module.id" :label="module.name" :value="module.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="knowledgeForm.level === 1 ? '模块名称' : '考点名称'" required>
+          <el-input v-model="knowledgeForm.name" placeholder="请输入名称" />
         </el-form-item>
         <el-form-item label="学科" required>
-          <el-select v-model="knowledgeForm.subject_id" placeholder="选择学科" style="width: 100%">
+          <el-select v-model="knowledgeForm.subject_id" placeholder="选择学科" style="width: 100%" :disabled="!!editKnowledgeData" @change="onKnowledgeSubjectChange">
             <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="编码">
+          <el-input v-model="knowledgeForm.code" placeholder="留空自动生成，改名不变" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="knowledgeForm.sort_order" :min="0" :max="9999" controls-position="right" />
+        </el-form-item>
         <el-form-item label="年级">
-          <el-select v-model="knowledgeForm.grade" placeholder="选择年级" clearable style="width: 100%">
+          <el-select v-model="knowledgeForm.grade" placeholder="仅作推荐筛选" clearable style="width: 100%">
             <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="学期">
-          <el-select v-model="knowledgeForm.semester" placeholder="选择学期" clearable style="width: 100%">
+          <el-select v-model="knowledgeForm.semester" placeholder="仅作推荐筛选" clearable style="width: 100%">
             <el-option label="上学期" :value="1" />
             <el-option label="下学期" :value="2" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="knowledgeForm.level === 2" label="错误类型">
+          <el-select v-model="knowledgeForm.error_type_ids" multiple placeholder="选择该考点的错误类型" style="width: 100%">
+            <el-option v-for="et in knowledgeErrorTypeOptions" :key="et.id" :label="et.name" :value="et.id" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="closeKnowledgeDialog">取消</el-button>
-        <el-button type="primary" @click="saveKnowledgePoint">保存</el-button>
+        <el-button type="primary" :loading="knowledgeSaving" @click="saveKnowledgePoint">保存</el-button>
       </template>
     </el-dialog>
 
@@ -482,11 +554,12 @@
 
 <script setup>
 import PageHeading from '@/components/PageHeading.vue'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi, uploadApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
+import { refreshKnowledgeColors } from '@/composables/knowledgeColors'
 import axios from '@/api/http'
 
 const appConfigStore = useAppConfigStore()
@@ -566,19 +639,34 @@ const errorTypeForm = reactive({
 
 // 知识点
 const knowledgePoints = ref([])
+const legacyKnowledgePoints = ref([])
+const showLegacy = ref(false)
+const knowledgeSaving = ref(false)
 const kpFilters = reactive({
   subject_id: null,
   grade: appConfigStore.defaultGrade,
   semester: appConfigStore.defaultSemester,
+  keyword: '',
 })
 const showKnowledgeDialog = ref(false)
 const editKnowledgeData = ref(null)
 const knowledgeForm = reactive({
   name: '',
   subject_id: localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : null,
+  level: 2,
+  parent_id: null,
+  code: '',
+  sort_order: 0,
   grade: localStorage.getItem('lastKpGrade') ? parseInt(localStorage.getItem('lastKpGrade')) : null,
-  semester: localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null
+  semester: localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null,
+  error_type_ids: [],
 })
+const moduleOptions = computed(() => (knowledgePoints.value || [])
+  .filter(item => item.level === 1)
+  .filter(item => !knowledgeForm.subject_id || item.subject_id === knowledgeForm.subject_id))
+const knowledgeErrorTypeOptions = computed(() => (errorTypes.value || []).filter(
+  item => item.subject_id == null || item.subject_id === knowledgeForm.subject_id,
+))
 
 // 错题本
 const errorBooks = ref([])
@@ -800,22 +888,83 @@ const deleteErrorType = async (row) => {
   }
 }
 
-// 获取知识点列表
+// 获取两级目录与待处理旧目录
 const fetchKnowledgePoints = async () => {
   try {
     const params = {}
     if (kpFilters.subject_id) params.subject_id = kpFilters.subject_id
     if (kpFilters.grade) params.grade = kpFilters.grade
     if (kpFilters.semester) params.semester = kpFilters.semester
-    const { data } = await questionApi.listKnowledgePoints(params)
-    knowledgePoints.value = Array.isArray(data) ? data : []
+    if (kpFilters.keyword) params.keyword = kpFilters.keyword
+    const [treeResponse, legacyResponse] = await Promise.all([
+      questionApi.getKnowledgePointTree(params),
+      questionApi.listKnowledgePoints({
+        include_legacy: 1,
+        ...(kpFilters.subject_id ? { subject_id: kpFilters.subject_id } : {}),
+      }),
+    ])
+    knowledgePoints.value = treeResponse.data.items || []
+    const flat = Array.isArray(legacyResponse.data) ? legacyResponse.data : (legacyResponse.data.items || [])
+    legacyKnowledgePoints.value = flat.filter(item => item.legacy)
   } catch (e) {
     console.error('获取知识点失败:', e)
   }
 }
 
-// 创建/编辑知识点
-const createKnowledgePoint = async () => {
+const onKnowledgeSubjectChange = () => {
+  knowledgeForm.parent_id = null
+  knowledgeForm.error_type_ids = []
+}
+
+// 打开新增弹窗；可传入一级模块作为父级
+const openKnowledgeDialog = (level = 2, parent = null) => {
+  editKnowledgeData.value = null
+  knowledgeForm.name = ''
+  knowledgeForm.level = level
+  knowledgeForm.parent_id = parent?.id ?? null
+  knowledgeForm.subject_id = parent?.subject_id
+    ?? (localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : kpFilters.subject_id)
+  knowledgeForm.code = ''
+  knowledgeForm.sort_order = 0
+  knowledgeForm.grade = localStorage.getItem('lastKpGrade')
+    ? parseInt(localStorage.getItem('lastKpGrade'))
+    : appConfigStore.defaultGrade
+  knowledgeForm.semester = localStorage.getItem('lastKpSemester')
+    ? parseInt(localStorage.getItem('lastKpSemester'))
+    : appConfigStore.defaultSemester
+  knowledgeForm.error_type_ids = []
+  showKnowledgeDialog.value = true
+}
+
+const closeKnowledgeDialog = () => {
+  showKnowledgeDialog.value = false
+  editKnowledgeData.value = null
+}
+
+const editKnowledgePoint = (row) => {
+  editKnowledgeData.value = row
+  knowledgeForm.name = row.name
+  knowledgeForm.subject_id = row.subject_id
+  knowledgeForm.level = row.level || 2
+  knowledgeForm.parent_id = row.parent_id || null
+  knowledgeForm.code = row.code || ''
+  knowledgeForm.sort_order = row.sort_order || 0
+  knowledgeForm.grade = row.grade
+  knowledgeForm.semester = row.semester
+  knowledgeForm.error_type_ids = (row.error_types || []).map(item => item.id)
+  showKnowledgeDialog.value = true
+}
+
+// 把待处理旧目录提升为二级考点，由用户明确选择父级
+const promoteLegacy = (row) => {
+  openKnowledgeDialog(2)
+  knowledgeForm.name = row.name
+  knowledgeForm.subject_id = row.subject_id
+  knowledgeForm.grade = row.grade
+  knowledgeForm.semester = row.semester
+}
+
+const saveKnowledgePoint = async () => {
   if (!knowledgeForm.name.trim()) {
     ElMessage.warning('请输入知识点名称')
     return
@@ -824,85 +973,57 @@ const createKnowledgePoint = async () => {
     ElMessage.warning('请选择学科')
     return
   }
+  if (knowledgeForm.level === 2 && !knowledgeForm.parent_id) {
+    ElMessage.warning('请选择所属一级模块')
+    return
+  }
+  knowledgeSaving.value = true
   try {
+    const payload = {
+      name: knowledgeForm.name.trim(),
+      subject_id: knowledgeForm.subject_id,
+      level: knowledgeForm.level,
+      parent_id: knowledgeForm.level === 2 ? knowledgeForm.parent_id : null,
+      sort_order: knowledgeForm.sort_order || 0,
+      grade: knowledgeForm.grade,
+      semester: knowledgeForm.semester,
+      error_type_ids: knowledgeForm.level === 2 ? knowledgeForm.error_type_ids : [],
+    }
+    if (knowledgeForm.code.trim()) payload.code = knowledgeForm.code.trim()
     if (editKnowledgeData.value) {
-      await questionApi.updateKnowledgePoint(editKnowledgeData.value.id, {
-        name: knowledgeForm.name,
-        subject_id: knowledgeForm.subject_id,
-        grade: knowledgeForm.grade,
-        semester: knowledgeForm.semester,
-      })
+      await questionApi.updateKnowledgePoint(editKnowledgeData.value.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await questionApi.createKnowledgePoint({
-        name: knowledgeForm.name,
-        subject_id: knowledgeForm.subject_id,
-        grade: knowledgeForm.grade,
-        semester: knowledgeForm.semester,
-      })
+      await questionApi.createKnowledgePoint(payload)
       ElMessage.success('创建成功')
-      // 保存最近使用的值到 localStorage
       localStorage.setItem('lastKpSubject', knowledgeForm.subject_id)
       localStorage.setItem('lastKpGrade', knowledgeForm.grade || '')
       localStorage.setItem('lastKpSemester', knowledgeForm.semester || '')
     }
     closeKnowledgeDialog()
+    await refreshKnowledgeColors()
     fetchKnowledgePoints()
   } catch (e) {
-    ElMessage.error(editKnowledgeData.value ? '更新失败' : '创建失败')
+    ElMessage.error(e.response?.data?.detail || (editKnowledgeData.value ? '更新失败' : '创建失败'))
+  } finally {
+    knowledgeSaving.value = false
   }
 }
 
-// 打开新增知识点弹窗
-const openKnowledgeDialog = () => {
-  editKnowledgeData.value = null
-  knowledgeForm.name = ''
-  // 优先最近使用值，其次系统默认年级/学期
-  knowledgeForm.subject_id = localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : null
-  knowledgeForm.grade = localStorage.getItem('lastKpGrade')
-    ? parseInt(localStorage.getItem('lastKpGrade'))
-    : appConfigStore.defaultGrade
-  knowledgeForm.semester = localStorage.getItem('lastKpSemester')
-    ? parseInt(localStorage.getItem('lastKpSemester'))
-    : appConfigStore.defaultSemester
-  showKnowledgeDialog.value = true
-}
-
-// 关闭知识点弹窗
-const closeKnowledgeDialog = () => {
-  showKnowledgeDialog.value = false
-  editKnowledgeData.value = null
-  knowledgeForm.name = ''
-  // 保留最近使用的值
-  knowledgeForm.subject_id = localStorage.getItem('lastKpSubject') ? parseInt(localStorage.getItem('lastKpSubject')) : null
-  knowledgeForm.grade = localStorage.getItem('lastKpGrade') ? parseInt(localStorage.getItem('lastKpGrade')) : null
-  knowledgeForm.semester = localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null
-}
-
-// 编辑知识点
-const editKnowledgePoint = (row) => {
-  editKnowledgeData.value = row
-  knowledgeForm.name = row.name
-  knowledgeForm.subject_id = row.subject_id
-  knowledgeForm.grade = row.grade
-  knowledgeForm.semester = row.semester
-  showKnowledgeDialog.value = true
-}
-
-// 保存知识点（新增或编辑）
-const saveKnowledgePoint = async () => {
-  await createKnowledgePoint()
-}
-
-// 删除知识点
+// 删除知识点；有子级或题目引用时后端返回 409 和数量
 const deleteKnowledgePoint = async (row) => {
   try {
-    await ElMessageBox.confirm('确定要删除该知识点吗？', '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(
+      '确定要删除“' + row.name + '”吗？有子级或题目引用时会被拒绝。',
+      '删除确认',
+      { type: 'warning' },
+    )
     await questionApi.deleteKnowledgePoint(row.id)
     ElMessage.success('删除成功')
+    await refreshKnowledgeColors()
     fetchKnowledgePoints()
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败')
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.detail || '删除失败')
   }
 }
 
@@ -1317,4 +1438,17 @@ onMounted(() => {
   border:1px solid var(--border-light)}
 .balance-value {
   color:var(--accent-blue)}
+.kp-tip {
+  margin-bottom:12px}
+.kp-errors {
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px}
+.legacy-panel {
+  margin-top:20px;
+  padding-top:14px;
+  border-top:1px dashed var(--border-light)}
+.legacy-panel h4 {
+  margin:0 0 10px;
+  color:var(--text-secondary)}
 </style>
