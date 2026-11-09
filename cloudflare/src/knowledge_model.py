@@ -67,6 +67,9 @@ def map_error(message):
     text = str(message)
     marker = code + ':'
     detail = text.split(marker, 1)[1].strip() if marker in text else ''
+    for stop in (': SQLITE_', ':SQLITE_', ' (extended:', '\n'):
+        if stop in detail:
+            detail = detail.split(stop, 1)[0].strip()
     if not detail:
         detail = ERROR_TEXT.get(code, '知识点操作失败')
     return status, detail

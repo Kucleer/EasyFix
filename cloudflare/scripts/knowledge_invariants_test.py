@@ -24,7 +24,7 @@ from knowledge import (  # noqa: E402
     save_directory,
     structure_statement,
 )
-from knowledge_model import normalize_name_key  # noqa: E402
+from knowledge_model import map_error, normalize_name_key  # noqa: E402
 from knowledge_stats import module_stats, validate_filter_ids  # noqa: E402
 from questions import save  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
@@ -198,6 +198,11 @@ def test_name_normalization():
     assert normalize_name_key('Angle  Sum') == 'angle sum'
     assert normalize_name_key('') == ''
     assert normalize_name_key(None) == ''
+    status, detail = map_error('D1_ERROR: KP_LEVEL:知识点层级只能是一级或二级: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)')
+    assert status == 422 and detail == '知识点层级只能是一级或二级', (status, detail)
+    status, detail = map_error('KP_GUARD:题目分类版本冲突，请刷新后重试: SQLITE_CONSTRAINT')
+    assert status == 409 and detail == '题目分类版本冲突，请刷新后重试', (status, detail)
+    assert map_error('some other database error') is None
 
 
 def test_tree_constraints():
