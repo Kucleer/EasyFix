@@ -276,6 +276,7 @@ python cloudflare/scripts/knowledge_consistency_check.py \
 - 预检脚本在 2026-11-09 的迁移前快照上只读运行成功（557 道有效题、83 个目录行、137 条旧文本），并正确提示缺少 `runtime_config/write_guard`。
 - 本地 D1（`wrangler d1 execute --local`，Miniflare）应用 `0009_knowledge_hierarchy.sql` 成功：`CREATE TRIGGER`、部分唯一索引与 `ALTER TABLE` 均可执行；回读确认 10 个触发器与 4 个 `question_knowledge_point` 索引存在。插入三级节点实际返回 `KP_LEVEL:...: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`，应用层 `map_error` 会剥离 SQLite 后缀并映射 422。另验证含失败语句的导入文件整体回滚，成功文件用 `json_each` 横向展开批量关联并回读主/次考点正确。此项为本地验证，不等于生产 D1 已迁移。
 - 回填脚本在本地 SQLite 快照上生成并执行 `00-catalog/batch-001/99-versions`，回读主考点与关联正确，一致性校验零阻断性违规。
+- `knowledge_consistency_check.py --mapping` 逐题核对通过；人为删除一个次考点关联后返回 `mapping_mismatch: 1` 并以非零状态退出，证明集合完整性可被独立复核。
 - 同一套回填文件在本地 D1（`wrangler d1 execute --local`）执行成功：题目 900 回读 `knowledge_point=测试考点`、`knowledge_revision=1`、主考点关联 1 条、父级路径正确，`taxonomy_version` 从 0 递增为 1。验证了 D1 对 JSON 集合、`ON CONFLICT`、守卫与结构断言的实际支持。
 - `npm run build`（frontend）：通过；仅有既有的大 chunk 体积提示。
 
