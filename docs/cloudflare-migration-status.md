@@ -1,5 +1,21 @@
 # EasyFix Cloudflare 迁移与运行记录
 
+## 两级知识点正式发布记录（2026-11-10，北京时间）
+
+- 用户授权合并、推送和部署，并明确接受单用户维护期间在途写入风险；事务内门禁未实现，不以本次成功验证宣称该风险消失。
+- 用户限定数据处理范围为六年级。0009 追加 schema 已在远端执行，仅对 grade=6 复制原标签到 legacy_knowledge_point；没有执行任何未经审核的逐题分类映射。非六年级题目未回填分类。
+- 功能分支 `codex/knowledge-hierarchy-20261110` 已推送，分支提交 `c9d4e280`；合并并推送 main 的部署提交为 `4ad3e03d`。
+- 发布 A（仅维护保护）：Worker `84d9b752-1b28-4696-b819-f928518ef293`，由合并前 main 的源码加本次 auth/media 构建；维护开启后 Bearer POST 返回 503，GET 返回 200。
+- 发布 B：Worker `c8639a41-e616-4b63-93db-ca3e1d25b7b8`；Pages 生产部署 `6bd68197-d6b7-49c4-a6c2-4fd31209bbe8`，来源 commit `4ad3e03`。正式入口仍为 https://easyfix-bl2.pages.dev 。PDF 模板未改变，内部 PDF Worker 未重发。
+- 维护期间备份：`backups/knowledge_hierarchy_20261109T193932Z/remote.sql`，UTC 文件名对应北京时间 2026-11-10；SHA-256 为 `a1bb553420d2f5ff61ff41ea0cace45dc46a17ce909b24cb07c72aee2f9111bb`。Time Travel 信息保存在同目录私有文件中，未执行恢复。
+- 同目录 `after/database.sqlite3`、`integrity-verification.json`、`consistency.json` 记录迁移回读：question 595、knowledge_point 84、subject 4、practice_set 216、practice_set_question 1101、word 1280、reading_passage 109、reading_question 436，全部原有行与原有列逐字段一致；新分类关联为 0。
+- 有效题：五年级 206、六年级 366。六年级 361 道非空原标签保存快照，5 道原为空；非六年级 legacy 列无回填。新接口可用只读兼容回退展示其他年级原标签，不改库。
+- 一致性检查无阻断错误；27 条旧错误类型配置及 206 条非六年级 legacy 未复制为已知过渡警告，均保留原数据。
+- 本地 19 项不变量、7 项 HTTP 测试通过，六年级回填范围额外校验通过，`prepare_cloudflare_frontend.py` 构建通过。正式 health、题目列表、知识点树、知识点统计、完整分析和学科汇总返回 200。
+- 关闭维护后完成实际两级目录、六年级临时题关联、清空与版本递增冒烟，临时题与目录均软删除，记录为 `tmp/knowledge-release-smoke.json`；清理后有效题数仍为五年级 206、六年级 366。write_maintenance 已恢复 0。
+- **本次交付为功能与结构上线，非教材分类整理完成。** 正式两级目录暂未填充，历史题仍待审核分类，模块统计当前为空；原标签保留。后续只能对六年级执行经审核的目录与逐题映射，不使用旧关键词候选结果直接入库。
+- 本次未提交工作区其他修改、生成目录、备份或密钥；没有写旧 PostgreSQL/MySQL，没有升级 Workers Paid。
+
 更新时间：2026-11-09（北京时间）。**已完成业务入口切换，云端 D1 / R2 为正式数据源。**
 
 ## 入口与资源
