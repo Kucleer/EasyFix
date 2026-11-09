@@ -355,6 +355,8 @@ async def save_directory(db, payload, item_id=None):
         raise HTTPException(422, '编码不能为空')
     if isinstance(code, str):
         code = code.strip()
+    if not code:
+        code = 'KP-' + now_stamp().replace('-', '').replace(':', '').replace(' ', '') + '-' + uuid4().hex[:6].upper()
     error_ids = payload.get('error_type_ids')
     if error_ids is not None:
         if level != 2:
@@ -404,8 +406,6 @@ async def save_directory(db, payload, item_id=None):
             (name_key, subject_id if level == 1 else parent_id))
         if duplicate:
             raise HTTPException(409, '同级已存在同名知识点')
-        if not code:
-            code = 'KP-' + now_stamp().replace('-', '').replace(':', '').replace(' ', '') + '-' + uuid4().hex[:6].upper()
     stamp = now_stamp()
     data = {'name': clean_name(name), 'name_key': name_key, 'subject_id': subject_id, 'level': level,
             'parent_id': parent_id, 'sort_order': sort_order, 'code': code,
