@@ -107,6 +107,7 @@ export function knowledgeColor(point, subjectId) {
 
 export function knowledgePath(point) {
   if (!point) return ''
+  if (typeof point !== 'object') return String(point)
   const parent = point.parent_name || point.parentName || ''
   return parent ? parent + ' / ' + point.name : String(point.name || '')
 }

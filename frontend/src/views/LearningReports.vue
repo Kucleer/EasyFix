@@ -274,8 +274,8 @@
           <div class="subsection">
             <div class="mastery-rate">
               <span class="label">总体掌握率：</span>
-              <span class="value" :style="{ color: getAccuracyColor(currentReport.content.word_analysis.mastery_rate) }">
-                {{ currentReport.content.word_analysis.mastery_rate }}%
+              <span class="value" :style="{ color: getAccuracyColor(currentReport.content.word_analysis.mastery_rate || 0) }">
+                {{ currentReport.content.word_analysis.mastery_rate == null ? '暂无复习记录' : currentReport.content.word_analysis.mastery_rate + '%' }}
               </span>
             </div>
           </div>

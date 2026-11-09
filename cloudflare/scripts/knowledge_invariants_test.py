@@ -64,6 +64,16 @@ CREATE TABLE similar_question (id INTEGER PRIMARY KEY, source_question_id INTEGE
 CREATE TABLE runtime_config (name TEXT PRIMARY KEY, value TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
 CREATE TABLE request_record (name TEXT PRIMARY KEY, value TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
 CREATE TABLE write_guard (id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE word (
+  id INTEGER PRIMARY KEY, english VARCHAR(200) NOT NULL, chinese VARCHAR(500), phonetic VARCHAR(200),
+  grade INTEGER, semester INTEGER, review_count INTEGER NOT NULL DEFAULT 0,
+  correct_count INTEGER NOT NULL DEFAULT 0, ease_factor DOUBLE PRECISION, interval INTEGER,
+  learning_phase VARCHAR(20), next_review_at TIMESTAMP, last_reviewed_at TIMESTAMP,
+  deleted BOOLEAN NOT NULL DEFAULT 0, created_at TIMESTAMP, updated_at TIMESTAMP);
+CREATE TABLE learning_report (
+  id INTEGER PRIMARY KEY, title VARCHAR(300) NOT NULL, subject_id INTEGER, grade INTEGER,
+  time_range_days INTEGER, content TEXT, total_questions INTEGER, total_words INTEGER,
+  overall_accuracy DOUBLE PRECISION, deleted BOOLEAN NOT NULL DEFAULT 0, created_at TIMESTAMP);
 """
 
 RESULTS = []

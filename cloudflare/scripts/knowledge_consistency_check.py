@@ -58,8 +58,19 @@ CHECKS = [
            GROUP BY parent_id,name_key HAVING COUNT(*)>1)"""),
     ('error_type_on_non_level2', 'error', """
         SELECT COUNT(*) AS count FROM kp_error_type e
+         WHERE e.deleted=0 AND EXISTS(
+           SELECT 1 FROM knowledge_point k
+            WHERE k.id=e.knowledge_point_id AND k.deleted=0
+              AND k.level IS NOT NULL AND k.level<>2)"""),
+    ('legacy_error_type_rows', 'warning', """
+        SELECT COUNT(*) AS count FROM kp_error_type e
+         WHERE e.deleted=0 AND EXISTS(
+           SELECT 1 FROM knowledge_point k
+            WHERE k.id=e.knowledge_point_id AND k.deleted=0 AND k.level IS NULL)"""),
+    ('error_type_with_deleted_kp', 'warning', """
+        SELECT COUNT(*) AS count FROM kp_error_type e
          WHERE e.deleted=0 AND NOT EXISTS(
-           SELECT 1 FROM knowledge_point k WHERE k.id=e.knowledge_point_id AND k.deleted=0 AND k.level=2)"""),
+           SELECT 1 FROM knowledge_point k WHERE k.id=e.knowledge_point_id AND k.deleted=0)"""),
     ('deleted_level1_with_children', 'error', """
         SELECT COUNT(*) AS count FROM knowledge_point p
          WHERE p.deleted=1 AND p.level=1 AND EXISTS(

@@ -623,6 +623,7 @@ async def delete(item_id: int, request: Request):
         await db.batch([
             guard_statement('EXISTS(SELECT 1 FROM knowledge_point WHERE id=? AND deleted=0)', (item_id,)),
             ('UPDATE knowledge_point SET deleted=1,updated_at=? WHERE id=? AND deleted=0', (now_stamp(), item_id)),
+            ('UPDATE kp_error_type SET deleted=1 WHERE knowledge_point_id=?', (item_id,)),
             *bump_taxonomy(),
         ])
     except Exception as error:

@@ -21,6 +21,8 @@ from analytics import router as analytics_router  # noqa: E402
 from knowledge import router as knowledge_router  # noqa: E402
 from knowledge_invariants_test import build_database  # noqa: E402
 from questions import router as questions_router  # noqa: E402
+import reports  # noqa: E402
+from reports import router as reports_router  # noqa: E402
 
 RESULTS = []
 
@@ -97,6 +99,7 @@ def build_client():
     app.include_router(knowledge_router)
     app.include_router(questions_router)
     app.include_router(analytics_router)
+    app.include_router(reports_router)
     return TestClient(app), connection
 
 
@@ -252,12 +255,54 @@ def test_stats_http():
     }), 422)
 
 
+def test_report_metrics_server_written():
+    client, _ = build_client()
+    expect_status(client.post('/api/questions', json={
+        'subject_id': 2, 'parsed_question': 'A cat.', 'difficulty': 2, 'grade': 6, 'semester': 1,
+        'knowledge_point_ids': [31], 'primary_knowledge_point_id': 31,
+    }), 201)
+    captured = {}
+
+    async def fake_generate_json(request, prompt):
+        captured['prompt'] = prompt
+        return {
+            'narrative': {'overall': '整体稳定', 'knowledge_modules': [], 'review_strategy': '保持', 'word_strategy': ''},
+            'suggestions': [{'type': '练习', 'content': '继续巩固', 'priority': 1}],
+            'summary': {'key_findings': ['稳定'], 'priority_improvements': ['复习']},
+        }
+
+    original = reports.generate_json
+    reports.generate_json = fake_generate_json
+    try:
+        generated = expect_status(client.post('/api/learning-reports/generate', json={
+            'subject_id': 2, 'grade': 6, 'time_range_days': 30,
+        }), 200).json()
+        assert generated['schema_version'] == 2
+        detail = expect_status(client.get('/api/learning-reports/' + str(generated['id'])), 200).json()
+    finally:
+        reports.generate_json = original
+    assert detail['legacy_schema'] is False
+    assert detail['schema_version'] == 2
+    content = detail['content']
+    assert content['metrics']['modules']
+    module = next(item for item in content['metrics']['modules'] if item['name'] == '名词与数量表达')
+    assert module['question_count'] == 1
+    assert content['overview']['total_questions'] == 1
+    assert content['question_analysis']['review_effectiveness']['not_reviewed'] >= 0
+    assert content['narrative']['overall'] == '整体稳定'
+    assert 'top_error_knowledge_points' not in content['question_analysis']
+    prompt = captured['prompt']
+    assert '不要输出任何计数' in prompt
+    assert 'top_error_knowledge_points' not in prompt
+
+
 def main():
     check('树接口与路由顺序', test_tree_route_order)
     check('目录 HTTP CRUD', test_directory_crud_http)
     check('题目 HTTP 写入/筛选/旧文本', test_question_http_flow)
     check('批量入库单题错误隔离', test_question_batch_partial_errors)
     check('统计 HTTP 口径', test_stats_http)
+    check('报告指标服务端写入', test_report_metrics_server_written)
     failed = [item for item in RESULTS if not item[1]]
     print('\n合计 {} 项，通过 {} 项，失败 {} 项'.format(
         len(RESULTS), len(RESULTS) - len(failed), len(failed)))

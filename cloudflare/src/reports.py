@@ -140,6 +140,21 @@ async def generate(request: Request):
     content['module_names'] = {str(item['id']): item['name'] for item in modules['items']}
     accuracy = round((q['correct'] + w['correct']) / (q['reviews'] + w['reviews']) * 100, 1) if q['reviews'] + w['reviews'] else 0
     content['overview'] = {'total_questions': q['total'], 'total_words': w['total'], 'overall_accuracy': accuracy}
+    # 分布类数值同样由服务端写入，避免模型输出计数；模块指标单独放在 metrics。
+    content['question_analysis'] = {
+        'difficulty_distribution': distributions['difficulty'],
+        'error_type_distribution': distributions['error_type'],
+        'review_effectiveness': {
+            'not_reviewed': q['none'] or 0,
+            'reviewed_1': q['once'] or 0,
+            'reviewed_multiple': (q['several'] or 0) + (q['many'] or 0),
+        },
+    }
+    content['word_analysis'] = {
+        'mastery_rate': round(w['correct'] / w['reviews'] * 100, 1) if w['reviews'] else None,
+        'low_accuracy_words': low,
+        'recommended_review_interval': '',
+    }
     title = payload.get('title') or now().strftime('%Y年%m月%d日') + (subject['name'] if subject else '全科') + (' ' + str(grade) + '年级' if grade else '') + ' 学习状态分析'
     row = await db.first(
         'INSERT INTO learning_report(title,subject_id,grade,time_range_days,content,total_questions,'

@@ -398,7 +398,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="knowledgeForm.level === 2" label="所属一级" required>
-          <el-select v-model="knowledgeForm.parent_id" placeholder="选择一级模块" style="width: 100%" :disabled="!!editKnowledgeData">
+          <el-select v-model="knowledgeForm.parent_id" placeholder="选择一级模块" style="width: 100%" :disabled="!!editKnowledgeData" @change="onKnowledgeParentChange">
             <el-option v-for="module in moduleOptions" :key="module.id" :label="module.name" :value="module.id" />
           </el-select>
         </el-form-item>
@@ -767,8 +767,9 @@ const deleteSubject = async (row) => {
     await questionApi.deleteSubject(row.id)
     ElMessage.success('删除成功')
     fetchSubjects()
+    fetchKnowledgePoints()
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败')
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.detail || '删除失败')
   }
 }
 
@@ -914,6 +915,11 @@ const fetchKnowledgePoints = async () => {
 const onKnowledgeSubjectChange = () => {
   knowledgeForm.parent_id = null
   knowledgeForm.error_type_ids = []
+}
+
+const onKnowledgeParentChange = (parentId) => {
+  const module = knowledgePoints.value.find(item => item.id === parentId)
+  if (module) knowledgeForm.subject_id = module.subject_id
 }
 
 // 打开新增弹窗；可传入一级模块作为父级

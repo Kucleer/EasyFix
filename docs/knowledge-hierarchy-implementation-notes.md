@@ -252,12 +252,13 @@ python cloudflare/scripts/knowledge_backfill.py \
   - 软删除后的指标；
   - 目录 CRUD：创建一级/二级、同级重名、三级、跨学科父级、一级挂错误类型、改名保持 ID、有引用禁止移动；
   - 单题保存原子路径（创建、内容更新、过期版本 409、分类更新、清空、改学科需新关联、同批迁移）。
-- `python cloudflare/scripts/knowledge_api_test.py`：5 项 HTTP 集成测试全部通过（本地 SQLite 适配 D1 接口）：
+- `python cloudflare/scripts/knowledge_api_test.py`：6 项 HTTP 集成测试全部通过（本地 SQLite 适配 D1 接口）：
   - `/api/knowledge-points/tree` 路由顺序与树结构；
   - 目录创建/更新/删除、同级重名 409、三级 422、一级挂错误类型 422、有子级删除 409；
   - 题目创建、一级/二级筛选、详情、过期版本 409、旧文本回传当前投影保留关联、filter-options；
   - 批量入库单题知识点错误隔离；
-  - `/api/stats/knowledge-points` 一级/二级口径、零作答 `accuracy=null`、二级缺 `parent_id` 返回 422。
+  - `/api/stats/knowledge-points` 一级/二级口径、零作答 `accuracy=null`、二级缺 `parent_id` 返回 422；
+  - 学习报告 `schema_version=2`、`content.metrics`、服务端分布数值、提示词要求“不要输出任何计数”、不含 `top_error_knowledge_points` 输出字段。
 - 预检脚本在 2026-11-09 的迁移前快照上只读运行成功（557 道有效题、83 个目录行、137 条旧文本），并正确提示缺少 `runtime_config/write_guard`。
 - 回填脚本在本地 SQLite 快照上生成并执行 `00-catalog/batch-001/99-versions`，回读主考点与关联正确，一致性校验零阻断性违规。
 - `npm run build`（frontend）：通过；仅有既有的大 chunk 体积提示。
