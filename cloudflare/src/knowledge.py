@@ -157,9 +157,12 @@ async def question_links(db, question_ids):
 
 def decorate_question(row, links):
     """统一写入题目响应的分类字段，兼容投影只输出主考点名。"""
+    legacy = row.get('legacy_knowledge_point')
+    if legacy is None and not links:
+        legacy = row.get('knowledge_point')
     row['knowledge_points'] = links
     row['knowledge_point'] = projection_name(links)
-    row['legacy_knowledge_point'] = row.get('legacy_knowledge_point')
+    row['legacy_knowledge_point'] = legacy
     row['knowledge_revision'] = row.get('knowledge_revision') or 0
     return row
 

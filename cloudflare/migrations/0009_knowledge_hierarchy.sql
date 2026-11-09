@@ -23,7 +23,7 @@ CREATE INDEX ix_kp_parent ON knowledge_point(parent_id) WHERE deleted=0;
 ALTER TABLE question ADD COLUMN knowledge_revision INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE question ADD COLUMN legacy_knowledge_point TEXT;
 UPDATE question SET legacy_knowledge_point = knowledge_point
- WHERE legacy_knowledge_point IS NULL AND knowledge_point IS NOT NULL AND trim(knowledge_point)<>'';
+ WHERE grade=6 AND legacy_knowledge_point IS NULL AND knowledge_point IS NOT NULL AND trim(knowledge_point)<>'';
 
 -- 3. 题目与二级知识点多对多关联
 CREATE TABLE question_knowledge_point (
