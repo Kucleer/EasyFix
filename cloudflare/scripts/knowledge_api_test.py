@@ -6,6 +6,7 @@
     python cloudflare/scripts/knowledge_api_test.py
 """
 
+import json
 import pathlib
 import sys
 from types import SimpleNamespace
@@ -20,6 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from analytics import router as analytics_router  # noqa: E402
 from knowledge import router as knowledge_router  # noqa: E402
 from knowledge_invariants_test import build_database  # noqa: E402
+from practices import router as practices_router  # noqa: E402
 from questions import router as questions_router  # noqa: E402
 import reports  # noqa: E402
 from reports import router as reports_router  # noqa: E402
@@ -100,6 +102,7 @@ def build_client():
     app.include_router(questions_router)
     app.include_router(analytics_router)
     app.include_router(reports_router)
+    app.include_router(practices_router)
     return TestClient(app), connection
 
 
@@ -255,6 +258,41 @@ def test_stats_http():
     }), 422)
 
 
+def test_practice_review_version_conflict():
+    client, connection = build_client()
+    connection.execute(
+        "INSERT INTO knowledge_point(id,name,name_key,subject_id,level,parent_id,sort_order,deleted,created_at) "
+        "VALUES(32,'不可数名词','不可数名词',2,2,30,0,0,CURRENT_TIMESTAMP)")
+    connection.commit()
+    question = expect_status(client.post('/api/questions', json={
+        'subject_id': 2, 'parsed_question': 'A cat.', 'difficulty': 2,
+        'knowledge_point_ids': [31], 'primary_knowledge_point_id': 31,
+    }), 201).json()
+    question_id = question['id']
+    practice = expect_status(client.post('/api/practice-sets', json={
+        'name': '并发批改测试', 'question_ids': [question_id], 'question_type': 'original',
+    }), 201).json()
+    practice_id = practice['id']
+    form = {
+        'question_results': json.dumps([{'question_id': question_id, 'is_correct': True}]),
+        'question_knowledge': json.dumps([{
+            'question_id': question_id,
+            'knowledge_point_ids': [32],
+            'primary_knowledge_point_id': 32,
+            'knowledge_revision': 9,
+        }]),
+    }
+    expect_status(client.post('/api/practice-sets/' + str(practice_id) + '/mark-reviewed', data=form), 409)
+    # 整批回滚：题目分类、版本、练习批改状态与计数器都不变
+    detail = expect_status(client.get('/api/questions/' + str(question_id)), 200).json()
+    assert detail['knowledge_revision'] == 0
+    assert [point['id'] for point in detail['knowledge_points']] == [31]
+    stored = expect_status(client.get('/api/practice-sets/' + str(practice_id)), 200).json()
+    assert stored['reviewed'] is False
+    assert stored['review_count'] == 0
+    assert all(item['is_correct'] is None for item in stored['questions'])
+
+
 def test_report_metrics_server_written():
     client, _ = build_client()
     expect_status(client.post('/api/questions', json={
@@ -302,6 +340,7 @@ def main():
     check('题目 HTTP 写入/筛选/旧文本', test_question_http_flow)
     check('批量入库单题错误隔离', test_question_batch_partial_errors)
     check('统计 HTTP 口径', test_stats_http)
+    check('批改版本冲突 409 且整批回滚', test_practice_review_version_conflict)
     check('报告指标服务端写入', test_report_metrics_server_written)
     failed = [item for item in RESULTS if not item[1]]
     print('\n合计 {} 项，通过 {} 项，失败 {} 项'.format(

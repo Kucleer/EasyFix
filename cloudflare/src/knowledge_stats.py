@@ -90,8 +90,7 @@ async def module_stats(db, subject_id=None, grade=None, days=None, level=1, pare
     counts = await db.all(count_sql, [*question_values, *extra_values])
     practice_sql = (
         'SELECT ' + node_select + ',COUNT(DISTINCT pq.id) AS answer_count,'
-        'COUNT(DISTINCT CASE WHEN pq.is_correct=1 THEN pq.id END) AS correct_count,'
-        'COUNT(DISTINCT q.id) AS reviewed_question_count '
+        'COUNT(DISTINCT CASE WHEN pq.is_correct=1 THEN pq.id END) AS correct_count '
         'FROM practice_set_question pq '
         "JOIN practice_set p ON p.id=pq.practice_set_id AND p.deleted=0 AND p.reviewed=1 AND p.source_type='question' "
         'JOIN question q ON q.id=pq.question_id AND q.deleted=0 '
@@ -101,6 +100,20 @@ async def module_stats(db, subject_id=None, grade=None, days=None, level=1, pare
         'JOIN subject s ON s.id=m.subject_id AND s.deleted=0 '
         'WHERE ' + ' AND '.join(practice_where + node_where) + ' GROUP BY ' + node_group)
     practice = await db.all(practice_sql, [*practice_values, *extra_values])
+    # 覆盖率分母使用收录筛选后的题目集合，分子必须是同一集合内“曾有过有效批改”的题；
+    # 不叠加练习批改时间，避免旧题本期复习把覆盖率放大到 100% 以上。
+    coverage_sql = (
+        'SELECT ' + node_select + ',COUNT(DISTINCT q.id) AS reviewed_question_count '
+        'FROM question q '
+        'JOIN question_knowledge_point l ON l.question_id=q.id AND l.deleted=0 '
+        'JOIN knowledge_point k ON k.id=l.knowledge_point_id AND k.deleted=0 AND k.level=2 '
+        'JOIN knowledge_point m ON m.id=k.parent_id AND m.deleted=0 AND m.level=1 '
+        'JOIN subject s ON s.id=m.subject_id AND s.deleted=0 '
+        'JOIN practice_set_question pq ON pq.question_id=q.id AND pq.deleted=0 AND pq.is_correct IS NOT NULL '
+        "JOIN practice_set p ON p.id=pq.practice_set_id AND p.deleted=0 AND p.reviewed=1 AND p.source_type='question' "
+        'WHERE ' + ' AND '.join(question_where + node_where) + ' GROUP BY ' + node_group)
+    coverage = await db.all(coverage_sql, [*question_values, *extra_values])
+    coverage_map = {row['id']: row['reviewed_question_count'] or 0 for row in coverage}
     nodes = {}
     for row in directory:
         nodes[row['id']] = {**row, 'question_count': 0, 'primary_question_count': 0,
@@ -112,8 +125,10 @@ async def module_stats(db, subject_id=None, grade=None, days=None, level=1, pare
                     primary_question_count=row['primary_question_count'] or 0)
     for row in practice:
         node = nodes.setdefault(row['id'], {**row, 'question_count': 0, 'primary_question_count': 0})
-        node.update(answer_count=row['answer_count'] or 0, correct_count=row['correct_count'] or 0,
-                    reviewed_question_count=row['reviewed_question_count'] or 0)
+        node.update(answer_count=row['answer_count'] or 0, correct_count=row['correct_count'] or 0)
+    for node_id, reviewed in coverage_map.items():
+        if node_id in nodes:
+            nodes[node_id]['reviewed_question_count'] = reviewed
     total_row = await db.first(
         'SELECT COUNT(*) AS total,SUM(CASE WHEN EXISTS('
         'SELECT 1 FROM question_knowledge_point l JOIN knowledge_point k '
@@ -147,14 +162,20 @@ async def module_stats(db, subject_id=None, grade=None, days=None, level=1, pare
             'accuracy': round(correct_count * 100.0 / answer_count, 1) if answer_count else None,
         })
     if level == 2:
-        parent_totals = {}
+        parent_total = None
+        if parent_id is not None:
+            parent_row = await db.first(
+                'SELECT COUNT(DISTINCT q.id) AS total '
+                'FROM question q '
+                'JOIN question_knowledge_point l ON l.question_id=q.id AND l.deleted=0 '
+                'JOIN knowledge_point k ON k.id=l.knowledge_point_id AND k.deleted=0 AND k.level=2 '
+                'JOIN knowledge_point m ON m.id=k.parent_id AND m.deleted=0 AND m.level=1 '
+                'WHERE m.id=? AND ' + ' AND '.join(question_where), [parent_id, *question_values])
+            parent_total = parent_row['total'] or 0
         for item in items:
-            bucket = parent_totals.setdefault(item['parent_id'], [0, 0])
-            bucket[0] += item['primary_question_count']
-            bucket[1] += item['question_count']
-        for item in items:
-            primary, whole = parent_totals[item['parent_id']]
-            item['parent_share_percent'] = round(primary * 100.0 / whole, 1) if whole else 0.0
+            item['parent_share_percent'] = (
+                round(item['primary_question_count'] * 100.0 / parent_total, 1)
+                if parent_total else None)
     items.sort(key=lambda item: (-item['question_count'], item['id']))
     return {
         'taxonomy_version': await taxonomy_version(db),

@@ -10,7 +10,7 @@ import argparse
 import datetime
 from pathlib import Path
 
-from knowledge_tools import columns, connect, require_columns, rows, scalar, write_json
+from knowledge_tools import columns, connect, load_json, require_columns, rows, scalar, write_json
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -100,6 +100,7 @@ def main():
     """运行一致性校验并输出报告。"""
     parser = argparse.ArgumentParser(description='两级知识点一致性校验（只读）')
     parser.add_argument('--snapshot', required=True)
+    parser.add_argument('--mapping', default='', help='可选：审核映射 JSON，逐题核对实际关联集合与主考点')
     parser.add_argument('--out', default='')
     arguments = parser.parse_args()
     connection = connect(arguments.snapshot)
@@ -114,6 +115,29 @@ def main():
             report['errors'].append(name + ': ' + str(count))
         elif count:
             report['warnings'].append(name + ': ' + str(count))
+    if arguments.mapping:
+        mapping = load_json(arguments.mapping)
+        mismatches = []
+        for item in mapping.get('questions', []):
+            active = rows(connection, """
+                SELECT k.code,k.deleted AS kp_deleted,l.is_primary
+                  FROM question_knowledge_point l
+                  JOIN knowledge_point k ON k.id=l.knowledge_point_id
+                 WHERE l.question_id=? AND l.deleted=0""", (item.get('question_id'),))
+            actual = sorted(row['code'] for row in active
+                            if row['code'] and not row['kp_deleted'])
+            expected = sorted(set(item.get('codes') or []))
+            primary = next((row['code'] for row in active
+                            if row['is_primary'] and not row['kp_deleted']), None)
+            if actual != expected or primary != item.get('primary_code'):
+                mismatches.append({'question_id': item.get('question_id'),
+                                   'expected': expected, 'actual': actual,
+                                   'expected_primary': item.get('primary_code'),
+                                   'actual_primary': primary})
+        report['mapping'] = {'questions': len(mapping.get('questions', [])),
+                             'mismatches': mismatches}
+        if mismatches:
+            report['errors'].append('mapping_mismatch: ' + str(len(mismatches)))
     report['schema'] = {
         'has_table_qkp': bool(scalar(connection,
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='question_knowledge_point'")),

@@ -97,7 +97,8 @@ function onSelectionChange() {
   } else if (selected.value.length === 1) {
     primary.value = selected.value[0]
   } else if (!selected.value.includes(primary.value)) {
-    primary.value = selected.value[0]
+    // 多选时不能静默改主考点：由用户明确选择，未选前阻止保存。
+    primary.value = null
   }
   emitChange()
 }
@@ -133,7 +134,7 @@ async function loadTree() {
     const kept = selected.value.filter(id => available.has(String(id)))
     if (kept.length !== selected.value.length) {
       selected.value = kept
-      if (!kept.includes(primary.value)) primary.value = kept[0] ?? null
+      if (!kept.includes(primary.value)) primary.value = kept.length === 1 ? kept[0] : null
       emitChange()
     }
   } finally {

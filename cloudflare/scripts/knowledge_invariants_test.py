@@ -15,6 +15,7 @@ import traceback
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
+sys.path.insert(0, str(ROOT / 'scripts'))
 
 from knowledge import (  # noqa: E402
     bump_taxonomy,
@@ -26,6 +27,7 @@ from knowledge import (  # noqa: E402
 )
 from knowledge_model import map_error, normalize_name_key  # noqa: E402
 from knowledge_stats import module_stats, validate_filter_ids  # noqa: E402
+from knowledge_backfill import assertion_sql  # noqa: E402
 from questions import save  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
@@ -416,7 +418,8 @@ def test_module_stats():
         assert points['乘方']['question_count'] == 2
         assert points['混合运算']['question_count'] == 1
         assert points['混合运算']['primary_question_count'] == 0
-        assert points['乘方']['parent_share_percent'] == 66.7
+        assert points['乘方']['parent_share_percent'] == 100.0
+        assert points['混合运算']['parent_share_percent'] == 0.0
     async_test(scenario())
 
 
@@ -459,17 +462,22 @@ def test_stats_time_window():
         connection = build_database()
         seed_stats_data(connection)
         connection.execute("UPDATE question SET created_at='2020-01-01 00:00:00' WHERE id IN (301,302)")
+        insert_question(connection, 306, created_at='2026-11-10 00:00:00')
+        link(connection, 306, [11], 11)
         connection.commit()
         db = SQLiteDB(connection)
         connection.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,reviewed,deleted,created_at,last_reviewed_at) VALUES(1,'P1',1,'question','original',1,0,'2026-01-01',CURRENT_TIMESTAMP)")
         connection.execute('INSERT INTO practice_set_question(id,practice_set_id,question_id,is_correct,display_order,deleted) VALUES(1,1,301,1,0,0)')
+        connection.execute('INSERT INTO practice_set_question(id,practice_set_id,question_id,is_correct,display_order,deleted) VALUES(2,1,306,1,0,0)')
         connection.commit()
         stats = await module_stats(db, subject_id=1, days=30, level=1, practice_days=30)
         by_name = {item['name']: item for item in stats['items']}
-        # 题数按收录时间排除旧题
-        assert by_name['有理数']['question_count'] == 0
-        # 正确率不叠加题目收录时间，旧题的近期练习仍计入
-        assert by_name['有理数']['answer_count'] == 1
+        # 题数与覆盖率分母只含收录窗口内的 Q306；旧题 Q301 不计入覆盖率分子
+        assert by_name['有理数']['question_count'] == 1
+        assert by_name['有理数']['reviewed_question_count'] == 1
+        assert by_name['有理数']['review_coverage'] == 100.0
+        # 正确率不叠加题目收录时间，旧题 Q301 的近期练习仍计入
+        assert by_name['有理数']['answer_count'] == 2
         assert by_name['有理数']['accuracy'] == 100.0
     async_test(scenario())
 
@@ -570,6 +578,52 @@ def test_directory_crud():
     async_test(scenario())
 
 
+def test_backfill_assertions():
+    def run(item, point_ids, primary):
+        connection = build_database()
+        seed_tree(connection)
+        connection.execute("UPDATE knowledge_point SET code='P11' WHERE id=11")
+        connection.execute("UPDATE knowledge_point SET code='P12' WHERE id=12")
+        connection.commit()
+        insert_question(connection, 700)
+        if point_ids:
+            link(connection, 700, point_ids, primary)
+        guard, structure = assertion_sql([item])
+        connection.execute(guard)
+        connection.execute(structure)
+        return connection
+
+    def expect(code, item, point_ids, primary):
+        connection = build_database()
+        seed_tree(connection)
+        connection.execute("UPDATE knowledge_point SET code='P11' WHERE id=11")
+        connection.execute("UPDATE knowledge_point SET code='P12' WHERE id=12")
+        connection.commit()
+        insert_question(connection, 700)
+        if point_ids:
+            link(connection, 700, point_ids, primary)
+        guard, structure = assertion_sql([item])
+        try:
+            connection.execute(guard)
+            connection.execute(structure)
+        except Exception as error:
+            if code in str(error):
+                return
+            raise AssertionError('期望 ' + code + '，实际 ' + str(error))
+        raise AssertionError('期望 ' + code + ' 失败，但断言通过')
+    full = {'question_id': 700, 'knowledge_revision': 0,
+            'codes': ['P11', 'P12'], 'primary_code': 'P11'}
+    run(full, [11, 12], 11)
+    expect('KP_STRUCT', full, [11], 11)
+    expect('KP_STRUCT', full, [11, 12], 12)
+    extra = {'question_id': 700, 'knowledge_revision': 0,
+             'codes': ['P11'], 'primary_code': 'P11'}
+    expect('KP_STRUCT', extra, [11, 12], 11)
+    missing = {'question_id': 700, 'knowledge_revision': 0,
+               'codes': ['MISSING', 'P11'], 'primary_code': 'P11'}
+    expect('KP_GUARD', missing, [11], 11)
+
+
 def test_question_save_path():
     async def scenario():
         connection = build_database()
@@ -651,6 +705,7 @@ def main():
     check('筛选组合校验', test_filter_path_validation)
     check('软删除后的指标', test_soft_delete_metrics)
     check('目录 CRUD 与引用保护', test_directory_crud)
+    check('回填集合完整性断言', test_backfill_assertions)
     check('单题保存原子路径', test_question_save_path)
     failed = [item for item in RESULTS if not item[1]]
     print('\n合计 {} 项，通过 {} 项，失败 {} 项'.format(

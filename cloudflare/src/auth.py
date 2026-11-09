@@ -66,7 +66,11 @@ async def guard(request, call_next):
         return Response(cached[0],media_type=cached[1],headers={'Cache-Control':'private, no-store','X-Easyfix-Cache':'hit'})
     try:
         response = await call_next(request)
-    except Exception:
+    except Exception as error:
+        from knowledge_model import map_error
+        mapped = map_error(error)
+        if mapped:
+            return JSONResponse({'detail': mapped[1]}, status_code=mapped[0])
         return JSONResponse({'detail':'云端处理失败，请稍后重试'},status_code=500)
     if key is not None and response.status_code==200:
         body=b''.join([chunk async for chunk in response.body_iterator])

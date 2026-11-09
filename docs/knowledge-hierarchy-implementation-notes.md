@@ -47,7 +47,7 @@
 | `cloudflare/src/pdf.py` | 指纹加入模板版本、主考点路径与全部二级；打印显示“一级 / 二级（主考点）” |
 | `cloudflare/src/auth.py` | D1 `write_maintenance` 维护写开关，覆盖 Bearer |
 | `cloudflare/src/media.py` | 维护期间音频缓存未命中返回 503，不回源写 R2 |
-| `cloudflare/src/cache.py` | 目录写入同批次递增 `data_revision`，统计缓存随写入失效 |
+| `cloudflare/src/cache.py` | 未改动；复用现有 `data_revision` 机制（目录写入在知识路由同批次递增，使统计缓存失效） |
 
 ### 1.3 前端
 
@@ -143,6 +143,8 @@ GET /api/stats/knowledge-points?subject_id=1&level=2&parent_id=10
 - 题数按题目-模块去重；占比只按主考点归属，未分类单独计数。
 - `accuracy` 来自 `practice_set_question` 最终批改状态，零作答为 `null`。
 - 题数按 `question.created_at` 筛选；正确率按 `practice_set.last_reviewed_at` 筛选，二者不叠加。
+- `review_coverage` 的分子分母使用同一收录筛选题目集合：分子是集合内“曾有过有效已批改练习”的去重题目，表示“曾复习”；不按练习批改时间放大，因此始终在 0–100%。模块正确率仍可包含旧题的本期作答。
+- 一级 `share_percent` 按主考点归属，加未分类后为整体；二级额外返回 `parent_share_percent` = 该二级主考点题数 / 父模块收录筛选后的去重题数，不使用兄弟二级题数相加。
 - 模块即使当前筛选下没有题目也会返回（题数 0、正确率 `null`），避免删除或时间窗口变化后静默丢模块。
 
 ### 2.4 学习报告
@@ -216,12 +218,21 @@ python cloudflare/scripts/knowledge_backfill.py \
 
 生成 `tmp/knowledge-backfill-<时间>/`：
 
-- `00-catalog.sql`：目录与错误类型，可重复执行；
-- `batch-001.sql`...：每批默认 25 题，首条版本守卫、末尾主考点结构断言；
+- `00-catalog.sql`：目录与错误类型；已存在的同名旧目录行按 code 复用原 ID；
+- `batch-001.sql`...：每批默认 25 题；首条守卫确认全部目标 code 存在、有效、二级，并校验题目版本；末尾断言实际关联集合等于审核 codes、没有额外关联、恰好一个主考点且编码等于审核主考点；
 - `99-versions.sql`：全部批次通过一致性校验后再执行；
-- `manifest.json`：数量、文件顺序与生成参数。
+- `manifest.json`：数量、文件顺序、映射 SHA-256 与各文件 SHA-256。
 
-注意：D1 要求导入文件移除 `BEGIN/COMMIT`，并由平台把一次文件导入作为事务执行（Wrangler 提示“D1 runs your SQL in a transaction for you”）；本地 D1 验证中，含失败语句的文件整体回滚。批次文件仍逐批执行，配合版本守卫、结构断言与逐批一致性校验。应用层单题写入使用 D1 `batch()`，同样具备事务语义。
+注意：D1 要求导入文件移除 `BEGIN/COMMIT`，并由平台把一次文件导入作为事务执行（Wrangler 提示“D1 runs your SQL in a transaction for you”）；本地 D1 验证中，含失败语句的文件整体回滚。批次文件仍逐批执行。缺任何目标 code、目标被软删除、关联多出或主考点不符都会整批失败，题目版本与旧关联不变。
+
+一致性校验应带映射逐题核对实际集合，不能只检查“结构合法”：
+
+```text
+python cloudflare/scripts/knowledge_consistency_check.py \
+  --snapshot <新导出> --mapping tmp/knowledge-reviewed-mapping.json
+```
+
+幂等性说明：`00-catalog.sql` 可重复执行；已成功提交的 `batch-*.sql` 会因题目版本已递增而在首条守卫失败，这是防重复写入的安全策略，不应把“重放成功”当作幂等。重试未提交批次前，先用 manifest 的 `mapping_sha256` / 文件 SHA-256 与逐题回读确认该批未落库；已落库批次跳过，不重复执行。
 
 ### 3.4 生产执行顺序
 
@@ -229,7 +240,7 @@ python cloudflare/scripts/knowledge_backfill.py \
 2. 开启 `write_maintenance=1`，排空在途写入与外部生成任务。
 3. 记录 D1 Time Travel 书签并导出完整 SQL 备份。
 4. 应用 `0009_knowledge_hierarchy.sql`（先 schema，后回填）。
-5. 依次执行 `00-catalog.sql`、`batch-*.sql`；每批后重新导出快照并运行一致性校验。
+5. 依次执行 `00-catalog.sql`、`batch-*.sql`；每批后重新导出快照，运行带 `--mapping` 的一致性校验，确认集合与主考点完整。
 6. 全部通过后执行 `99-versions.sql`，再运行一次一致性校验。
 7. 发布新 Worker 与已构建的 Pages 产物（发布 B），保持维护开启做正式只读验证。
 8. 关闭维护，执行最小真实写入冒烟并清理临时记录；失败立即重新开启维护。
@@ -239,7 +250,8 @@ python cloudflare/scripts/knowledge_backfill.py \
 ## 4. 验证记录（本地）
 
 - `python -m compileall -q cloudflare/src`：通过。
-- `python cloudflare/scripts/knowledge_invariants_test.py`：18 项全部通过，覆盖：  - 名称规范化（全半角、大小写、空白）；
+- `python cloudflare/scripts/knowledge_invariants_test.py`：19 项全部通过，覆盖：
+  - 名称规范化（全半角、大小写、空白）；
   - 三级/跨学科/缺父级/一级带父级/同级重名拒绝；
   - 关联只允许有效同学科二级；主考点唯一；
   - 题目改学科、二级移动、有引用删除、学科删除保护；
@@ -251,13 +263,15 @@ python cloudflare/scripts/knowledge_backfill.py \
   - 时间窗口：题数按收录时间、正确率按批改时间；
   - 软删除后的指标；
   - 目录 CRUD：创建一级/二级、同级重名、三级、跨学科父级、一级挂错误类型、改名保持 ID、有引用禁止移动；
+  - 回填集合完整性断言：缺次考点、缺全部考点、额外多出关联、主考点不一致均整批失败；
   - 单题保存原子路径（创建、内容更新、过期版本 409、分类更新、清空、改学科需新关联、同批迁移）。
-- `python cloudflare/scripts/knowledge_api_test.py`：6 项 HTTP 集成测试全部通过（本地 SQLite 适配 D1 接口）：
+- `python cloudflare/scripts/knowledge_api_test.py`：7 项 HTTP 集成测试全部通过（本地 SQLite 适配 D1 接口）：
   - `/api/knowledge-points/tree` 路由顺序与树结构；
   - 目录创建/更新/删除、同级重名 409、三级 422、一级挂错误类型 422、有子级删除 409；
   - 题目创建、一级/二级筛选、详情、过期版本 409、旧文本回传当前投影保留关联、filter-options；
   - 批量入库单题知识点错误隔离；
   - `/api/stats/knowledge-points` 一级/二级口径、零作答 `accuracy=null`、二级缺 `parent_id` 返回 422；
+  - 练习批改提交过期分类版本返回 409，且题目分类、版本、练习批改状态与计数器均未部分写入；
   - 学习报告 `schema_version=2`、`content.metrics`、服务端分布数值、提示词要求“不要输出任何计数”、不含 `top_error_knowledge_points` 输出字段。
 - 预检脚本在 2026-11-09 的迁移前快照上只读运行成功（557 道有效题、83 个目录行、137 条旧文本），并正确提示缺少 `runtime_config/write_guard`。
 - 本地 D1（`wrangler d1 execute --local`，Miniflare）应用 `0009_knowledge_hierarchy.sql` 成功：`CREATE TRIGGER`、部分唯一索引与 `ALTER TABLE` 均可执行；回读确认 10 个触发器与 4 个 `question_knowledge_point` 索引存在。插入三级节点实际返回 `KP_LEVEL:...: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`，应用层 `map_error` 会剥离 SQLite 后缀并映射 422。另验证含失败语句的导入文件整体回滚，成功文件用 `json_each` 横向展开批量关联并回读主/次考点正确。此项为本地验证，不等于生产 D1 已迁移。
@@ -268,6 +282,7 @@ python cloudflare/scripts/knowledge_backfill.py \
 ## 5. 已知边界与待办
 
 - 未执行生产迁移、部署或维护开关切换；生产数据未改动。
+- 维护开关目前只做请求入口检查；**数据库事务内写门禁与在途请求排空本轮按用户要求暂不实现**。发布 A 前必须补齐，否则无法证明最终备份后没有在途写入，不能进入生产迁移。
 - 二级考点种子清单、逐题映射与外部 Agent 提示词不在本仓库；Agent 调用方需改为先取 `/api/knowledge-points/tree`，再提交 `knowledge_point_ids`/`primary_knowledge_point_id`。在 Agent 更新前，无法唯一匹配的旧文本会进入单题 `errors`。
 - 教材章节与知识点的多对多映射不在本期范围。
 - 旧 `kp_error_type` 行仍挂在 `level IS NULL` 的旧目录上，只读保留；新二级的错误类型必须在审核映射的 `error_type_ids` 中逐条指定，本期不做自动合并或清空。已有错误类型不会因分类变化被判定为错误。

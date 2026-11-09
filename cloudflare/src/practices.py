@@ -7,9 +7,20 @@ from database import Database
 from analytics import now
 from knowledge import (ensure_guard_rows,guard_statement,link_statements,
                        question_links,resolve_many,structure_statement)
-from knowledge_model import projection_name
+from knowledge_model import map_error, projection_name
 
 router=APIRouter(prefix='/api/practice-sets')
+
+
+async def batch_or_http(db, statements):
+    """执行 D1 batch，并把触发器错误映射为明确的 409/422/503。"""
+    try:
+        return await db.batch(statements)
+    except Exception as error:
+        mapped = map_error(error)
+        if mapped:
+            raise HTTPException(mapped[0], mapped[1])
+        raise
 
 
 async def word_stats(db,practice_id):
@@ -100,7 +111,7 @@ async def create_set(request,payload):
     stamp=now().isoformat(' ')
     name=payload.get('name') or '练习集_'+now().strftime('%Y%m%d%H%M%S')
     row=await db.first('INSERT INTO practice_set(name,subject_id,source_type,question_type,total_questions,reviewed,review_count,deleted,created_at) VALUES(?,?,\'question\',?,?,0,0,0,?) RETURNING *',(name,rows[0]['subject_id'],payload.get('question_type','original'),len(ids),stamp))
-    await db.batch([('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) VALUES(?,?,?,?)',(row['id'],question_id,similar_ids.get(question_id),index)) for index,question_id in enumerate(ids)])
+    await batch_or_http(db, [('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) VALUES(?,?,?,?)',(row['id'],question_id,similar_ids.get(question_id),index)) for index,question_id in enumerate(ids)])
     return await get(db,row['id'])
 
 
@@ -233,7 +244,7 @@ async def reviewed(practice_set_id:int,request:Request):
     images=payload.get('images')
     if isinstance(images,list):images=json.dumps(images,ensure_ascii=False)
     statements.append(('UPDATE practice_set SET reviewed=1,review_count=COALESCE(review_count,0)+1,last_reviewed_at=?,accuracy=?,review_images=COALESCE(?,review_images) WHERE id=? AND deleted=0',(stamp,accuracy,images,practice_set_id)))
-    await db.batch(statements)
+    await batch_or_http(db, statements)
     question_knowledge=[]
     if changed_ids:
         link_map=await question_links(db,changed_ids)
@@ -262,7 +273,7 @@ async def remove(db,practice_id):
             statements.append(('UPDATE word_review_log SET deleted=1 WHERE id IN(SELECT (SELECT l.id FROM word_review_log l WHERE l.word_id=json_extract(j.value,\'$.word_id\') AND l.is_correct=json_extract(j.value,\'$.correct\') AND l.deleted=0 AND l.reviewed_at>=datetime(json_extract(j.value,\'$.stamp\'),\'-2 minutes\') AND l.reviewed_at<=datetime(json_extract(j.value,\'$.stamp\'),\'+3 hours\') ORDER BY l.reviewed_at DESC,l.id DESC LIMIT 1) FROM json_each(?) j)',(packed,)))
         statements.append(('UPDATE word_review_session SET deleted=1 WHERE practice_set_id=? AND deleted=0',(practice_id,)))
     statements.append(('UPDATE practice_set SET deleted=1 WHERE id=? AND deleted=0',(practice_id,)))
-    await db.batch(statements)
+    await batch_or_http(db, statements)
 
 
 @router.delete('/{practice_set_id}',status_code=204)

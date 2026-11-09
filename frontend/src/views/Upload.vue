@@ -308,6 +308,10 @@ const submitQuestion = async () => {
     ElMessage.warning('请选择学科')
     return
   }
+  if (form.knowledge_point_ids.length && !form.primary_knowledge_point_id) {
+    ElMessage.warning('请为所选知识点指定主考点')
+    return
+  }
 
   submitting.value = true
 

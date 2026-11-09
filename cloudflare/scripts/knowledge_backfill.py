@@ -198,20 +198,42 @@ def question_sql(item, stamp, name_by_code):
 
 
 def assertion_sql(items):
-    """生成批次内的版本守卫与结构断言。"""
-    state = json.dumps([{'id': item['question_id'], 'revision': item['knowledge_revision']} for item in items])
-    questions = json.dumps([item['question_id'] for item in items])
+    """生成批次内的版本、目标集合与结构断言。
+
+    结构断言同时校验：实际关联数量等于审核 codes、没有额外关联、恰好一个主考点、
+    主考点编码等于审核 primary。任一不符都会使整个批次回滚。
+    """
+    state = json.dumps([{
+        'id': int(item['question_id']),
+        'revision': int(item['knowledge_revision']),
+        'codes': list(item['codes']),
+        'primary': item['primary_code'],
+    } for item in items], ensure_ascii=False)
+    all_codes = sorted({code for item in items for code in item['codes']})
+    code_list = ','.join(quote(code) for code in all_codes) if all_codes else "''"
+    question_id = "json_extract(j.value,'$.id')"
+    codes_json = "json_extract(j.value,'$.codes')"
+    primary = "json_extract(j.value,'$.primary')"
     guard = (
         'UPDATE knowledge_assert SET guard=CASE WHEN EXISTS(SELECT 1 FROM write_guard WHERE id=1 AND deleted=0) '
+        'AND (SELECT COUNT(*) FROM knowledge_point WHERE deleted=0 AND level=2 AND code IN (' + code_list + ')) = '
+        + str(len(all_codes)) + ' '
         "AND NOT EXISTS(SELECT 1 FROM json_each(" + quote(state) + ") j WHERE COALESCE("
-        "(SELECT knowledge_revision FROM question WHERE id=json_extract(j.value,'$.id') AND deleted=0),-1)"
+        "(SELECT knowledge_revision FROM question WHERE id=" + question_id + " AND deleted=0),-1)"
         "<>json_extract(j.value,'$.revision')) THEN 1 ELSE NULL END WHERE id=1;\n")
     structure = (
-        'UPDATE knowledge_assert SET structure=CASE WHEN NOT EXISTS(SELECT 1 FROM ('
-        "SELECT value AS id FROM json_each(" + quote(questions) + ")) j WHERE "
-        '(SELECT COUNT(*) FROM question_knowledge_point l WHERE l.question_id=j.id AND l.deleted=0 AND l.is_primary=1) '
-        '<>CASE WHEN EXISTS(SELECT 1 FROM question_knowledge_point l2 WHERE l2.question_id=j.id AND l2.deleted=0) '
-        'THEN 1 ELSE 0 END) THEN 1 ELSE NULL END WHERE id=1;\n')
+        'UPDATE knowledge_assert SET structure=CASE WHEN NOT EXISTS(SELECT 1 FROM json_each('
+        + quote(state) + ') j WHERE '
+        '(SELECT COUNT(*) FROM question_knowledge_point l JOIN knowledge_point k ON k.id=l.knowledge_point_id '
+        'WHERE l.question_id=' + question_id + ' AND l.deleted=0) <> json_array_length(' + codes_json + ') '
+        'OR EXISTS(SELECT 1 FROM question_knowledge_point l JOIN knowledge_point k ON k.id=l.knowledge_point_id '
+        'WHERE l.question_id=' + question_id + ' AND l.deleted=0 AND NOT EXISTS('
+        'SELECT 1 FROM json_each(' + codes_json + ') c WHERE c.value=k.code)) '
+        'OR (SELECT COUNT(*) FROM question_knowledge_point l WHERE l.question_id=' + question_id
+        + ' AND l.deleted=0 AND l.is_primary=1) <> 1 '
+        'OR NOT EXISTS(SELECT 1 FROM question_knowledge_point l JOIN knowledge_point k ON k.id=l.knowledge_point_id '
+        'WHERE l.question_id=' + question_id + ' AND l.deleted=0 AND l.is_primary=1 AND k.code=' + primary + ') '
+        ') THEN 1 ELSE NULL END WHERE id=1;\n')
     return guard, structure
 
 
@@ -276,6 +298,7 @@ def main():
     manifest = {
         'generated_at': stamp,
         'mapping': str(Path(arguments.mapping).resolve()),
+        'mapping_sha256': hashlib.sha256(Path(arguments.mapping).read_bytes()).hexdigest(),
         'seed': str(Path(arguments.seed).resolve()) if arguments.seed else None,
         'snapshot': str(Path(arguments.snapshot).resolve()) if arguments.snapshot else None,
         'points': len(points),
@@ -283,7 +306,7 @@ def main():
         'files': [{'name': path.name, 'bytes': path.stat().st_size,
                    'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in files],
         'order': [path.name for path in files],
-        'note': 'D1 导入不支持显式事务；请逐批执行，每批后运行一致性校验。',
+        'note': 'D1 导入不支持显式事务；请逐批执行，每批后运行一致性校验（含 --mapping）核对集合。',
     }
     (output / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8', newline='\n')
     print('已生成回填目录：' + str(output))
