@@ -72,7 +72,7 @@ function flatten(items, parentName = '') {
 
 const selectedPoints = computed(() => selected.value
   .map(id => points.value.get(String(id)))
-  .filter(Boolean))
+  .filter(point => point && point.level !== 1))
 
 function syncFromProps() {
   const ids = (props.modelValue || []).map(value => Number(value)).filter(Boolean)
@@ -88,7 +88,10 @@ function emitChange() {
 }
 
 function onSelectionChange() {
-  selected.value = [...new Set((selected.value || []).map(value => Number(value)).filter(Boolean))]
+  selected.value = [...new Set((selected.value || [])
+    .map(value => Number(value))
+    .filter(value => points.value.get(String(value))?.level !== 1)
+    .filter(Boolean))]
   if (!selected.value.length) {
     primary.value = null
   } else if (selected.value.length === 1) {
@@ -124,7 +127,9 @@ async function loadTree() {
     }))
     treeData.value = items
     points.value = new Map(flatten(items).map(item => [String(item.id), item]))
-    const available = new Set(points.value.keys())
+    const available = new Set([...points.value.values()]
+      .filter(item => item.level !== 1)
+      .map(item => String(item.id)))
     const kept = selected.value.filter(id => available.has(String(id)))
     if (kept.length !== selected.value.length) {
       selected.value = kept
