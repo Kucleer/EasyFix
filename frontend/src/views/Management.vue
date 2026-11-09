@@ -487,7 +487,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi, uploadApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
-import axios from 'axios'
+import axios from '@/api/http'
 
 const appConfigStore = useAppConfigStore()
 const activeTab = ref('system')

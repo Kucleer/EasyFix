@@ -62,7 +62,7 @@ def main():
         inserts.sort(key=lambda line: order[line.split('"', 2)[1]])
         indexes = [row[0] + ';' for row in connection.execute("SELECT sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL ORDER BY name")]
         dump = '\n'.join(schemas + inserts + indexes)
-        (target / 'import.sql').write_text('PRAGMA defer_foreign_keys=ON;\n' + dump + '\n', encoding='utf-8')
+        (target / 'import.sql').write_text('PRAGMA defer_foreign_keys=ON;\n' + dump + '\n', encoding='utf-8', newline='\n')
     (target / 'manifest.json').write_text(json.dumps({'source': 'postgresql', 'tables': counts, 'roundtrip_verified': True}, indent=2), encoding='utf-8')
     print(json.dumps({'directory': str(target), 'tables': counts}, ensure_ascii=True))
 

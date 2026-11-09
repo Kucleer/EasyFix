@@ -1,0 +1,115 @@
+"""原图、奖励图片与音频的按需存储接口。"""
+
+import hashlib
+import json
+from uuid import uuid4
+from urllib.parse import quote
+from fastapi import APIRouter,HTTPException,Request,File,UploadFile,Query
+from fastapi.responses import Response
+from database import Database
+from analytics import now
+from audio_index import AUDIO_INDEX
+
+router=APIRouter()
+
+
+async def save_image(request,file):
+    """校验并保存图片，统一返回兼容路径字段。"""
+    from js import Object
+    from pyodide.ffi import to_js
+    if file.content_type not in ('image/jpeg','image/jpg','image/png','image/webp'):raise HTTPException(400,'不支持的图片类型')
+    content=await file.read(10*1024*1024+1)
+    if not content or len(content)>10*1024*1024:raise HTTPException(400,'图片为空或超过10MB')
+    name=(file.filename or 'image').replace('/','_').replace('\\','_')
+    key=now().strftime('%Y/%m/')+uuid4().hex[:8]+'_'+name
+    await request.scope['env'].IMAGES.put(key,to_js(content),to_js({'httpMetadata':{'contentType':file.content_type}},dict_converter=Object.fromEntries))
+    return {'path':key,'image_path':key,'original_filename':file.filename,'size':len(content)}
+
+
+@router.post('/api/upload/batch-simple')
+async def batch(request:Request,files:list[UploadFile]=File(...)):
+    """保存一批原图，逐项返回失败原因。"""
+    if len(files)>10:raise HTTPException(422,'每批最多10张图片')
+    items=[]
+    for file in files:
+        try:items.append({**await save_image(request,file),'success':True})
+        except HTTPException as error:items.append({'original_filename':file.filename,'success':False,'error':error.detail})
+    success=sum(item['success'] for item in items)
+    return {'images':items,'total_count':len(items),'success_count':success,'failed_count':len(items)-success}
+
+
+@router.post('/api/upload/to-error-book/{error_book_id}')
+async def to_book(error_book_id:int,request:Request,files:list[UploadFile]=File(...)):
+    """在错题本中保留原图关联。"""
+    db=Database(request.scope['env'].DB)
+    book=await db.first('SELECT * FROM error_book WHERE id=? AND deleted=0',(error_book_id,))
+    if not book:raise HTTPException(404,'错题本不存在')
+    result=await batch(request,files)
+    items=[item for item in result['images'] if item['success']]
+    paths=json.loads(book['original_images'] or '[]')+[item['image_path'] for item in items]
+    await db.run('UPDATE error_book SET original_images=?,cover_image=COALESCE(cover_image,?) WHERE id=? AND deleted=0',(json.dumps(paths,ensure_ascii=False),items[0]['image_path'] if items else None,error_book_id))
+    return {'error_book_id':error_book_id,'images':items}
+
+
+@router.post('/api/rewards/{reward_id}/upload-image')
+async def reward_image(reward_id:int,request:Request,file:UploadFile=File(...)):
+    """上传奖励图片并返回原接口字段。"""
+    db=Database(request.scope['env'].DB)
+    if not await db.first('SELECT id FROM reward WHERE id=? AND deleted=0',(reward_id,)):raise HTTPException(404,'奖励不存在')
+    item=await save_image(request,file);url='/uploads/'+item['path']
+    await db.run('UPDATE reward SET image_url=? WHERE id=? AND deleted=0',(url,reward_id))
+    return {'Image_url':url,'image_url':url}
+
+
+@router.get('/api/words/{word_id}/audio')
+async def audio(word_id:int,request:Request):
+    """优先复用 R2 音频，缺少时才请求现有词典来源。"""
+    from js import fetch,Uint8Array,Object,AbortSignal
+    from pyodide.ffi import to_js
+    db=Database(request.scope['env'].DB)
+    word=await db.first('SELECT english FROM word WHERE id=? AND deleted=0',(word_id,))
+    if not word:raise HTTPException(404,'单词不存在')
+    english=word['english'];bucket=request.scope['env'].IMAGES
+    key='audio/words/'+hashlib.sha256(english.lower().encode()).hexdigest()+'.mp3'
+    cached=await bucket.get(AUDIO_INDEX.get(english.lower(),key))
+    if cached is None:
+        for extension in ('.mp3','.wav'):
+            cached=await bucket.get('audio/words/'+english.lower()+extension)
+            if cached is not None:break
+    if cached is not None:
+        content=Uint8Array.new(await cached.arrayBuffer()).to_py().tobytes()
+        content_type=getattr(cached.httpMetadata,'contentType',None) or 'audio/mpeg'
+        return Response(content,media_type=content_type,headers={'Cache-Control':'private, max-age=86400'})
+    urls=['https://dict.youdao.com/dictvoice?type=1&audio='+quote(english)]
+    for url in urls:
+        options=to_js({'headers':{'User-Agent':'EasyFix/1.0'}},dict_converter=Object.fromEntries);options.signal=AbortSignal.timeout(15000)
+        result=await fetch(url,options)
+        content_type=result.headers.get('content-type') or ''
+        if result.status==200 and content_type.startswith('audio'):
+            data=await result.arrayBuffer()
+            if data.byteLength>500:
+                await bucket.put(key,data,to_js({'httpMetadata':{'contentType':content_type}},dict_converter=Object.fromEntries))
+                return Response(Uint8Array.new(data).to_py().tobytes(),media_type=content_type,headers={'Cache-Control':'private, max-age=86400'})
+    raise HTTPException(502,'音频来源暂时不可用，请稍后重试')
+
+
+@router.post('/api/words/generate-audio')
+async def generate_audio(request:Request,grade:int|None=None):
+    """按用户节约调用的要求，音频改为播放时生成并缓存。"""
+    row=await Database(request.scope['env'].DB).first('SELECT COUNT(*) AS total FROM word WHERE deleted=0'+(' AND grade=?' if grade else ''),[grade] if grade else [])
+    return {'total':row['total'],'message':'音频采用按需缓存：首次播放时生成，之后复用，不批量请求未播放的单词。'}
+
+
+@router.post('/api/words/print-pdf')
+async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|None=None):
+    """生成中文释义与字母长度提示的默写试卷。"""
+    db=Database(request.scope['env'].DB)
+    words=await db.all('SELECT chinese,LENGTH(english) AS length FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
+    if not words:raise HTTPException(400,'没有可打印的单词')
+    from pdf import call
+    result=await call(request,'/pdf',{'title':'单词默写','questions':[{'question_text':word['chinese']+' （'+str(word['length'])+'个字母）'} for word in words]})
+    key='practice_sets/word_'+uuid4().hex+'.pdf'
+    from js import Object
+    from pyodide.ffi import to_js
+    await request.scope['env'].IMAGES.put(key,await result.js_object.arrayBuffer(),to_js({'httpMetadata':{'contentType':'application/pdf'}},dict_converter=Object.fromEntries))
+    return {'pdf_url':'/uploads/'+key}

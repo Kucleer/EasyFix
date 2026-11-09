@@ -5,32 +5,44 @@ import json
 from fastapi import FastAPI, HTTPException, Request, Query, UploadFile, File
 from workers import asgi
 from database import Database
+from auth import guard, router as auth_router
+from catalog import router as catalog_router
+from questions import router as questions_router
+from words import router as words_router
+from readings import router as readings_router
+from settings import router as settings_router
+from analytics import router as analytics_router
+from motivation import router as motivation_router
+from practices import router as practices_router
+from review import router as review_router
+from reports import router as reports_router
+from similar import router as similar_router
+from media import router as media_router
 
 app = FastAPI(title='EasyFix Cloudflare', docs_url=None, redoc_url=None, openapi_url=None)
 Default = asgi.entrypoint(app)
 
 
-@app.middleware('http')
-async def authenticate(request: Request, call_next):
-    """缺少云端访问密钥时关闭业务访问，避免意外公开学生数据。"""
-    from fastapi.responses import JSONResponse
-    if request.url.path == '/health':
-        return await call_next(request)
-    expected = getattr(request.scope['env'], 'ACCESS_TOKEN', '')
-    supplied = request.headers.get('authorization', '')
-    if not expected:
-        return JSONResponse({'detail': '云端接口尚未开放'}, status_code=503)
-    if not hmac.compare_digest(supplied, 'Bearer ' + expected):
-        return JSONResponse({'detail': '需要登录'}, status_code=401)
-    response = await call_next(request)
-    response.headers['Cache-Control'] = 'no-store'
-    return response
+app.middleware('http')(guard)
+app.include_router(auth_router)
+app.include_router(motivation_router)
+app.include_router(practices_router)
+app.include_router(review_router)
+app.include_router(reports_router)
+app.include_router(similar_router)
+app.include_router(media_router)
+app.include_router(catalog_router)
+app.include_router(questions_router)
+app.include_router(words_router)
+app.include_router(readings_router)
+app.include_router(settings_router)
+app.include_router(analytics_router)
 
 
 @app.get('/health')
-async def health():
+async def health(request: Request):
     """提供不包含业务数据的存活检查。"""
-    return {'status': 'ok', 'service': 'easyfix', 'migration_complete': False}
+    return {'status': 'ok', 'service': 'easyfix', 'migration_complete': str(getattr(request.scope['env'], 'MIGRATION_READY', '')).lower() == 'true'}
 
 
 @app.get('/api/subjects')
@@ -47,7 +59,7 @@ async def question(question_id: int, request: Request):
     if row is None:
         raise HTTPException(404, '错题不存在')
     row['original_images'] = json.loads(row['original_images']) if row['original_images'] else None
-    row['tags'] = await db.all('SELECT t.* FROM tag t JOIN question_tag qt ON qt.tag_id=t.id WHERE qt.question_id=? AND t.deleted=0', (question_id,))
+    row['tags'] = await db.all('SELECT t.* FROM tag t JOIN question_tag qt ON qt.tag_id=t.id WHERE qt.question_id=? AND qt.deleted=0 AND t.deleted=0', (question_id,))
     row['similar_questions'] = await db.all('SELECT * FROM similar_question WHERE source_question_id=? AND deleted=0', (question_id,))
     return row
 
@@ -80,7 +92,7 @@ async def questions(request: Request, skip: int = Query(0, ge=0), limit: int = Q
         values.append(knowledge_point)
     tags = [int(part) for part in (tag_ids or '').split(',') if part.strip().isdigit()]
     if tags:
-        filters.append('EXISTS (SELECT 1 FROM question_tag qt WHERE qt.question_id=q.id AND qt.tag_id IN (' + ','.join('?' for _ in tags) + '))')
+        filters.append('EXISTS (SELECT 1 FROM question_tag qt WHERE qt.question_id=q.id AND qt.deleted=0 AND qt.tag_id IN (' + ','.join('?' for _ in tags) + '))')
         values.extend(tags)
     if accuracy_range == 'none':
         filters.append('q.correct_count+q.error_count=0')
@@ -94,17 +106,25 @@ async def questions(request: Request, skip: int = Query(0, ge=0), limit: int = Q
     where = ' AND '.join(filters)
     total = await db.first('SELECT COUNT(*) AS total FROM question q WHERE ' + where, values)
     rows = await db.all('SELECT q.* FROM question q WHERE ' + where + ' ORDER BY q.created_at DESC,q.id DESC LIMIT ? OFFSET ?', [*values, limit, skip])
+    tag_map,similar_map={},{}
+    if rows:
+        ids=[row['id'] for row in rows]
+        marks=','.join('?' for _ in ids)
+        for tag in await db.all('SELECT t.*,qt.question_id FROM tag t JOIN question_tag qt ON qt.tag_id=t.id WHERE qt.deleted=0 AND t.deleted=0 AND qt.question_id IN ('+marks+')',ids):
+            tag_map.setdefault(tag.pop('question_id'),[]).append(tag)
+        for similar in await db.all('SELECT * FROM similar_question WHERE deleted=0 AND source_question_id IN ('+marks+')',ids):
+            similar_map.setdefault(similar['source_question_id'],[]).append(similar)
     for row in rows:
         row['original_images'] = json.loads(row['original_images']) if row['original_images'] else None
-        row['tags'] = await db.all('SELECT t.* FROM tag t JOIN question_tag qt ON qt.tag_id=t.id WHERE qt.question_id=? AND t.deleted=0', (row['id'],))
-        row['similar_questions'] = await db.all('SELECT * FROM similar_question WHERE source_question_id=? AND deleted=0', (row['id'],))
+        row['tags'] = tag_map.get(row['id'],[])
+        row['similar_questions'] = similar_map.get(row['id'],[])
     return {'total': total['total'], 'items': rows}
 
 
 @app.post('/api/upload/file')
 async def upload_file(request: Request, file: UploadFile = File(...)):
     """将原图写入私有 R2，保持原来的年月路径格式。"""
-    from datetime import datetime
+    from datetime import datetime,timedelta
     from uuid import uuid4
     from pyodide.ffi import to_js
     from js import Object
@@ -115,7 +135,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     if not content or len(content) > 10 * 1024 * 1024:
         raise HTTPException(400, '图片为空或超过10MB限制')
     filename = (file.filename or 'image').replace('/', '_').replace('\\', '_')
-    key = datetime.now().strftime('%Y/%m/') + uuid4().hex[:8] + '_' + filename
+    key = (datetime.utcnow()+timedelta(hours=8)).strftime('%Y/%m/') + uuid4().hex[:8] + '_' + filename
     metadata = to_js({'httpMetadata': {'contentType': file.content_type}}, dict_converter=Object.fromEntries)
     await request.scope['env'].IMAGES.put(key, to_js(content), metadata)
     return {'path': key, 'original_filename': file.filename, 'size': len(content)}
@@ -133,6 +153,6 @@ async def image(key: str, request: Request):
         raise HTTPException(404, '附件不存在')
     content = Uint8Array.new(await obj.arrayBuffer()).to_py().tobytes()
     content_type = getattr(obj.httpMetadata, 'contentType', None) or 'application/octet-stream'
-    if content_type not in ('image/jpeg', 'image/png', 'image/webp', 'image/jpg'):
+    if content_type not in ('image/jpeg', 'image/png', 'image/webp', 'image/jpg','application/pdf','audio/mpeg','audio/wav'):
         content_type = 'application/octet-stream'
-    return Response(content, media_type=content_type, headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+    return Response(content, media_type=content_type, headers={'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff'})

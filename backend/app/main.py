@@ -1,8 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
+import json
+from pathlib import Path
 
 from app.database import engine, Base, SessionLocal
 from app.routers import question_router, upload_router, stats_router, similar_router, config_router, error_book_router, subject_router, tag_router, knowledge_point_router, practice_set_router, word_router, learning_report_router, motivation_router, error_type_router, reading_router
@@ -16,17 +19,35 @@ settings = get_settings()
 Base.metadata.create_all(bind=engine)
 
 # 初始化激励系统预设数据
-with SessionLocal() as db:
-    init_preset_data(db)
-    init_achievement_progress(db)
-    init_star_records_from_existing_data(db)
-    init_achievement_configs(db)
+if not (Path(__file__).resolve().parents[1] / 'config' / 'cloudflare-cutover.json').exists():
+    with SessionLocal() as db:
+        init_preset_data(db)
+        init_achievement_progress(db)
+        init_star_records_from_existing_data(db)
+        init_achievement_configs(db)
 
 app = FastAPI(
     title="EasyFix API",
     description="错题整理系统后端API",
     version="1.0.0",
 )
+
+
+@app.middleware('http')
+async def cloudflare_cutover_guard(request: Request, call_next):
+    """切换时冻结旧 API，完成后向旧前端返回新入口，避免两边继续写入。"""
+    marker = Path(__file__).resolve().parents[1] / 'config' / 'cloudflare-cutover.json'
+    if marker.is_file() and request.url.path != '/health':
+        state = json.loads(marker.read_text(encoding='utf-8'))
+        if request.url.path.startswith('/api/'):
+            complete = state.get('state') == 'complete'
+            return JSONResponse({'detail': '应用已迁移至云端' if complete else '正在进行最终数据切换，请稍后重试',
+                                 **({'cloud_url': state['cloud_url']} if complete else {})},
+                                status_code=409 if complete else 503,
+                                headers={'Cache-Control': 'no-store'})
+        if state.get('state') == 'complete' and request.url.path == '/':
+            return RedirectResponse(state['cloud_url'], status_code=303)
+    return await call_next(request)
 
 # CORS配置
 app.add_middleware(

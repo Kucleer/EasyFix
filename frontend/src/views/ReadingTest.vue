@@ -73,7 +73,7 @@
 import PageHeading from '@/components/PageHeading.vue'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import axios from 'axios'
+import axios from '@/api/http'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()

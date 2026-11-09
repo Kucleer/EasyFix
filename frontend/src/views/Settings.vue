@@ -55,7 +55,7 @@ import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { configApi } from '@/api/question'
-import axios from 'axios'
+import axios from '@/api/http'
 
 const activeTab = ref('llm')
 const saving = ref(false)

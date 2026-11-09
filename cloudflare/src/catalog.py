@@ -12,18 +12,24 @@ CATALOG = {
     'error-books': ('error_book', {'name', 'subject_id', 'description', 'cover_image', 'original_images'}),
     'error-types': ('error_type', {'name', 'subject_id'}),
     'knowledge-points': ('knowledge_point', {'name', 'subject_id', 'grade', 'semester'}),
+    'stars/actions': ('star_action', {'code','name','star_value','icon','enabled'}),
+    'achievements': ('achievement', {'code','name','level','description','icon','trigger_action','trigger_count','reward_stars','is_active'}),
+    'rewards': ('reward', {'name','description','icon','cost_stars','total_stock','remaining_stock','is_active','image_url'}),
 }
 
 
 async def enrich(db, kind, row):
     """补充前端需要的学科名、图片数组和知识点关联。"""
+    for key in ('enabled','is_custom','is_preset','is_active'):
+        if key in row:
+            row[key] = bool(row[key])
     if kind == 'error-books':
         row['original_images'] = json.loads(row.get('original_images') or '[]')
     if kind in ('knowledge-points', 'error-types'):
         subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (row.get('subject_id'),))
         row['subject_name'] = subject['name'] if subject else ('通用' if kind == 'error-types' else '')
     if kind == 'knowledge-points':
-        row['error_types'] = await db.all('SELECT e.id,e.name FROM error_type e JOIN kp_error_type k ON k.error_type_id=e.id WHERE k.knowledge_point_id=? AND e.deleted=0 AND (e.subject_id IS NULL OR e.subject_id=?)', (row['id'], row['subject_id']))
+        row['error_types'] = await db.all('SELECT e.id,e.name FROM error_type e JOIN kp_error_type k ON k.error_type_id=e.id WHERE k.knowledge_point_id=? AND k.deleted=0 AND e.deleted=0 AND (e.subject_id IS NULL OR e.subject_id=?)', (row['id'], row['subject_id']))
     return row
 
 
@@ -33,6 +39,7 @@ def register(kind, table, fields):
         """读取分类数据，错题本提供分页，其余返回列表。"""
         db = Database(request.scope['env'].DB)
         where, values = ['deleted=0'], []
+        if kind == 'rewards':where.append('is_active=1')
         for key in ('subject_id', 'grade', 'semester'):
             value = request.query_params.get(key)
             if value and key in fields:
@@ -51,7 +58,18 @@ def register(kind, table, fields):
             except ValueError:
                 raise HTTPException(422, '分页参数无效')
             rows = rows[skip:skip + limit]
-        result = [await enrich(db, kind, row) for row in rows]
+        if kind in ('knowledge-points','error-types'):
+            subjects={item['id']:item['name'] for item in await db.all('SELECT id,name FROM subject WHERE deleted=0')}
+            links={}
+            if kind=='knowledge-points':
+                for item in await db.all('SELECT k.knowledge_point_id,e.id,e.name FROM kp_error_type k JOIN error_type e ON e.id=k.error_type_id AND e.deleted=0 JOIN knowledge_point p ON p.id=k.knowledge_point_id AND p.deleted=0 WHERE k.deleted=0 AND (e.subject_id IS NULL OR e.subject_id=p.subject_id)'):
+                    links.setdefault(item.pop('knowledge_point_id'),[]).append(item)
+            for row in rows:
+                row['subject_name']=subjects.get(row.get('subject_id'),'通用' if kind=='error-types' else '')
+                if kind=='knowledge-points':row['error_types']=links.get(row['id'],[])
+            result=rows
+        else:
+            result = [await enrich(db, kind, row) for row in rows]
         return {'total': total, 'items': result} if kind == 'error-books' else result
 
     async def get_item(item_id: int, request: Request):
@@ -74,6 +92,8 @@ def register(kind, table, fields):
             old = await db.first('SELECT * FROM ' + table + ' WHERE id=? AND deleted=0', (item_id,))
             if old is None:
                 raise HTTPException(404, '记录不存在')
+            if kind in ('stars/actions','achievements') and (old.get('is_preset') or kind == 'stars/actions' and not old.get('is_custom')):
+                raise HTTPException(400,'预设项目不可修改')
         if (not old or 'name' in data) and (not isinstance(data.get('name'), str) or not data['name'].strip()):
             raise HTTPException(422, '名称不能为空')
         subject_id = data.get('subject_id', old.get('subject_id') if old else None)
@@ -96,20 +116,24 @@ def register(kind, table, fields):
             if data:
                 await db.run('UPDATE ' + table + ' SET ' + ','.join(key + '=?' for key in data) + ' WHERE id=? AND deleted=0', [*data.values(), item_id])
         else:
+            defaults = {'stars/actions':{'star_value':0,'enabled':1,'is_custom':1},'achievements':{'level':1,'reward_stars':0,'is_preset':0,'is_active':1},'rewards':{'total_stock':-1,'remaining_stock':-1,'is_active':1}}
+            data = {**defaults.get(kind,{}),**data}
             data['deleted'] = 0
             if table not in ('tag',):
                 data['created_at'] = datetime.now().isoformat(' ')
             meta = await db.run('INSERT INTO ' + table + ' (' + ','.join(data) + ') VALUES (' + ','.join('?' for _ in data) + ')', list(data.values()))
             item_id = meta['last_row_id']
         if kind == 'knowledge-points' and error_ids is not None:
-            statements = [('DELETE FROM kp_error_type WHERE knowledge_point_id=?', (item_id,))]
-            statements += [('INSERT INTO kp_error_type(knowledge_point_id,error_type_id) VALUES (?,?)', (item_id, error_id)) for error_id in set(error_ids)]
+            statements = [('UPDATE kp_error_type SET deleted=1 WHERE knowledge_point_id=?', (item_id,))]
+            statements += [('INSERT INTO kp_error_type(knowledge_point_id,error_type_id,deleted) VALUES (?,?,0) ON CONFLICT(knowledge_point_id,error_type_id) DO UPDATE SET deleted=0', (item_id, error_id)) for error_id in set(error_ids)]
             await db.batch(statements)
         return await get_item(item_id, request)
 
     async def delete_item(item_id: int, request: Request):
         """只执行软删除。"""
-        await get_item(item_id, request)
+        old=await get_item(item_id, request)
+        if kind in ('stars/actions','achievements') and (old.get('is_preset') or kind == 'stars/actions' and not old.get('is_custom')):
+            raise HTTPException(400,'预设项目不可删除')
         await Database(request.scope['env'].DB).run('UPDATE ' + table + ' SET deleted=1 WHERE id=? AND deleted=0', (item_id,))
         from fastapi.responses import Response
         return Response(status_code=204)

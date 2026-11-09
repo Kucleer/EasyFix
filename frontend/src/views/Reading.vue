@@ -149,7 +149,7 @@ import readingProvenance from '@/data/reading-provenance.json'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
+import axios from '@/api/http'
 
 const readings = ref([])
 const topics = ref([])

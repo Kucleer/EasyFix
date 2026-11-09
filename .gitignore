@@ -20,6 +20,7 @@ tmp/uv-cache/
 tmp/uv-python/
 cloudflare/python_modules/
 cloudflare/.wrangler/
+cloudflare/**/.wrangler/
 cloudflare/.venv-workers/
 output/pdf/
 backend/easyfix.db
@@ -38,6 +39,8 @@ backend/uploads/images/
 
 # Node
 frontend/node_modules/
+cloudflare/pdf/node_modules/
+cloudflare/node_modules/
 
 # Editor / agent local
 .agents/
@@ -58,5 +61,11 @@ Thumbs.db
 /backend/config/llm.json
 /backend/config/ocr.json
 /backend/config/custom_ocr.json
+/backend/config/cloudflare-cutover.json
 /backend/data/annotations/
 /backend/data/reading/n*.json
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example

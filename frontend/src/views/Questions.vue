@@ -461,7 +461,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi, uploadApi } from '@/api/question'
 import { useAppConfigStore } from '@/stores/appConfig'
-import axios from 'axios'
+import axios from '@/api/http'
 
 const route = useRoute()
 const appConfigStore = useAppConfigStore()

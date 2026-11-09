@@ -72,3 +72,12 @@ npm run build                   # 生产构建，输出到 dist/
 - 使用结构化参数写库，写入后回读核对反斜杠、题干、答案、解析；正式写入前备份，并先通过生产公式渲染器校验。
 - 原图缺字或裁切时不补猜；未展示年级、学期或学生作答时不推断。保留原图关联；不因题型复杂而将学生错误类型强行标为“计算”。
 - 具体规范、备份及部署命令见 `docs/math-formula-implementation-plan.md`。两张授权图片的可重复导入脚本为 `backend/scripts/import_math_formula_photos.py`，不传 `--apply` 仅预检。
+
+## Cloudflare 正式环境（2026-11-09 已切换）
+
+- 正式入口：https://easyfix-bl2.pages.dev；云端代码在 `cloudflare/src/`，生产数据源为 D1 / R2。
+- 旧 PostgreSQL 已冻结为默认只读，只供切换前数据恢复。不要通过旧本地脚本或 MySQL MCP 写生产数据。
+- 旧本地 Vue 页面会跳转云端；本地调试需要先理解 `backend/config/cloudflare-cutover.json` 的切换保护，不能直接解除生产旧库只读。
+- 保持 Workers 免费计划；统计优先代码和 SQL 聚合，避免逐记录查询、重复 AI 调用与重复生成 PDF。
+- 新数据库变更追加 `cloudflare/migrations/`，不得重放旧快照覆盖云端新数据；继续遵守软删除和公式校验规范。
+- 部署、验证证据、密钥位置与恢复限制见 `docs/cloudflare-migration-status.md`。`tmp/`、`backups/` 含敏感数据，不得发布或提交。

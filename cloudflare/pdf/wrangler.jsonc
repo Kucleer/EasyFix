@@ -1,0 +1,11 @@
+{
+  "name":"easyfix-pdf",
+  "account_id":"52ff92165ba654aa8260a45ded30e1ef",
+  "main":"index.js",
+  "compatibility_date":"2026-11-08",
+  "compatibility_flags":["nodejs_compat"],
+  "workers_dev":false,
+  "preview_urls":false,
+  "browser":{"binding":"BROWSER"},
+  "rules":[{"type":"Text","globs":["**/*.txt"],"fallthrough":true}]
+}

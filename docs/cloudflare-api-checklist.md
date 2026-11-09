@@ -1,106 +1,106 @@
-# Cloudflare API 迁移待办
+# Cloudflare API 迁移清单
 
-由当前代码静态生成，共 102 个业务接口；不包括 main.py 的健康与认证入口。
+以下复选框代表已有对应代码；不等同于全部运行场景均已验收。运行验证见迁移记录。
 
-- [ ] `GET /api/config/llm` — backend/app/routers/config.py:34
-- [ ] `POST /api/config/llm` — backend/app/routers/config.py:49
-- [ ] `GET /api/config/app` — backend/app/routers/config.py:63
-- [ ] `POST /api/config/app` — backend/app/routers/config.py:73
-- [ ] `GET /api/error-books` — backend/app/routers/error_book.py:14
-- [ ] `GET /api/error-books/{error_book_id}` — backend/app/routers/error_book.py:49
-- [ ] `POST /api/error-books` — backend/app/routers/error_book.py:69
-- [ ] `PUT /api/error-books/{error_book_id}` — backend/app/routers/error_book.py:108
-- [ ] `DELETE /api/error-books/{error_book_id}` — backend/app/routers/error_book.py:151
-- [ ] `GET /api/error-types` — backend/app/routers/error_type.py:33
-- [ ] `POST /api/error-types` — backend/app/routers/error_type.py:64
-- [ ] `PUT /api/error-types/{et_id}` — backend/app/routers/error_type.py:96
-- [ ] `DELETE /api/error-types/{et_id}` — backend/app/routers/error_type.py:131
-- [ ] `GET /api/knowledge-points` — backend/app/routers/knowledge_point.py:58
-- [ ] `POST /api/knowledge-points` — backend/app/routers/knowledge_point.py:101
-- [ ] `PUT /api/knowledge-points/{kp_id}` — backend/app/routers/knowledge_point.py:145
-- [ ] `DELETE /api/knowledge-points/{kp_id}` — backend/app/routers/knowledge_point.py:199
-- [ ] `POST /api/learning-reports/generate` — backend/app/routers/learning_report.py:142
-- [ ] `GET /api/learning-reports/list` — backend/app/routers/learning_report.py:233
-- [ ] `GET /api/learning-reports/{report_id}` — backend/app/routers/learning_report.py:274
-- [ ] `DELETE /api/learning-reports/{report_id}` — backend/app/routers/learning_report.py:304
-- [ ] `GET /api/stars/balance` — backend/app/routers/motivation.py:29
-- [ ] `GET /api/stars/records` — backend/app/routers/motivation.py:36
-- [ ] `POST /api/stars/adjust` — backend/app/routers/motivation.py:58
-- [ ] `GET /api/stars/actions` — backend/app/routers/motivation.py:108
-- [ ] `POST /api/stars/actions` — backend/app/routers/motivation.py:115
-- [ ] `PUT /api/stars/actions/{action_id}` — backend/app/routers/motivation.py:125
-- [ ] `DELETE /api/stars/actions/{action_id}` — backend/app/routers/motivation.py:140
-- [ ] `GET /api/achievements` — backend/app/routers/motivation.py:155
-- [ ] `GET /api/achievements/progress` — backend/app/routers/motivation.py:162
-- [ ] `POST /api/achievements` — backend/app/routers/motivation.py:198
-- [ ] `PUT /api/achievements/{achievement_id}` — backend/app/routers/motivation.py:208
-- [ ] `DELETE /api/achievements/{achievement_id}` — backend/app/routers/motivation.py:223
-- [ ] `GET /api/rewards` — backend/app/routers/motivation.py:238
-- [ ] `POST /api/rewards` — backend/app/routers/motivation.py:245
-- [ ] `PUT /api/rewards/{reward_id}` — backend/app/routers/motivation.py:255
-- [ ] `DELETE /api/rewards/{reward_id}` — backend/app/routers/motivation.py:268
-- [ ] `POST /api/rewards/{reward_id}/redeem` — backend/app/routers/motivation.py:279
-- [ ] `GET /api/rewards/redemptions` — backend/app/routers/motivation.py:289
-- [ ] `GET /api/motivation/overview` — backend/app/routers/motivation.py:306
-- [ ] `POST /api/motivation/trigger/{action_code}` — backend/app/routers/motivation.py:349
-- [ ] `POST /api/motivation/trigger/review_word_accuracy` — backend/app/routers/motivation.py:359
-- [ ] `POST /api/rewards/{reward_id}/upload-image` — backend/app/routers/motivation.py:382
-- [ ] `POST /api/practice-sets/generate-from-questions` — backend/app/routers/practice_set.py:145
-- [ ] `POST /api/practice-sets/generate-from-reading` — backend/app/routers/practice_set.py:279
-- [ ] `POST /api/practice-sets` — backend/app/routers/practice_set.py:348
-- [ ] `GET /api/practice-sets` — backend/app/routers/practice_set.py:465
-- [ ] `GET /api/practice-sets/{practice_set_id}` — backend/app/routers/practice_set.py:555
-- [ ] `PUT /api/practice-sets/{practice_set_id}` — backend/app/routers/practice_set.py:739
-- [ ] `PUT /api/practice-sets/{practice_set_id}/review-images` — backend/app/routers/practice_set.py:760
-- [ ] `POST /api/practice-sets/{practice_set_id}/generate-pdf` — backend/app/routers/practice_set.py:784
-- [ ] `POST /api/practice-sets/{practice_set_id}/mark-reviewed` — backend/app/routers/practice_set.py:882
-- [ ] `POST /api/practice-sets/batch-delete` — backend/app/routers/practice_set.py:982
-- [ ] `POST /api/practice-sets/batch-download-pdf` — backend/app/routers/practice_set.py:1002
-- [ ] `DELETE /api/practice-sets/{practice_set_id}` — backend/app/routers/practice_set.py:1038
-- [ ] `GET /api/questions` — backend/app/routers/question.py:17
-- [ ] `GET /api/questions/filter-options/{subject_id}` — backend/app/routers/question.py:130
-- [ ] `GET /api/questions/{question_id}` — backend/app/routers/question.py:164
-- [ ] `GET /api/questions/{question_id}/practice-history` — backend/app/routers/question.py:194
-- [ ] `POST /api/questions` — backend/app/routers/question.py:215
-- [ ] `PUT /api/questions/debug/{question_id}` — backend/app/routers/question.py:294
-- [ ] `PUT /api/questions/{question_id}` — backend/app/routers/question.py:304
-- [ ] `DELETE /api/questions/{question_id}` — backend/app/routers/question.py:381
-- [ ] `POST /api/questions/batch` — backend/app/routers/question.py:415
-- [ ] `GET /api/readings/topics` — backend/app/routers/reading.py:31
-- [ ] `POST /api/readings/generate` — backend/app/routers/reading.py:37
-- [ ] `GET /api/readings` — backend/app/routers/reading.py:102
-- [ ] `GET /api/readings/{reading_id}` — backend/app/routers/reading.py:129
-- [ ] `POST /api/readings` — backend/app/routers/reading.py:145
-- [ ] `PUT /api/readings/{reading_id}` — backend/app/routers/reading.py:180
-- [ ] `DELETE /api/readings/{reading_id}` — backend/app/routers/reading.py:201
-- [ ] `POST /api/questions/{question_id}/similar` — backend/app/routers/similar.py:19
-- [ ] `POST /api/questions/batch-similar` — backend/app/routers/similar.py:104
-- [ ] `GET /api/stats/summary` — backend/app/routers/stats.py:16
-- [ ] `GET /api/stats/today` — backend/app/routers/stats.py:267
-- [ ] `GET /api/stats/overview` — backend/app/routers/stats.py:419
-- [ ] `GET /api/stats/knowledge-points` — backend/app/routers/stats.py:447
-- [ ] `GET /api/stats/analysis/full` — backend/app/routers/stats.py:491
-- [ ] `POST /api/stats/analysis/llm` — backend/app/routers/stats.py:498
-- [ ] `GET /api/subjects` — backend/app/routers/subject.py:24
-- [ ] `POST /api/subjects` — backend/app/routers/subject.py:32
-- [ ] `DELETE /api/subjects/{subject_id}` — backend/app/routers/subject.py:42
-- [ ] `GET /api/tags` — backend/app/routers/tag.py:26
-- [ ] `POST /api/tags` — backend/app/routers/tag.py:34
-- [ ] `DELETE /api/tags/{tag_id}` — backend/app/routers/tag.py:44
-- [ ] `POST /api/upload/file` — backend/app/routers/upload.py:79
-- [ ] `POST /api/upload/batch-simple` — backend/app/routers/upload.py:131
-- [ ] `POST /api/upload/to-error-book/{error_book_id}` — backend/app/routers/upload.py:185
-- [ ] `GET /api/words` — backend/app/routers/word.py:58
-- [ ] `GET /api/words/{word_id}/memory-curve` — backend/app/routers/word.py:155
-- [ ] `GET /api/words/{word_id}` — backend/app/routers/word.py:185
-- [ ] `POST /api/words` — backend/app/routers/word.py:194
-- [ ] `POST /api/words/batch` — backend/app/routers/word.py:248
-- [ ] `PUT /api/words/{word_id}` — backend/app/routers/word.py:303
-- [ ] `DELETE /api/words/{word_id}` — backend/app/routers/word.py:325
-- [ ] `GET /api/words/{word_id}/audio` — backend/app/routers/word.py:336
-- [ ] `POST /api/words/generate-audio` — backend/app/routers/word.py:354
-- [ ] `GET /api/words/stats/summary` — backend/app/routers/word.py:403
-- [ ] `POST /api/words/review/start` — backend/app/routers/word.py:483
-- [ ] `POST /api/words/review/submit` — backend/app/routers/word.py:590
-- [ ] `GET /api/words/errors` — backend/app/routers/word.py:722
-- [ ] `POST /api/words/print-pdf` — backend/app/routers/word.py:751
+- [x] `DELETE /api/achievements/{achievement_id}`
+- [x] `DELETE /api/error-books/{error_book_id}`
+- [x] `DELETE /api/error-types/{et_id}`
+- [x] `DELETE /api/knowledge-points/{kp_id}`
+- [x] `DELETE /api/learning-reports/{report_id}`
+- [x] `DELETE /api/practice-sets/{practice_set_id}`
+- [x] `DELETE /api/questions/{question_id}`
+- [x] `DELETE /api/readings/{reading_id}`
+- [x] `DELETE /api/rewards/{reward_id}`
+- [x] `DELETE /api/stars/actions/{action_id}`
+- [x] `DELETE /api/subjects/{subject_id}`
+- [x] `DELETE /api/tags/{tag_id}`
+- [x] `DELETE /api/words/{word_id}`
+- [x] `GET /api/achievements`
+- [x] `GET /api/achievements/progress`
+- [x] `GET /api/config/app`
+- [x] `GET /api/config/llm`
+- [x] `GET /api/error-books`
+- [x] `GET /api/error-books/{error_book_id}`
+- [x] `GET /api/error-types`
+- [x] `GET /api/knowledge-points`
+- [x] `GET /api/learning-reports/list`
+- [x] `GET /api/learning-reports/{report_id}`
+- [x] `GET /api/motivation/overview`
+- [x] `GET /api/practice-sets`
+- [x] `GET /api/practice-sets/{practice_set_id}`
+- [x] `GET /api/questions`
+- [x] `GET /api/questions/filter-options/{subject_id}`
+- [x] `GET /api/questions/{question_id}`
+- [x] `GET /api/questions/{question_id}/practice-history`
+- [x] `GET /api/readings`
+- [x] `GET /api/readings/topics`
+- [x] `GET /api/readings/{reading_id}`
+- [x] `GET /api/rewards`
+- [x] `GET /api/rewards/redemptions`
+- [x] `GET /api/stars/actions`
+- [x] `GET /api/stars/balance`
+- [x] `GET /api/stars/records`
+- [x] `GET /api/stats/analysis/full`
+- [x] `GET /api/stats/knowledge-points`
+- [x] `GET /api/stats/overview`
+- [x] `GET /api/stats/summary`
+- [x] `GET /api/stats/today`
+- [x] `GET /api/subjects`
+- [x] `GET /api/tags`
+- [x] `GET /api/words`
+- [x] `GET /api/words/errors`
+- [x] `GET /api/words/stats/summary`
+- [x] `GET /api/words/{word_id}`
+- [x] `GET /api/words/{word_id}/audio`
+- [x] `GET /api/words/{word_id}/memory-curve`
+- [x] `POST /api/achievements`
+- [x] `POST /api/config/app`
+- [x] `POST /api/config/llm`
+- [x] `POST /api/error-books`
+- [x] `POST /api/error-types`
+- [x] `POST /api/knowledge-points`
+- [x] `POST /api/learning-reports/generate`
+- [x] `POST /api/motivation/trigger/review_word_accuracy`
+- [x] `POST /api/motivation/trigger/{action_code}`
+- [x] `POST /api/practice-sets`
+- [x] `POST /api/practice-sets/batch-delete`
+- [x] `POST /api/practice-sets/batch-download-pdf`
+- [x] `POST /api/practice-sets/generate-from-questions`
+- [x] `POST /api/practice-sets/generate-from-reading`
+- [x] `POST /api/practice-sets/{practice_set_id}/generate-pdf`
+- [x] `POST /api/practice-sets/{practice_set_id}/mark-reviewed`
+- [x] `POST /api/questions`
+- [x] `POST /api/questions/batch`
+- [x] `POST /api/questions/batch-similar`
+- [x] `POST /api/questions/{question_id}/similar`
+- [x] `POST /api/readings`
+- [x] `POST /api/readings/generate`
+- [x] `POST /api/rewards`
+- [x] `POST /api/rewards/{reward_id}/redeem`
+- [x] `POST /api/rewards/{reward_id}/upload-image`
+- [x] `POST /api/stars/actions`
+- [x] `POST /api/stars/adjust`
+- [x] `POST /api/stats/analysis/llm`
+- [x] `POST /api/subjects`
+- [x] `POST /api/tags`
+- [x] `POST /api/upload/batch-simple`
+- [x] `POST /api/upload/file`
+- [x] `POST /api/upload/to-error-book/{error_book_id}`
+- [x] `POST /api/words`
+- [x] `POST /api/words/batch`
+- [x] `POST /api/words/generate-audio` （改为播放时生成并缓存，减少调用）
+- [x] `POST /api/words/print-pdf`
+- [x] `POST /api/words/review/start`
+- [x] `POST /api/words/review/submit`
+- [x] `PUT /api/achievements/{achievement_id}`
+- [x] `PUT /api/error-books/{error_book_id}`
+- [x] `PUT /api/error-types/{et_id}`
+- [x] `PUT /api/knowledge-points/{kp_id}`
+- [x] `PUT /api/practice-sets/{practice_set_id}`
+- [x] `PUT /api/practice-sets/{practice_set_id}/review-images`
+- [x] `PUT /api/questions/debug/{question_id}` （旧调试接口返回410）
+- [x] `PUT /api/questions/{question_id}`
+- [x] `PUT /api/readings/{reading_id}`
+- [x] `PUT /api/rewards/{reward_id}`
+- [x] `PUT /api/stars/actions/{action_id}`
+- [x] `PUT /api/words/{word_id}`

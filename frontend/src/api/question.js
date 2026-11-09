@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios from '@/api/http'
 
 const api = axios.create({
   baseURL: '/api',

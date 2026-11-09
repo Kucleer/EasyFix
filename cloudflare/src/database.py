@@ -35,5 +35,5 @@ class Database:
 
     async def batch(self, statements):
         """通过 D1 批处理在同一事务中执行相关写入。"""
-        from pyodide.ffi import to_js
-        return to_python(await self.binding.batch(to_js([self.statement(sql, values) for sql, values in statements])))
+        prepared=[self.statement(sql, values) for sql, values in statements]
+        return to_python(await self.binding.batch(prepared))
