@@ -398,7 +398,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="knowledgeForm.level === 2" label="所属一级" required>
-          <el-select v-model="knowledgeForm.parent_id" placeholder="选择一级模块" style="width: 100%" :disabled="!!editKnowledgeData" @change="onKnowledgeParentChange">
+          <el-select v-model="knowledgeForm.parent_id" placeholder="选择一级模块" style="width: 100%" :disabled="!!editKnowledgeData && editKnowledgeData.level != null" @change="onKnowledgeParentChange">
             <el-option v-for="module in moduleOptions" :key="module.id" :label="module.name" :value="module.id" />
           </el-select>
         </el-form-item>
@@ -406,7 +406,7 @@
           <el-input v-model="knowledgeForm.name" placeholder="请输入名称" />
         </el-form-item>
         <el-form-item label="学科" required>
-          <el-select v-model="knowledgeForm.subject_id" placeholder="选择学科" style="width: 100%" :disabled="!!editKnowledgeData" @change="onKnowledgeSubjectChange">
+          <el-select v-model="knowledgeForm.subject_id" placeholder="选择学科" style="width: 100%" :disabled="!!editKnowledgeData && editKnowledgeData.level != null" @change="onKnowledgeSubjectChange">
             <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>
@@ -961,13 +961,9 @@ const editKnowledgePoint = (row) => {
   showKnowledgeDialog.value = true
 }
 
-// 把待处理旧目录提升为二级考点，由用户明确选择父级
+// 把待处理旧目录转为二级考点：复用原 ID，由用户明确选择父级
 const promoteLegacy = (row) => {
-  openKnowledgeDialog(2)
-  knowledgeForm.name = row.name
-  knowledgeForm.subject_id = row.subject_id
-  knowledgeForm.grade = row.grade
-  knowledgeForm.semester = row.semester
+  editKnowledgePoint(row)
 }
 
 const saveKnowledgePoint = async () => {

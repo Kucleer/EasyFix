@@ -130,6 +130,8 @@ def validate(points, questions, connection):
             errors.append('题目 ' + str(question_id) + ' 没有目标二级')
         if item.get('primary_code') not in item_codes:
             errors.append('题目 ' + str(question_id) + ' 的主考点不在目标列表中')
+        if len(set(item_codes)) != len(item_codes):
+            errors.append('题目 ' + str(question_id) + ' 的知识点编码重复')
         for code in item_codes:
             point = codes.get(code)
             if not point or point.get('level') != 2:

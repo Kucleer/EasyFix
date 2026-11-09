@@ -614,6 +614,11 @@ async def delete(item_id: int, request: Request):
         'SELECT COUNT(DISTINCT q.id) AS count FROM question_knowledge_point l '
         'JOIN question q ON q.id=l.question_id AND q.deleted=0 '
         'WHERE l.knowledge_point_id=? AND l.deleted=0', (item_id,)))['count']
+    if item.get('level') is None and item.get('name'):
+        # 旧目录只被文本引用，删除前按原文本再确认一次，避免丢失回查证据。
+        usage = max(usage, (await db.first(
+            'SELECT COUNT(*) AS count FROM question WHERE deleted=0 AND subject_id=? AND knowledge_point=?',
+            (item.get('subject_id'), item.get('name'))))['count'])
     if child_count:
         raise HTTPException(409, '该一级知识点仍有 ' + str(child_count) + ' 个有效二级，不能删除')
     if usage:
