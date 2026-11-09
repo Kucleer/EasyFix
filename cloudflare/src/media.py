@@ -80,6 +80,10 @@ async def audio(word_id:int,request:Request):
         content=Uint8Array.new(await cached.arrayBuffer()).to_py().tobytes()
         content_type=getattr(cached.httpMetadata,'contentType',None) or 'audio/mpeg'
         return Response(content,media_type=content_type,headers={'Cache-Control':'private, max-age=86400'})
+    from auth import maintenance_enabled
+    if await maintenance_enabled(request):
+        # 维护期间只允许命中缓存；回源会写 R2，属于副作用。
+        raise HTTPException(503,'系统维护中，请稍后再试')
     urls=['https://dict.youdao.com/dictvoice?type=1&audio='+quote(english)]
     for url in urls:
         options=to_js({'headers':{'User-Agent':'EasyFix/1.0'}},dict_converter=Object.fromEntries);options.signal=AbortSignal.timeout(15000)

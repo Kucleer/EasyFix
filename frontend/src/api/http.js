@@ -9,7 +9,7 @@ function lifetime(config) {
   if ((config.method || 'get').toLowerCase() !== 'get' || config.cache === false) return 0
   const url = String(config.url || '')
   if (/\/config\/llm|\/auth\/|\/audio|\/uploads\//.test(url)) return 0
-  if (/\/(subjects|tags|knowledge-points|error-types)$|\/config\/app$/.test(url)) return 300000
+  if (/\/(subjects|tags|knowledge-points|knowledge-points\/tree|error-types)$|\/config\/app$/.test(url)) return 300000
   if (/\/stats\//.test(url)) return 30000
   return 10000
 }

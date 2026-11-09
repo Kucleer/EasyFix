@@ -99,17 +99,11 @@
               </el-select>
             </el-form-item>
             <el-form-item label="知识点">
-              <el-select
-                v-model="form.knowledge_point"
-                placeholder="选择知识点"
-                clearable
-                filterable
-                allow-create
-                style="width: 100%"
-              >
-                <template #label="{ label }"><KnowledgeTag :name="label" :subject-id="form.subject_id" /></template>
-                <el-option v-for="kp in knowledgePoints" :key="kp.id" :label="kp.name" :value="kp.name"><KnowledgeTag :name="kp.name" :subject-id="kp.subject_id" /></el-option>
-              </el-select>
+              <KnowledgePointPicker
+                v-model="form.knowledge_point_ids"
+                v-model:primary-id="form.primary_knowledge_point_id"
+                :subject-id="form.subject_id"
+              />
             </el-form-item>
             <el-form-item label="标签">
               <el-select v-model="form.tag_ids" multiple placeholder="选择标签" style="width: 100%">
@@ -158,6 +152,7 @@
 import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
+import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
 import { ref, reactive, onMounted, watch } from 'vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { useRouter } from 'vue-router'
@@ -197,7 +192,6 @@ const allTags = ref([])
 const knowledgePoints = ref([])
 const errorTypes = ref([])
 const filteredErrorTypes = ref([])
-const selectedKnowledgePoint = ref(null)
 
 // 表单 - 学科/年级/学期从 localStorage 恢复
 const form = reactive({
@@ -207,7 +201,8 @@ const form = reactive({
   analysis: '',
   difficulty: 3,
   error_type: [],
-  knowledge_point: '',
+  knowledge_point_ids: [],
+  primary_knowledge_point_id: null,
   grade: localStorage.getItem('lastGrade') ? parseInt(localStorage.getItem('lastGrade')) : null,
   semester: localStorage.getItem('lastSemester') ? parseInt(localStorage.getItem('lastSemester')) : null,
   tag_ids: [],
@@ -274,38 +269,31 @@ const fetchErrorTypes = async () => {
 
 // 监听学科变化
 watch(() => form.subject_id, () => {
-  form.knowledge_point = ''
+  form.knowledge_point_ids = []
+  form.primary_knowledge_point_id = null
   form.error_type = []
-  selectedKnowledgePoint.value = null
   filteredErrorTypes.value = []
   fetchKnowledgePoints()
   fetchErrorTypes()
 })
 
-// 监听知识点变化
-watch(() => form.knowledge_point, (newVal) => {
-  if (!newVal) {
-    selectedKnowledgePoint.value = null
+// 监听所选二级知识点：错误类型取并集，未配置时回退到全学科
+watch(() => form.knowledge_point_ids, () => {
+  const selected = knowledgePoints.value.filter(kp => form.knowledge_point_ids.includes(kp.id))
+  if (!selected.length) {
     filteredErrorTypes.value = errorTypes.value
     return
   }
-  const kp = knowledgePoints.value.find(k => k.name === newVal)
-  if (kp && kp.error_types && kp.error_types.length > 0) {
-    selectedKnowledgePoint.value = kp
-    filteredErrorTypes.value = kp.error_types.map(et => ({ id: et.id, name: et.name }))
-  } else {
-    selectedKnowledgePoint.value = null
-    filteredErrorTypes.value = errorTypes.value
-  }
-})
+  const union = new Map()
+  selected.forEach(kp => (kp.error_types || []).forEach(et => union.set(et.id, et)))
+  filteredErrorTypes.value = union.size ? [...union.values()] : errorTypes.value
+  const allowed = new Set(filteredErrorTypes.value.map(et => et.name))
+  form.error_type = form.error_type.filter(name => allowed.has(name))
+}, { deep: true })
 
 // 监听错误类型加载
 watch(errorTypes, (newVal) => {
-  if (selectedKnowledgePoint.value) {
-    filteredErrorTypes.value = selectedKnowledgePoint.value.error_types.map(et => ({ id: et.id, name: et.name }))
-  } else {
-    filteredErrorTypes.value = newVal
-  }
+  if (!form.knowledge_point_ids.length) filteredErrorTypes.value = newVal
 }, { immediate: true })
 
 // 获取学科名称
@@ -318,6 +306,10 @@ const getSubjectName = (subjectId) => {
 const submitQuestion = async () => {
   if (!form.subject_id) {
     ElMessage.warning('请选择学科')
+    return
+  }
+  if (form.knowledge_point_ids.length && !form.primary_knowledge_point_id) {
+    ElMessage.warning('请为所选知识点指定主考点')
     return
   }
 
@@ -355,7 +347,8 @@ const submitQuestion = async () => {
     form.analysis = ''
     form.difficulty = 3
     form.error_type = []
-    form.knowledge_point = ''
+    form.knowledge_point_ids = []
+    form.primary_knowledge_point_id = null
     form.tag_ids = []
     selectedFiles.value = []
     uploadImagePaths.value = []

@@ -1,0 +1,27 @@
+{
+  "status": "draft_review_required",
+  "note": "仅包含一级知识模块建议；二级考点、定义与边界必须另行逐条审核，本文件不宣称均为教材原文。code 为稳定编码，改名不改变身份。",
+  "points": [
+    {"code": "MATH-M01", "subject": "数学", "level": 1, "name": "小数", "sort_order": 10},
+    {"code": "MATH-M02", "subject": "数学", "level": 1, "name": "整除", "sort_order": 20},
+    {"code": "MATH-M03", "subject": "数学", "level": 1, "name": "分数", "sort_order": 30},
+    {"code": "MATH-M04", "subject": "数学", "level": 1, "name": "比与百分数", "sort_order": 40},
+    {"code": "MATH-M05", "subject": "数学", "level": 1, "name": "平面图形", "sort_order": 50},
+    {"code": "MATH-M06", "subject": "数学", "level": 1, "name": "立体图形", "sort_order": 60},
+    {"code": "MATH-M07", "subject": "数学", "level": 1, "name": "有理数", "sort_order": 70},
+    {"code": "MATH-M08", "subject": "数学", "level": 1, "name": "简单的代数式", "sort_order": 80},
+    {"code": "MATH-M09", "subject": "数学", "level": 1, "name": "一元一次方程", "sort_order": 90},
+    {"code": "MATH-M10", "subject": "数学", "level": 1, "name": "线段与角", "sort_order": 100},
+    {"code": "ENG-M01", "subject": "英语", "level": 1, "name": "名词与数量表达", "sort_order": 10},
+    {"code": "ENG-M02", "subject": "英语", "level": 1, "name": "代词", "sort_order": 20},
+    {"code": "ENG-M03", "subject": "英语", "level": 1, "name": "动词与时态", "sort_order": 30},
+    {"code": "ENG-M04", "subject": "英语", "level": 1, "name": "形容词与副词", "sort_order": 40},
+    {"code": "ENG-M05", "subject": "英语", "level": 1, "name": "冠词与介词", "sort_order": 50},
+    {"code": "ENG-M06", "subject": "英语", "level": 1, "name": "句法", "sort_order": 60},
+    {"code": "ENG-M07", "subject": "英语", "level": 1, "name": "交际表达", "sort_order": 70},
+    {"code": "ENG-M08", "subject": "英语", "level": 1, "name": "词汇与搭配", "sort_order": 80},
+    {"code": "ENG-M09", "subject": "英语", "level": 1, "name": "语音", "sort_order": 90},
+    {"code": "ENG-M10", "subject": "英语", "level": 1, "name": "阅读理解", "sort_order": 100},
+    {"code": "ENG-M11", "subject": "英语", "level": 1, "name": "书面表达", "sort_order": 110}
+  ]
+}

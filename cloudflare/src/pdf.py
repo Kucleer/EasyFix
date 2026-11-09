@@ -21,6 +21,9 @@ async def validate_math(request,texts):
     await call(request,'/validate',{'texts':texts})
 
 
+TEMPLATE_VERSION='2'
+
+
 async def generate_practice(practice_set_id,request):
     """读取真实练习内容，渲染成功后才更新 PDF 路径。"""
     from practices import get
@@ -30,10 +33,18 @@ async def generate_practice(practice_set_id,request):
     import hashlib
     printable=[]
     for item in practice['questions']:
-        fields={key:item.get(key) for key in ('question_text','difficulty','knowledge_point','error_type','option_a','option_b','option_c','option_d','is_reading_question')}
+        links=sorted(item.get('knowledge_points') or [],
+                     key=lambda point:(0 if point.get('is_primary') else 1,point.get('id') or 0))
+        primary=next((point for point in links if point.get('is_primary')),None)
+        path='/'.join(part for part in (primary.get('parent_name'),primary.get('name')) if part) if primary else None
+        fields={key:item.get(key) for key in ('question_text','difficulty','error_type','option_a','option_b','option_c','option_d','is_reading_question','topic')}
         fields['id']=item.get('question_id',item['id'])
+        fields['knowledge_path']=[{'id':point.get('id'),'parent_id':point.get('parent_id'),
+                                   'parent_name':point.get('parent_name'),'name':point.get('name'),
+                                   'is_primary':bool(point.get('is_primary'))} for point in links]
+        fields['knowledge_point']=(path+'（主考点）') if path else None
         printable.append(fields)
-    payload={'title':practice['name'],'questions':printable,'passage':practice.get('passage')}
+    payload={'template_version':TEMPLATE_VERSION,'title':practice['name'],'questions':printable,'passage':practice.get('passage')}
     fingerprint=hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     cache_name='pdf:'+str(practice_set_id)
     cached=await db.first('SELECT value FROM runtime_config WHERE name=? AND deleted=0',(cache_name,))

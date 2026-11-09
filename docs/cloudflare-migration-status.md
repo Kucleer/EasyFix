@@ -103,3 +103,25 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 ## 用户需要操作
 
 现在打开正式入口，使用原密码登录即可，不需要再开通付费服务或填写额外迁移配置。以后如需自有域名，可将自己持有的域名接入 Cloudflare 再绑定 Pages；这是可选工作，不影响当前使用。
+
+## 变更记录：两级知识点改造（2026-11-10，代码已实现，生产未执行）
+
+- 分支：`codex/knowledge-hierarchy-20261110`；实施规格见 `docs/knowledge-hierarchy-final-plan.md`，实现说明见 `docs/knowledge-hierarchy-implementation-notes.md`。
+- 追加迁移 `cloudflare/migrations/0009_knowledge_hierarchy.sql`：`knowledge_point` 增加 `code/name_key/level/parent_id/sort_order/updated_at`；`question` 增加 `knowledge_revision/legacy_knowledge_point`；新增 `question_knowledge_point`、`knowledge_assert`；部分唯一索引与 `KP_*` 触发器。
+- 新增正式接口 `/api/knowledge-points/tree`；知识点 CRUD 移入 `cloudflare/src/knowledge.py`，不再由通用 `catalog.py` 注册。
+- 单题保存、批量入库与练习批改统一通过 `write_guard` / `knowledge_assert` 与 `question_knowledge_point` 在同一 D1 batch 内写入。
+- 统计改为一级模块口径：`knowledge_stats.py` 复用 D1 SQL 聚合，正确率取 `practice_set_question` 最终批改状态；学习报告模块指标由服务端写入。
+- 维护开关：D1 `runtime_config` 表 `write_maintenance`（`1/true/on/yes` 为开启）。开启后所有非 GET/HEAD/OPTIONS 请求（含 `Bearer ACCESS_TOKEN`）返回 503；`/health`、`/login`、`/api/auth/verify-password` 不受影响。音频缓存未命中时返回 503，不写 R2。`MIGRATION_READY` 语义不变，不用于维护停写。
+- 维护开关切换示例（不修改 `MIGRATION_READY`）：
+  ```text
+  node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.jsonc --remote --yes \
+    --command "INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('write_maintenance','1',0,CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET value='1',deleted=0,updated_at=excluded.updated_at"
+  ```
+  关闭时将 `'1'` 改为 `'0'`。开关状态可用只读命令核对。
+- 迁移工具（均默认只读或只生成 SQL，不直接写生产）：
+  - `python cloudflare/scripts/knowledge_preflight.py --snapshot <sqlite快照>`
+  - `python cloudflare/scripts/knowledge_backfill.py --seed cloudflare/scripts/knowledge_seed_modules.json --mapping <审核映射> --snapshot <sqlite快照>`
+  - `python cloudflare/scripts/knowledge_consistency_check.py --snapshot <sqlite快照>`
+  - `python cloudflare/scripts/knowledge_invariants_test.py`
+- 发布顺序仍按方案第 12 节：先维护开关小版本（发布 A），停写排空并记录 Time Travel 书签，应用 0009 与回填，运行一致性校验，再发布新 Worker 与 Pages（发布 B）。本次未执行生产迁移、未开启维护开关、未修改 `MIGRATION_READY`。
+- 已停用会覆盖云端源码的生成脚本：`prepare_cloudflare_prompts.py`、`refine_cloudflare_queries.py`、`prepare_cloudflare_analytics.py`。`annotate_english_knowledge.py`、`import_math_formula_photos.py` 已增加只读提示，不能作为生产写入通道。
