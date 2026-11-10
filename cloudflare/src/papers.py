@@ -3,8 +3,8 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from database import Database
-from intake import hydrate_paper
-from intake_model import PAPER_TYPES, IntakeError, normalize_paper
+from intake import hydrate_paper, read_payload
+from intake_model import PAPER_TYPES, IntakeError, is_plain_int, normalize_paper
 from knowledge import decorate_question, question_links
 from question_scope import current_student_id
 from questions import attach_papers, stamp_now
@@ -21,17 +21,6 @@ COUNT_COLUMNS = ('s.name AS subject_name, COUNT(q.id) AS question_count, '
                  "COALESCE(SUM(CASE WHEN q.review_status='pending' THEN 1 ELSE 0 END),0) AS pending_count")
 COUNT_JOIN = ('FROM paper p JOIN subject s ON s.id=p.subject_id '
               'LEFT JOIN question q ON q.paper_id=p.id AND q.deleted=0 ')
-
-
-async def read_object(request):
-    """读取请求体，必须是 JSON 对象，否则 422。"""
-    try:
-        payload = await request.json()
-    except ValueError:
-        raise HTTPException(422, '请求内容不是合法的 JSON')
-    if not isinstance(payload, dict):
-        raise HTTPException(422, '请求内容必须是一个对象')
-    return payload
 
 
 async def load_paper(db, request, paper_id):
@@ -72,8 +61,15 @@ async def listing(request: Request, skip: int = 0, limit: int = 20, subject_id: 
 
 
 @router.get('/{paper_id}')
-async def detail(paper_id: int, request: Request):
-    """读取一份卷子和它下面未删除的题（按页码、编号排序，页码为空的排最后）。"""
+async def detail(paper_id: int, request: Request, skip: int = 0, limit: int = 50):
+    """读取一份卷子和它下面未删除的一页题（按页码、编号排序，页码为空的排最后）。
+
+    历史卷子下面可能有几百道题，所以题目分页返回；question_count、pending_count 仍是整份卷子的总数。
+    """
+    if skip < 0:
+        raise HTTPException(422, 'skip 不能小于 0')
+    if not 1 <= limit <= 100:
+        raise HTTPException(422, 'limit 应在 1 到 100 之间')
     db = Database(request.scope['env'].DB)
     row = await db.first(
         'SELECT p.*, ' + COUNT_COLUMNS + ' ' + COUNT_JOIN +
@@ -81,9 +77,9 @@ async def detail(paper_id: int, request: Request):
     if not row:
         raise HTTPException(404, '记录不存在')
     questions = await db.all(
-        'SELECT * FROM question WHERE paper_id=? AND deleted=0 ORDER BY paper_page IS NULL, paper_page, id',
-        (paper_id,))
-    # 与错题列表同一形状：考点和核对原因各用一次批量查询装配
+        'SELECT * FROM question WHERE paper_id=? AND deleted=0 ORDER BY paper_page IS NULL, paper_page, id '
+        'LIMIT ? OFFSET ?', (paper_id, limit, skip))
+    # 题目是原始行加上考点和卷子信息：original_images 没有解析成列表，也没有 tags，考点各用一次批量查询装配
     links = await question_links(db, [item['id'] for item in questions])
     await attach_papers(db, questions)
     paper = hydrate_paper(row)
@@ -94,9 +90,13 @@ async def detail(paper_id: int, request: Request):
 @router.post('', status_code=201)
 async def create(request: Request):
     """手工新增一份卷子（例如只记一次考试成绩）；不能带照片。"""
-    payload = await read_object(request)
+    payload = await read_payload(request)
     db = Database(request.scope['env'].DB)
-    subject = await db.first('SELECT id,name FROM subject WHERE id=? AND deleted=0', (payload.get('subject_id'),))
+    # subject_id 必须是普通整数（列表、字符串、布尔值都不行），不能直接交给数据库
+    subject_id = payload.get('subject_id')
+    subject = None
+    if is_plain_int(subject_id):
+        subject = await db.first('SELECT id,name FROM subject WHERE id=? AND deleted=0', (subject_id,))
     if not subject:
         raise HTTPException(400, '学科不存在')
     if payload.get('images'):
@@ -119,7 +119,7 @@ async def create(request: Request):
 @router.put('/{paper_id}')
 async def update(paper_id: int, request: Request):
     """修改卷子：把库里的现值和请求给出的字段合并后整体校验；年级或学期变了就同步到题目。"""
-    payload = await read_object(request)
+    payload = await read_payload(request)
     db = Database(request.scope['env'].DB)
     old = await load_paper(db, request, paper_id)
     if old['source'] == 'history' and any(key not in HISTORY_EDITABLE for key in payload):

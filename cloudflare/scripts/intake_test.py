@@ -1280,6 +1280,131 @@ def test_submit_rejects_backslash_outside_math():
     assert c.execute('SELECT COUNT(*) FROM question').fetchone()[0] == total
 
 
+# ---------------------------------------------------------------- 整体审阅后的补充测试
+
+
+def test_paper_detail_paginates_questions():
+    """详情的题目分页：limit=2 取前两道，skip=2 取第三道；总数不随分页变；越界参数 422。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload()); paper_id = body['paper']['id']
+    add_question_to_paper(c, paper_id, status='pending')
+    request = fake_request({}, db, papers)
+    first = run(papers.detail(paper_id, request, skip=0, limit=2))
+    assert len(first['questions']) == 2 and first['question_count'] == 3 and first['pending_count'] == 1
+    second = run(papers.detail(paper_id, request, skip=2, limit=2))
+    assert len(second['questions']) == 1 and second['question_count'] == 3
+    ids = [q['id'] for q in first['questions'] + second['questions']]
+    assert ids == [q['id'] for q in run(papers.detail(paper_id, request))['questions']] and len(set(ids)) == 3
+    assert run(papers.detail(paper_id, request, skip=5, limit=2))['questions'] == []
+    for params in ({'limit': 0}, {'limit': 101}, {'skip': -1}):
+        expect_http(422, lambda params=params: run(papers.detail(paper_id, request, **params)))
+
+
+def test_find_broken_backslash_gives_separate_text_for_newline_in_formula():
+    """公式里有换行：给单独的说明（提到换行，也提到反斜杠没写对）。"""
+    for bad in ['\\(a\neq b\\)', '\\[a\n=b\\]', '$$x\ny$$']:
+        text = find_broken_backslash(bad)
+        assert '公式里有换行' in text and '反斜杠' in text, repr(bad)
+    assert '\\neq、\\nu' in find_broken_backslash('\\(a\nb\\)')
+    # 控制字符仍是原来的说明
+    assert '公式里有换行' not in find_broken_backslash('\\(\x0crac{1}{2}\\)')
+
+
+def test_windows_line_break_is_normalized_but_lone_carriage_return_is_rejected():
+    """Windows 换行当作普通换行，存下来的是单个换行；单独的回车字符（写坏的回车命令）仍被拒绝。"""
+    question = normalize_question({'parsed_question': '第一行\r\n第二行'}, 0, None)
+    assert question['parsed_question'] == '第一行\n第二行'
+    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '\\(a\right)\\)'}, 0, None))
+    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '甲\r乙'}, 0, None))
+
+
+def test_image_key_and_date_patterns_are_strict():
+    """图片键末尾带换行、含全角数字、含控制字符，日期末尾带换行或含全角数字，都被拒绝。"""
+    good = '2026/11/aaaaaaaa_p1.jpg'
+    assert normalize_paper({'images': [good]}, '数学', '2026-11-10')['images'] == [good]
+    for bad in [good + '\n', '２026/11/aaaaaaaa_p1.jpg', '2026/11/aaaaaaaa_p\x001.jpg', '2026/11/aaaaaaaa_p\n1.jpg']:
+        expect_intake_error('照片', lambda bad=bad: normalize_paper({'images': [bad]}, '数学', '2026-11-10'))
+    for bad in ['2026-11-08\n', '２026-11-08']:
+        expect_intake_error('日期', lambda bad=bad: normalize_paper({'paper_date': bad}, '数学', '2026-11-10'))
+
+
+def test_review_with_invalid_json_body_is_422():
+    """审核接口的请求体不是合法 JSON 或不是对象时返回 422，不是 500。"""
+    c = build_database(); db = adapter(c)
+    question_id = add_question(c, status='pending')
+
+    class BrokenRequest(FakeRequest):
+        async def json(self):
+            raise ValueError('bad json')
+
+    intake.Database = lambda binding: binding
+    expect_http(422, lambda: run(intake.review_question(question_id, BrokenRequest(None, db))))
+    expect_http(422, lambda: run(intake.review_question(question_id, fake_request([1], db, intake))))
+    assert c.execute('SELECT review_status FROM question WHERE id=?', (question_id,)).fetchone()[0] == 'pending'
+
+
+def test_manual_paper_rejects_non_integer_subject_id():
+    """手工新增卷子时 subject_id 不是整数（列表、字符串、布尔值）：400 学科不存在。"""
+    c = build_database(); db = adapter(c)
+    for bad in ([1], '1', True, 1.5, None):
+        try:
+            run(call_endpoint(papers, papers.create, {'subject_id': bad}, db))
+        except HTTPException as error:
+            assert error.status_code == 400 and error.detail == '学科不存在', repr(bad)
+        else:
+            raise AssertionError('应当 400：%r' % (bad,))
+
+
+# ---------------------------------------------------------------- 统计口径：待核对的题不计入
+
+
+def test_pending_question_not_counted_in_analytics_summary():
+    """analytics.summary：加入待核对的题前后完全相同，改成 approved 后变化。"""
+    c = build_database(); db = adapter(c)
+    request = fake_request({}, db, analytics)
+    before = run(analytics.summary(request, grade=None))
+    pending_id = add_question(c, status='pending')
+    assert run(analytics.summary(request, grade=None)) == before
+    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
+    after = run(analytics.summary(request, grade=None))
+    assert after != before and after['total_questions'] == before['total_questions'] + 1
+
+
+def test_pending_question_not_counted_in_analytics_full():
+    """analytics.full：同上。"""
+    c = build_database(); db = adapter(c)
+    request = fake_request({}, db, analytics)
+    before = run(analytics.full(request, subject_id=None))
+    pending_id = add_question(c, status='pending')
+    assert run(analytics.full(request, subject_id=None)) == before
+    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
+    after = run(analytics.full(request, subject_id=None))
+    assert after != before and after['question_stats']['total'] == before['question_stats']['total'] + 1
+
+
+def test_pending_question_not_counted_in_report_generation():
+    """reports.generate：把模型调用换成桩，比较交给模型的统计摘要和写进报告的数字。"""
+    import reports
+    c = build_database(); db = adapter(c)
+    prompts = []
+
+    async def fake_generate_json(request, prompt):
+        prompts.append(prompt)
+        return {}
+    reports.generate_json = fake_generate_json
+
+    def generate_once():
+        result = run(call_endpoint(reports, reports.generate, {'subject_id': 1}, db))
+        content = json.loads(c.execute('SELECT content FROM learning_report WHERE id=?', (result['id'],)).fetchone()[0])
+        return prompts[-1], content['overview']['total_questions'], content['metrics']['total_questions']
+    before = generate_once()
+    pending_id = add_question(c, status='pending')
+    assert generate_once() == before
+    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
+    after = generate_once()
+    assert after != before and after[1] == before[1] + 1 and after[2] == before[2] + 1
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -1357,6 +1482,15 @@ TESTS = [
     test_compact_lost_row_break_is_reported,
     test_backslash_outside_math_is_reported,
     test_submit_rejects_backslash_outside_math,
+    test_paper_detail_paginates_questions,
+    test_find_broken_backslash_gives_separate_text_for_newline_in_formula,
+    test_windows_line_break_is_normalized_but_lone_carriage_return_is_rejected,
+    test_image_key_and_date_patterns_are_strict,
+    test_review_with_invalid_json_body_is_422,
+    test_manual_paper_rejects_non_integer_subject_id,
+    test_pending_question_not_counted_in_analytics_summary,
+    test_pending_question_not_counted_in_analytics_full,
+    test_pending_question_not_counted_in_report_generation,
 ]
 
 

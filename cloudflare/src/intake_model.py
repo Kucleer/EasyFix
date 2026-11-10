@@ -15,8 +15,9 @@ REVIEW_REASONS = ('wrong_unclear', 'text_unclear', 'kp_unsure', 'other')
 MAX_QUESTIONS = 100
 
 # 上传接口返回的图片路径：年/月/8位十六进制_文件名
-IMAGE_KEY_PATTERN = re.compile(r'^\d{4}/\d{2}/[0-9a-f]{8}_[^/\\]+$')
-DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+# 数字只认半角 0-9（\d 会放过全角数字），文件名部分不许有斜杠、反斜杠和控制字符；匹配一律用 fullmatch
+IMAGE_KEY_PATTERN = re.compile(r'[0-9]{4}/[0-9]{2}/[0-9a-f]{8}_[^/\\\x00-\x1f\x7f]+')
+DATE_PATTERN = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
 
 # 题目里按文字处理的字段，缺省为空字符串，对应的中文名用于报错
 QUESTION_TEXT_FIELDS = (
@@ -36,6 +37,10 @@ MATH_SPAN_PATTERN = re.compile(r'\\\(.*?\\\)|\\\[.*?\\\]|\$\$.*?\$\$', re.DOTALL
 
 LOST_ROW_BREAK_TEXT = ('矩阵或多行公式里的换行没有写对：换行要写成两个反斜杠 \\\\（手写 JSON 时是四个）。'
                        '请改好后重新提交。')
+# 公式里有换行的说明：多半是 \neq、\nu 的反斜杠没写对，也可能是真的想换行
+MATH_NEWLINE_TEXT = ('公式里有换行：一个公式要写在同一行里，多行公式的行与行之间用两个反斜杠分开、不要另起一行。'
+                     '如果本来就没想换行，那是 \\neq、\\nu 这类命令的反斜杠没有写对，'
+                     'JSON 里每个反斜杠要写成两个。请改好后重新提交。')
 # 矩阵和多行公式环境：环境里的换行必须是两个反斜杠
 MATRIX_ENVIRONMENTS = ('matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vmatrix', 'smallmatrix', 'array',
                        'cases', 'aligned', 'align', 'align*', 'gathered', 'split')
@@ -87,7 +92,7 @@ def find_broken_backslash(text):
     # 公式内部不该有换行，\neq、\nu 被写坏时就是这样；公式外的换行是正常的
     for span in MATH_SPAN_PATTERN.finditer(text):
         if '\n' in span.group():
-            return BROKEN_BACKSLASH_TEXT
+            return MATH_NEWLINE_TEXT
     # 矩阵、多行公式里丢了一个反斜杠的换行（两个反斜杠只写成了一个）
     for environment in MATRIX_PATTERN.finditer(text):
         if LOST_ROW_BREAK_PATTERN.search(environment.group(2)):
@@ -105,6 +110,8 @@ def read_text(raw, key, label):
         return ''
     if not isinstance(value, str):
         raise IntakeError('%s必须是文字' % label)
+    # Windows 换行 \r\n 是正常的，先统一成 \n；单独的 \r（写坏的 \r 开头命令）仍会被下面查出来
+    value = value.replace('\r\n', '\n')
     # 必须在去空白之前检查：换页、制表等本身算空白，去掉后就查不出来了
     problem = find_broken_backslash(value)
     if problem:
@@ -116,7 +123,7 @@ def normalize_paper_date(raw_date, today):
     """检查卷子日期：不写取今天，格式必须是 YYYY-MM-DD，不能晚于今天。"""
     if raw_date is None or raw_date == '':
         return today
-    if not isinstance(raw_date, str) or not DATE_PATTERN.match(raw_date):
+    if not isinstance(raw_date, str) or not DATE_PATTERN.fullmatch(raw_date):
         raise IntakeError('卷子日期格式不对，应写成 2026-11-10 这样')
     try:
         datetime.date.fromisoformat(raw_date)
@@ -152,7 +159,7 @@ def normalize_paper_images(raw_images):
     if not isinstance(raw_images, list):
         raise IntakeError('照片必须是路径列表')
     for image in raw_images:
-        if not isinstance(image, str) or not IMAGE_KEY_PATTERN.match(image):
+        if not isinstance(image, str) or not IMAGE_KEY_PATTERN.fullmatch(image):
             raise IntakeError('照片路径格式不对，请使用上传照片后返回的路径')
     return list(raw_images)
 
