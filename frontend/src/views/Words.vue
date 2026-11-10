@@ -264,7 +264,7 @@
     </el-dialog>
 
     <!-- 复习弹窗 -->
-    <el-dialog v-model="reviewVisible" title="单词复习" width="min(1040px, 94vw)" align-center :close-on-click-modal="false" class="review-dialog">
+    <el-dialog v-model="reviewVisible" title="单词复习" width="min(920px, 94vw)" align-center :close-on-click-modal="false" :show-close="reviewStep !== 'question'" :class="['review-dialog', { 'is-answering': reviewStep === 'question' }]">
       <div v-if="reviewStep === 'config'" class="review-config">
         <!-- 来自“重练错词”的预置复习：提示本次固定练这些错词 -->
         <div v-if="presetWordIds && presetWordIds.length" class="preset-review-tip">
@@ -322,18 +322,26 @@
               {{ currentQuestion.chinese }}
             </div>
             <div class="correction-card">
-              <!-- 完整正确答案，写错或漏掉的部分标红 -->
-              <div class="correction-answer">
-                <span
-                  v-for="(seg, i) in correctionSegs"
-                  :key="i"
-                  :class="{ wrong: seg.wrong }"
-                >{{ seg.text }}</span>
+              <!-- 正确写法与孩子写的左右并排，对比最直接 -->
+              <div class="compare">
+                <div class="compare-panel is-right">
+                  <div class="compare-label">正确写法</div>
+                  <div class="compare-text">
+                    <span v-for="(seg, i) in correctionSegs" :key="i" :class="{ mark: seg.wrong }">{{ seg.text }}</span>
+                  </div>
+                </div>
+                <div class="compare-panel is-wrong">
+                  <div class="compare-label">你写的</div>
+                  <div class="compare-text">
+                    <template v-if="correctionActualSegs.length">
+                      <span v-for="(seg, i) in correctionActualSegs" :key="i" :class="{ strike: seg.wrong }">{{ seg.text }}</span>
+                    </template>
+                    <span v-else class="compare-empty">没有作答</span>
+                  </div>
+                </div>
               </div>
-              <!-- 孩子刚才写的内容 -->
-              <div class="correction-yours">你写的是 {{ currentQuestion.userAnswer || '没有作答' }}</div>
               <!-- 照着抄一遍 -->
-              <div class="correction-tip">照着抄一遍再继续</div>
+              <div class="correction-tip">照着抄一遍</div>
               <DictationInput
                 ref="copyInputRef"
                 :question="copyQuestion"
@@ -349,11 +357,10 @@
             <div class="chinese" :style="{ fontSize: chineseFontSize }">
               {{ currentQuestion.chinese }}
             </div>
-            <div class="audio-row">
-              <el-button class="audio-btn" @click="playWordAudio(currentQuestion.word_id)" :loading="audioLoading" :disabled="dictationSpeakerDisabled">🔊</el-button>
-            </div>
-            <div class="hint-box">
-              <div class="hint">{{ dictationHint }}</div>
+            <!-- 读音按钮和提示放在一行，作为次要信息 -->
+            <div class="meta-row">
+              <el-button class="sound-btn" text :icon="Headset" @click="playWordAudio(currentQuestion.word_id)" :loading="audioLoading" :disabled="dictationSpeakerDisabled">读音</el-button>
+              <span class="meta-hint">{{ dictationHint }}</span>
             </div>
             <DictationInput
               ref="dictationInputRef"
@@ -403,9 +410,10 @@
         </div>
 
         <div class="question-actions">
-          <el-button class="quiet" plain @click="terminateReview">终止答题</el-button>
+          <el-button class="quiet" text @click="terminateReview">终止答题</el-button>
+          <span class="actions-spacer"></span>
           <!-- 订正时可以跳过抄写，放在底部操作区，始终可见 -->
-          <el-button v-if="correctionActive" class="quiet" plain @click="skipCorrection">跳过抄写</el-button>
+          <el-button v-if="correctionActive" plain @click="skipCorrection">跳过抄写</el-button>
           <el-button v-if="currentQuestion.correct === undefined" type="primary" @click="submitAnswer">提交</el-button>
           <!-- 只有最后一题答完才显示“完成”；中途订正时不显示，避免带着未作答的题目提前提交 -->
           <el-button v-else-if="currentIndex === reviewQuestions.length - 1" type="success" @click="finishReview">完成</el-button>
@@ -577,7 +585,7 @@ import PhraseAnnotateDialog from '@/components/PhraseAnnotateDialog.vue'
 import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Printer, Upload } from '@element-plus/icons-vue'
+import { Plus, Edit, Printer, Upload, Headset } from '@element-plus/icons-vue'
 import { buildCells, blankTokenCount, judge, shouldPlayBeforeAnswer, answerSegments } from '@/composables/dictation'
 import { wordApi } from '@/api/word'
 import { questionApi } from '@/api/question'
@@ -697,11 +705,14 @@ const copyInputRef = ref(null)       // 抄写输入组件引用
 // 抄写用的题目：只给 english、不带 tokens，这样每个字母都是一个格子
 const copyQuestion = computed(() => ({ english: currentQuestion.value?.english || '' }))
 // 订正卡片里正确答案的高亮片段：优先用逐词结果
-const correctionSegs = computed(() => {
+const correctionDiff = computed(() => {
   const q = currentQuestion.value
-  if (!q) return []
-  return answerSegments({ english: q.english, userAnswer: q.userAnswer, tokenResults: q.tokenResults }).expected
+  if (!q) return { expected: [], actual: [] }
+  return answerSegments({ english: q.english, userAnswer: q.userAnswer, tokenResults: q.tokenResults })
 })
+const correctionSegs = computed(() => correctionDiff.value.expected)
+// 孩子所写内容的片段：写错的部分加删除线；没有作答时为空
+const correctionActualSegs = computed(() => (currentQuestion.value?.userAnswer ? correctionDiff.value.actual : []))
 
 // 预置复习词 id（来自“重练错词”），与勾选选择相互独立
 const presetWordIds = ref(null)
@@ -751,10 +762,10 @@ const reviewResultItems = computed(() => reviewQuestions.value.map(q => ({
 // 长中文自适应字号，避免溢出
 const chineseFontSize = computed(() => {
   const len = (currentQuestion.value?.chinese || '').length
-  if (len <= 6) return '52px'
-  if (len <= 10) return '42px'
-  if (len <= 16) return '32px'
-  if (len <= 24) return '26px'
+  if (len <= 6) return '44px'
+  if (len <= 10) return '36px'
+  if (len <= 16) return '30px'
+  if (len <= 24) return '24px'
   if (len <= 36) return '20px'
   return '17px'
 })
@@ -2646,21 +2657,27 @@ watch(() => route.query.review_ids, (val) => {
   color: var(--text-secondary);
   font-size: var(--font-small);
 }
-/* ===== 复习弹窗：单屏布局（放在最后，覆盖上面的旧尺寸） ===== */
+/* ===== 复习弹窗：安静专注风格，单屏显示（放在最后，覆盖上面的旧尺寸） ===== */
 :deep(.review-dialog) {
   max-width: 94vw;
   border-radius: 16px;
+  overflow: hidden;
 }
 
-:deep(.review-dialog .el-dialog__header) {
-  padding: 14px 24px 0;
+/* 答题时不显示标题栏，顶部由进度条一行代替 */
+:deep(.review-dialog.is-answering .el-dialog__header) {
+  display: none;
+}
+
+:deep(.review-dialog.is-answering) {
+  padding: 0;
 }
 
 /* 答题区固定在一屏内：顶部进度、中间内容、底部操作三段 */
 .review-question {
-  padding: 6px 32px 20px;
-  height: min(620px, calc(100vh - 120px));
-  height: min(620px, calc(100dvh - 120px));
+  padding: 0;
+  height: min(560px, calc(100vh - 80px));
+  height: min(560px, calc(100dvh - 80px));
   max-height: none;
   min-height: 0;
   display: flex;
@@ -2670,37 +2687,41 @@ watch(() => route.query.review_ids, (val) => {
 .question-header {
   position: static;
   justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 6px;
-  padding: 6px 0;
+  gap: 14px;
+  margin: 0;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-primary);
 }
 
 .progress {
-  font-size: 18px;
-  font-weight: var(--font-weight-bold);
-  min-width: 64px;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-blue);
+  min-width: 52px;
 }
 
 .progress-track {
   flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--el-color-primary-light-9);
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-secondary);
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--accent-blue);
   transition: width .3s ease;
 }
 
 .timer {
-  font-size: 15px;
+  font-size: 14px;
   font-family: inherit;
-  font-weight: 500;
-  min-width: 64px;
+  font-weight: var(--font-weight-normal);
+  color: var(--text-muted);
+  min-width: 52px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -2711,105 +2732,165 @@ watch(() => route.query.review_ids, (val) => {
   min-height: 0;
   overflow-y: auto;
   justify-content: center;
+  padding: 16px 28px;
 }
 
 .dictation {
-  padding: 8px 12px;
+  padding: 0;
 }
 
 .dictation .chinese {
   margin-bottom: 10px;
-  letter-spacing: 2px;
+  padding: 0;
+  letter-spacing: 1px;
   line-height: 1.3;
-}
-
-.dictation .audio-row {
-  margin-bottom: 8px;
-}
-
-.dictation .hint-box {
-  margin-bottom: 16px;
-}
-
-.dictation .hint {
-  font-size: 15px;
-  padding: 5px 16px;
-  margin-bottom: 0;
-  border-radius: var(--radius-full);
-  background: var(--bg-secondary);
-}
-
-/* 订正时中文释义退为次要信息，把位置让给正确答案 */
-.dictation.correction .chinese {
-  font-size: 22px !important;
   font-weight: var(--font-weight-semibold);
+}
+
+/* 读音和提示：一行次要信息，不抢题目的注意力 */
+.meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 22px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.meta-row .sound-btn {
+  font-size: 14px;
+  padding: 4px 8px;
+  height: auto;
+  color: var(--accent-blue);
+}
+
+.meta-hint::before {
+  content: '·';
+  margin-right: 8px;
+}
+
+/* 订正：中文释义退为次要信息 */
+.dictation.correction .chinese {
+  font-size: 18px !important;
+  font-weight: var(--font-weight-normal);
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .correction-card {
-  gap: 10px;
+  gap: 14px;
 }
 
-.correction-answer {
-  font-size: 38px;
+/* 正确写法 / 你写的 左右并排 */
+.compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: min(560px, 100%);
 }
 
-.correction-yours {
-  font-size: 16px;
+.compare-panel {
+  border-radius: var(--radius-md);
+  padding: 10px 14px 12px;
+  text-align: center;
+}
+
+.compare-panel.is-right {
+  background: #eaf5f0;
+  color: var(--success);
+}
+
+.compare-panel.is-wrong {
+  background: #fbecee;
+  color: var(--danger);
+}
+
+.compare-label {
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.compare-text {
+  font-size: 26px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 正确写法里孩子写错的部分加底线强调；孩子写的里错的部分加删除线 */
+.compare-text .mark {
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 5px;
+}
+
+.compare-text .strike {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.compare-empty {
+  font-size: 18px;
+  font-weight: var(--font-weight-normal);
 }
 
 .correction-tip {
   font-size: 14px;
-  padding: 4px 14px;
-  border-radius: var(--radius-full);
-  background: var(--bg-secondary);
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
 }
 
-/* 底部操作区：固定在弹窗内，按钮回到正常大小 */
+/* 底部操作区：左边终止，右边主操作 */
 .question-actions {
-  margin-top: 12px;
-  padding-top: 14px;
+  margin-top: 0;
+  padding: 12px 28px;
   border-top: 1px solid var(--border-light);
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  background: var(--bg-primary);
+}
+
+.actions-spacer {
+  flex: 1;
 }
 
 .question-actions .el-button {
-  font-size: 16px;
-  padding: 12px 40px;
+  font-size: 15px;
+  padding: 10px 28px;
   height: auto;
   margin-left: 0;
 }
 
 .question-actions .el-button.quiet {
-  padding: 12px 20px;
-  color: var(--text-secondary);
+  padding: 10px 8px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 768px) {
   .review-question {
-    padding: 4px 10px 12px;
-    height: calc(100vh - 150px);
-    height: calc(100dvh - 150px);
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
   }
-  /* 手机上把横向留白让给字母格，10 个字母的词能排在一行 */
-  .dictation {
-    padding: 8px 0;
+  .question-header,
+  .question-actions {
+    padding-left: 14px;
+    padding-right: 14px;
   }
-  .correction-answer {
-    font-size: 28px;
+  .question-content {
+    padding: 12px 10px;
   }
-  .dictation.correction .chinese {
-    font-size: 18px !important;
+  .compare-text {
+    font-size: 20px;
+  }
+  .compare-panel {
+    padding: 8px 8px 10px;
   }
   .question-actions .el-button {
-    padding: 10px 24px;
-  }
-  .question-actions .el-button.quiet {
-    padding: 10px 14px;
+    padding: 10px 20px;
   }
 }
 </style>

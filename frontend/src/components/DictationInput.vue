@@ -201,7 +201,7 @@ defineExpose({ focus, reset })
   align-items: center;
   gap: 8px;
   position: relative;
-  min-height: 80px;
+  min-height: 0;
   width: 100%;
 }
 
@@ -216,18 +216,18 @@ defineExpose({ focus, reset })
 
 .letter-cell {
   width: 42px;
-  height: 52px;
-  border-bottom: 3px solid #cdd1e4;
+  height: 50px;
+  border: 1.5px solid #c9cde0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 600;
   color: var(--text-primary);
   text-transform: lowercase;
   box-sizing: border-box;
-  background: #eff0f8;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
   transition: background-color .15s ease, border-color .15s ease;
 }
 
@@ -246,7 +246,7 @@ defineExpose({ focus, reset })
 }
 
 .letter-cell.fixed {
-  border-bottom-color: transparent;
+  border-color: transparent;
   background: transparent;
   color: var(--text-muted);
   font-size: 24px;
@@ -257,24 +257,24 @@ defineExpose({ focus, reset })
 
 
 .letter-cell.active {
-  border-bottom-color: var(--accent-blue);
+  border-color: var(--accent-blue);
   background: var(--el-color-primary-light-9);
 }
 
 /* 已填的格子：白底加淡主题色底线；固定格（标点、空格、给出的字母）不套用 */
 .letter-cell.filled:not(.fixed) {
   background: var(--bg-primary);
-  border-bottom-color: var(--el-color-primary-light-5);
+  border-color: var(--el-color-primary-light-5);
 }
 
 .letter-cell.correct {
-  border-bottom-color: var(--success);
+  border-color: var(--success);
   color: var(--success);
   background: #eaf5f0;
 }
 
 .letter-cell.wrong {
-  border-bottom-color: var(--danger);
+  border-color: var(--danger);
   color: var(--danger);
   background: #fbecee;
 }
@@ -284,11 +284,11 @@ defineExpose({ focus, reset })
   width: 42px;
   min-width: 0;
   padding: 0;
-  font-size: 28px;
-  /* 给出的字母用主题色，和孩子自己填的深色字区分开，不再用灰色 */
+  font-size: 26px;
+  /* 给出的字母用主题色、不带框，和孩子自己填的方格区分开 */
   color: var(--accent-blue);
   background: transparent;
-  border-bottom-color: transparent;
+  border-color: transparent;
 }
 
 .letter-hidden-input {
@@ -302,8 +302,9 @@ defineExpose({ focus, reset })
 @media (max-width: 768px) {
   .letter-cell {
     width: 31px;
-    height: 44px;
-    font-size: 23px;
+    height: 42px;
+    font-size: 21px;
+    border-radius: var(--radius-sm);
   }
   .letter-word {
     gap: 5px;
@@ -313,7 +314,7 @@ defineExpose({ focus, reset })
   }
   .letter-cell.fixed.given {
     width: 31px;
-    font-size: 23px;
+    font-size: 21px;
   }
   .letter-cells {
     gap: 5px;
@@ -325,8 +326,8 @@ defineExpose({ focus, reset })
   .letter-cell,
   .letter-cell.fixed.given {
     width: 27px;
-    height: 42px;
-    font-size: 21px;
+    height: 38px;
+    font-size: 19px;
   }
   .letter-word,
   .letter-cells {
