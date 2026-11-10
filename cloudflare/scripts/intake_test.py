@@ -19,6 +19,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 import analytics  # noqa: E402
+import intake  # noqa: E402
+import settings  # noqa: E402
 import practices  # noqa: E402
 import similar  # noqa: E402
 from knowledge_stats import module_stats  # noqa: E402
@@ -385,6 +387,87 @@ def test_pending_question_rejected_by_create_set_and_similar():
     expect_http(409, lambda: run(similar.generate(pending_id, fake_request({}, db, similar))))
 
 
+# ---------------------------------------------------------------- 任务 4：录入资料接口
+
+
+def guide_request(db):
+    """造 guide 用的假请求，并把 settings.Database 一并换成测试库。"""
+    fake_request({}, db, settings)
+    return fake_request({}, db, intake)
+
+
+def test_guide_returns_catalog_for_grade():
+    """六年级数学返回目录、错因和选项标签。"""
+    c = build_database()
+    db = adapter(c)
+    data = run(intake.guide(guide_request(db), subject_id=1, grade=6, semester=1))
+    assert data['spec_version'] == 1 and data['subject'] == {'id': 1, 'name': '数学'}
+    assert data['subjects'] == [{'id': 1, 'name': '数学'}, {'id': 2, 'name': '英语'}]
+    assert data['catalog_available'] is True
+    assert data['knowledge_modules'] == [{'id': 100, 'name': '分数运算',
+                                          'points': [{'id': 101, 'name': '分数乘法'},
+                                                     {'id': 102, 'name': '分数除法'}]}]
+    assert data['error_types'] == ['概念错误', '计算错误']
+    assert data['paper_types'] == {'homework': '作业', 'chapter_practice': '章节练习', 'exam': '考试'}
+    assert data['exam_kinds'] == {'unit': '单元测', 'midterm': '期中', 'final': '期末', 'other': '其他'}
+    assert data['review_reasons'] == {'wrong_unclear': '不确定这题是否做错了', 'text_unclear': '照片模糊或题干拿不准',
+                                      'kp_unsure': '目录里找不到合适的考点', 'other': '其他'}
+
+
+def test_guide_accepts_subject_name_and_rejects_unknown():
+    """学科可按名称给；没给或找不到返回 400。"""
+    c = build_database()
+    db = adapter(c)
+    assert run(intake.guide(guide_request(db), subject='英语', grade=6))['subject']['id'] == 2
+    expect_http(400, lambda: run(intake.guide(guide_request(db), subject='物理')))
+    expect_http(400, lambda: run(intake.guide(guide_request(db))))
+
+
+def test_guide_marks_missing_catalog():
+    """七年级没有目录时 catalog_available 为 false。"""
+    c = build_database()
+    db = adapter(c)
+    data = run(intake.guide(guide_request(db), subject_id=1, grade=7))
+    assert data['catalog_available'] is False and data['knowledge_modules'] == []
+
+
+def test_guide_uses_app_default_grade():
+    """没给年级学期时用应用默认值；没有默认值就是 null。"""
+    c = build_database()
+    db = adapter(c)
+    data = run(intake.guide(guide_request(db), subject_id=1))
+    assert (data['grade'], data['semester'], data['default_grade']) == (None, None, None)
+    assert data['catalog_available'] is True
+    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('app','{\"default_grade\":6,\"default_semester\":1}',0,CURRENT_TIMESTAMP)")
+    data = run(intake.guide(guide_request(db), subject_id=1))
+    assert (data['grade'], data['semester'], data['default_grade'], data['default_semester']) == (6, 1, 6, 1)
+
+
+def test_guide_rejects_out_of_range_grade_and_semester():
+    """年级、学期超出范围返回 422。"""
+    c = build_database()
+    db = adapter(c)
+    expect_http(422, lambda: run(intake.guide(guide_request(db), subject_id=1, grade=13)))
+    expect_http(422, lambda: run(intake.guide(guide_request(db), subject_id=1, semester=3)))
+
+
+def test_load_catalog_filters_and_skips_deleted():
+    """目录按年级筛选、跳过已删除的点、没有二级考点的模块不出现。"""
+    c = build_database()
+    db = adapter(c)
+    assert run(intake.load_catalog(db, 2, 6, 1)) == [{'id': 200, 'name': '语法', 'points': [{'id': 201, 'name': '一般现在时'}]}]
+    c.execute('UPDATE knowledge_point SET deleted=1 WHERE id=201')
+    assert run(intake.load_catalog(db, 2, 6, 1)) == []
+
+
+def test_load_error_type_names_includes_general():
+    """错因含本学科的和通用的；英语只有通用的。"""
+    c = build_database()
+    db = adapter(c)
+    assert run(intake.load_error_type_names(db, 1)) == {'计算错误', '概念错误'}
+    assert run(intake.load_error_type_names(db, 2)) == {'概念错误'}
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -406,6 +489,13 @@ TESTS = [
     test_pending_question_not_counted_in_grouped_and_primary_counts,
     test_pending_question_not_selected_for_practice,
     test_pending_question_rejected_by_create_set_and_similar,
+    test_guide_returns_catalog_for_grade,
+    test_guide_accepts_subject_name_and_rejects_unknown,
+    test_guide_marks_missing_catalog,
+    test_guide_uses_app_default_grade,
+    test_guide_rejects_out_of_range_grade_and_semester,
+    test_load_catalog_filters_and_skips_deleted,
+    test_load_error_type_names_includes_general,
 ]
 
 

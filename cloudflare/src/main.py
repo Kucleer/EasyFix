@@ -18,6 +18,7 @@ from motivation import router as motivation_router
 from practices import router as practices_router
 from review import router as review_router
 from reports import router as reports_router
+from intake import router as intake_router
 from similar import router as similar_router
 from media import router as media_router
 
@@ -31,6 +32,7 @@ app.include_router(motivation_router)
 app.include_router(practices_router)
 app.include_router(review_router)
 app.include_router(reports_router)
+app.include_router(intake_router)
 app.include_router(similar_router)
 app.include_router(media_router)
 app.include_router(catalog_router)
