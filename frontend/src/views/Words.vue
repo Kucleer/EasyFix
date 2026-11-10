@@ -22,9 +22,21 @@
               <el-icon><Printer /></el-icon>
               打印默写
             </el-button>
+            <el-button @click="startAnnotate">
+              标注词组重点
+            </el-button>
           </div>
         </div>
       </template>
+
+      <!-- 单词 / 词组 统计（后端未返回 by_type 时不显示） -->
+      <div v-if="typeStats" class="type-stats">
+        <div v-for="item in typeStats" :key="item.key" class="type-stat">
+          <span class="type-stat-name">{{ item.label }}</span>
+          <span class="type-stat-num">{{ item.total }} 条</span>
+          <span class="type-stat-acc">正确率 {{ item.accuracyText }}</span>
+        </div>
+      </div>
 
       <!-- 筛选条件 -->
       <div class="filters">
@@ -44,6 +56,13 @@
         </el-select>
         <el-select v-model="filters.tag_id" placeholder="标签" clearable @change="fetchWords" style="width: 150px">
           <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+        <el-select v-model="filters.entry_type" placeholder="类型" clearable @change="onTypeFilterChange" style="width: 110px">
+          <el-option label="单词" value="word" />
+          <el-option label="词组" value="phrase" />
+        </el-select>
+        <el-select v-model="filters.focus_status" placeholder="标注状态" clearable @change="onTypeFilterChange" style="width: 130px">
+          <el-option v-for="(label, key) in FOCUS_STATUS_LABELS" :key="key" :label="label" :value="key" />
         </el-select>
       </div>
 
@@ -71,10 +90,14 @@
         @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column prop="english" label="英文" width="210">
+        <el-table-column prop="english" label="英文" width="260">
           <template #default="{ row }">
             <div class="word-cell">
               <span class="word-english">{{ row.english }}</span>
+              <template v-if="row.entry_type === 'phrase'">
+                <el-tag size="small" type="warning" class="phrase-tag">词组</el-tag>
+                <el-tag size="small" :type="focusStatusTagType(row.focus_status)" class="phrase-tag">{{ FOCUS_STATUS_LABELS[row.focus_status] || '未标注' }}</el-tag>
+              </template>
               <el-button class="audio-btn-table" @click.stop="playWordAudio(row.id)" :loading="audioLoading" circle>
                 <span v-if="!audioLoading">🔊</span>
               </el-button>
@@ -160,7 +183,7 @@
     </el-dialog>
 
     <!-- 详情弹窗 -->
-    <el-dialog v-model="detailVisible" title="单词详情" width="600px">
+    <el-dialog v-model="detailVisible" title="单词详情" width="600px" class="detail-dialog">
       <el-tabs v-if="detailVisible" v-model="activeTab">
         <el-tab-pane label="基本信息" name="info">
           <el-form label-width="80px" size="default">
@@ -180,6 +203,12 @@
             <el-form-item label="正确次数">{{ detailWord.correct_count || 0 }}</el-form-item>
             <el-form-item label="正确率">{{ getAccuracyText(detailWord) }}</el-form-item>
           </el-form>
+        </el-tab-pane>
+        <el-tab-pane v-if="detailWord.entry_type === 'phrase'" label="词组重点" name="focus">
+          <div class="focus-status-line">
+            当前状态：<el-tag size="small" :type="focusStatusTagType(detailWord.focus_status)">{{ FOCUS_STATUS_LABELS[detailWord.focus_status] || '未标注' }}</el-tag>
+          </div>
+          <PhraseFocusEditor :word="detailWord" @saved="onFocusSaved" />
         </el-tab-pane>
         <el-tab-pane label="记忆曲线" name="curve">
           <div v-if="memoryCurve" class="memory-curve">
@@ -386,7 +415,7 @@
     </el-dialog>
 
     <!-- 打印弹窗 -->
-    <el-dialog v-model="printDialogVisible" title="打印默写" width="400px">
+    <el-dialog v-model="printDialogVisible" title="打印默写" width="400px" class="print-dialog">
       <el-form :model="printForm" label-width="80px">
         <el-form-item label="单词数量">
           <el-input-number v-model="printForm.count" :min="5" :max="100" />
@@ -396,12 +425,22 @@
             <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
           </el-select>
         </el-form-item>
+        <el-form-item label="词组档位">
+          <el-radio-group v-model="printForm.dictation_level">
+            <el-radio-button :value="1">重点</el-radio-button>
+            <el-radio-button :value="2">提示</el-radio-button>
+            <el-radio-button :value="3">完整</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="printDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="generatePrintPdf">生成PDF</el-button>
       </template>
     </el-dialog>
+
+    <!-- 词组重点批量标注 -->
+    <PhraseAnnotateDialog ref="annotateDialogRef" @finished="refreshAfterAnnotate" />
 
     <!-- 导入弹窗 -->
     <el-dialog v-model="importDialogVisible" title="导入单词" width="1100px" class="import-dialog">
@@ -498,6 +537,8 @@ orange 橙子"
 <script setup>
 import PageHeading from '@/components/PageHeading.vue'
 import DictationInput from '@/components/DictationInput.vue'
+import PhraseFocusEditor from '@/components/PhraseFocusEditor.vue'
+import PhraseAnnotateDialog from '@/components/PhraseAnnotateDialog.vue'
 import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -518,6 +559,8 @@ const filters = reactive({
   semester: null,
   tag_id: null,
   accuracy_level: null,
+  entry_type: '',      // '' 全部 / 'word' / 'phrase'
+  focus_status: '',    // '' 全部 / 'none' / 'draft' / 'confirmed'
   sort_by: null,
   sort_order: 'desc',
 })
@@ -564,6 +607,17 @@ const accuracyLevelOptions = ref([
   { label: '一般', value: 'good' },
   { label: '掌握', value: 'mastered' },
 ])
+
+// 词组标注状态的中文名与标签颜色
+const FOCUS_STATUS_LABELS = { none: '未标注', draft: '待确认', confirmed: '已确认' }
+const focusStatusTagType = (status) =>
+  status === 'confirmed' ? 'success' : status === 'draft' ? 'warning' : 'info'
+
+// 类型/标注状态筛选变化：回到第一页重新查询
+const onTypeFilterChange = () => {
+  pagination.page = 1
+  fetchWords()
+}
 
 // 切换正确率等级筛选
 const toggleAccuracyLevel = (level) => {
@@ -643,6 +697,7 @@ const printDialogVisible = ref(false)
 const printForm = reactive({
   count: 25,
   grade: appConfigStore.defaultGrade,
+  dictation_level: 1,   // 词组档位：1 重点 / 2 提示 / 3 完整
 })
 
 // 导入相关
@@ -708,6 +763,14 @@ const formatDate = (dateStr) => {
 const detailVisible = ref(false)
 const detailWord = ref({})
 const activeTab = ref('info')
+
+// 词组重点保存成功：同步详情弹窗内的数据并刷新列表
+const onFocusSaved = (updated) => {
+  if (updated && updated.id === detailWord.value.id) {
+    detailWord.value = { ...detailWord.value, ...updated }
+  }
+  fetchWords()
+}
 
 const viewDetail = async (row) => {
   detailWord.value = row
@@ -808,6 +871,8 @@ const fetchWords = async () => {
     if (filters.semester) params.semester = filters.semester
     if (filters.tag_id) params.tag_ids = filters.tag_id
     if (filters.accuracy_level) params.accuracy_level = filters.accuracy_level
+    if (filters.entry_type) params.entry_type = filters.entry_type
+    if (filters.focus_status) params.focus_status = filters.focus_status
     if (filters.sort_by) {
       params.sort_by = filters.sort_by
       params.sort_order = filters.sort_order
@@ -1170,6 +1235,36 @@ const finishReview = async () => {
   }
 }
 
+// 词组重点批量标注（由家长点击触发）
+const annotateDialogRef = ref(null)
+const startAnnotate = () => {
+  annotateDialogRef.value?.start()
+}
+const refreshAfterAnnotate = () => {
+  fetchWords()
+  fetchTypeStats()
+}
+
+// 单词/词组分开统计；后端没有 by_type 时为 null，页面不显示
+const typeStatsRaw = ref(null)
+const typeStats = computed(() => {
+  const by = typeStatsRaw.value
+  if (!by || !by.word || !by.phrase) return null
+  const fmt = (v) => (v === null || v === undefined ? '--' : `${Math.round(v * 10) / 10}%`)
+  return [
+    { key: 'word', label: '单词', total: by.word.total ?? 0, accuracyText: fmt(by.word.accuracy) },
+    { key: 'phrase', label: '词组', total: by.phrase.total ?? 0, accuracyText: fmt(by.phrase.accuracy) },
+  ]
+})
+const fetchTypeStats = async () => {
+  try {
+    const { data } = await wordApi.getStats()
+    typeStatsRaw.value = data?.by_type || null
+  } catch (error) {
+    typeStatsRaw.value = null
+  }
+}
+
 // 打印
 const showPrintDialog = () => {
   printDialogVisible.value = true
@@ -1177,7 +1272,7 @@ const showPrintDialog = () => {
 
 const generatePrintPdf = async () => {
   try {
-    const params = { count: printForm.count }
+    const params = { count: printForm.count, dictation_level: printForm.dictation_level }
     if (printForm.grade) params.grade = printForm.grade
 
     const { data } = await wordApi.printPdf(params)
@@ -1426,6 +1521,7 @@ onMounted(async () => {
   if (importForm.semester == null) importForm.semester = appConfigStore.defaultSemester
   fetchWords()
   fetchTags()
+  fetchTypeStats()
 })
 </script>
 
@@ -2230,6 +2326,57 @@ onMounted(async () => {
   gap:18px}
 .question-content {
   min-width:0}
+}
+
+.phrase-tag {
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.focus-status-line {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+}
+
+.type-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.type-stat {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+}
+
+.type-stat-name {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.type-stat-num {
+  color: var(--accent-blue);
+  font-weight: var(--font-weight-bold);
+}
+
+.type-stat-acc {
+  color: var(--text-secondary);
+  font-size: var(--font-small);
+}
+</style>
+
+<style>
+/* 手机上限制弹窗宽度，避免横向溢出 */
+.detail-dialog,
+.print-dialog {
+  max-width: 94vw;
 }
 </style>
 

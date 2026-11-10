@@ -57,6 +57,16 @@ export const wordApi = {
     return api.post('/words/print-pdf', null, { params })
   },
 
+  // 批量标注词组重点（调用 LLM，耗时较长，单独放宽超时到 120 秒）
+  annotateFocus(wordIds) {
+    return api.post('/words/focus/annotate', { word_ids: wordIds }, { timeout: 120000 })
+  },
+
+  // 批量新增单词（words: [{english, chinese, grade?, semester?}]）
+  createBatch(words) {
+    return api.post('/words/batch', { words })
+  },
+
   // 获取单词记忆曲线
   getMemoryCurve(wordId) {
     return api.get(`/words/${wordId}/memory-curve`)
