@@ -21,6 +21,9 @@ router = APIRouter()
 
 REQUEST_ID_PATTERN = re.compile(r'^[A-Za-z0-9-]{8,64}$')
 VERSION_MISMATCH_TEXT = '录入规范版本不一致，请先更新录入规范（重新运行安装脚本）'
+MAX_PARENT_REPLY_LENGTH = 200
+PARENT_REPLY_TEXT = ('还没有写明家长是怎么回答的。提交前要问家长一次"这是哪份作业或卷子？如果是考试，多少分？"，'
+                     '把家长的回答（原话、"跳过"或"家长说不用问"）写进 parent_reply。')
 # 题目表里由本接口写入的列；每一项在传给数据库的 JSON 里同名
 QUESTION_FIELDS = ('id', 'subject_id', 'student_id', 'paper_id', 'paper_page', 'question_no', 'original_image',
                    'original_images', 'original_text', 'parsed_question', 'answer', 'analysis', 'wrong_answer',
@@ -229,6 +232,30 @@ async def decide_all(db, subject, paper, questions):
         question['status'], question['reasons'] = decide_review(question, bool(catalog))
 
 
+def parent_reply_errors(payload):
+    """家长的回答必须写明：文字、去掉首尾空白后不为空、最长 200 个字符；不合格返回一条卷子级问题。"""
+    reply = payload.get('parent_reply')
+    if isinstance(reply, str) and 1 <= len(reply.strip()) <= MAX_PARENT_REPLY_LENGTH:
+        return []
+    return [error_item(None, PARENT_REPLY_TEXT)]
+
+
+async def fill_default_grade(request, raw_paper):
+    """年级、学期没给（缺省或为 null）时用应用默认值，两者各自独立补；返回补完后的卷子副本。
+
+    默认值也没有时保持为空。必须在读考点目录、判定待核对之前调用。
+    """
+    filled = dict(raw_paper)
+    if filled.get('grade') is not None and filled.get('semester') is not None:
+        return filled
+    app_config = await settings.load(request, 'app')
+    if filled.get('grade') is None:
+        filled['grade'] = app_config.get('default_grade')
+    if filled.get('semester') is None:
+        filled['semester'] = app_config.get('default_semester')
+    return filled
+
+
 async def validate_submission(request, db, payload):
     """试提交和正式提交共用的全部检查，不写任何数据。
 
@@ -236,7 +263,8 @@ async def validate_submission(request, db, payload):
     问题的顺序：卷子和公式的问题（index 为 None）在前，题目的问题按序号。
     """
     raw_paper, raw_questions = payload.get('paper'), payload.get('questions')
-    paper_errors = paper_level_errors(raw_paper, raw_questions)
+    # 家长的回答排在卷子级问题的最前面
+    paper_errors = parent_reply_errors(payload) + paper_level_errors(raw_paper, raw_questions)
     result = {'errors': paper_errors, 'subject': None, 'paper': None, 'questions': []}
     if not isinstance(raw_paper, dict):
         return result
@@ -245,6 +273,8 @@ async def validate_submission(request, db, payload):
         paper_errors.append(error_item(None, '学科不存在'))
         return result
     result['subject'] = subject
+    # 先补年级学期：后面的整理、考点目录、待核对判断都用补完之后的值
+    raw_paper = await fill_default_grade(request, raw_paper)
     paper = None
     try:
         paper = normalize_paper(raw_paper, subject['name'], stamp_now()[:10])

@@ -28,7 +28,7 @@ import practices  # noqa: E402
 import similar  # noqa: E402
 from knowledge_stats import module_stats  # noqa: E402
 from intake_model import (IntakeError, MAX_QUESTIONS, decide_review, default_paper_name,  # noqa: E402
-                          normalize_paper, normalize_question)
+                          find_broken_backslash, normalize_paper, normalize_question)
 
 SCHEMA_FILE = ROOT / 'scripts' / 'd1_schema_before_0011.sql'
 MIGRATION_FILE = ROOT / 'migrations' / '0011_intake_papers.sql'
@@ -497,10 +497,11 @@ def with_noop_validator(function):
 
 
 def sample_payload(**overrides):
-    """返回一份合格的六年级数学卷子请求；spec_version、request_id 改顶层，其余键改 paper。"""
+    """返回一份合格的六年级数学卷子请求；spec_version、request_id、parent_reply 改顶层，其余键改 paper。"""
     payload = {
         'spec_version': 1,
         'request_id': uuid.uuid4().hex[:20],
+        'parent_reply': '跳过',
         'paper': {'subject_id': 1, 'grade': 6, 'semester': 1, 'name': '', 'paper_type': 'homework',
                   'images': ['2026/11/aaaaaaaa_p1.jpg', '2026/11/bbbbbbbb_p2.jpg']},
         'questions': [
@@ -515,7 +516,7 @@ def sample_payload(**overrides):
         ],
     }
     for key, value in overrides.items():
-        if key in ('spec_version', 'request_id'):
+        if key in ('spec_version', 'request_id', 'parent_reply'):
             payload[key] = value
         else:
             payload['paper'][key] = value
@@ -990,6 +991,134 @@ def test_manual_paper_rejects_images():
     expect_http(400, lambda: run(call_endpoint(papers, papers.create, {'subject_id': 999}, db)))
 
 
+# ---------------------------------------------------------------- 任务 5b：录入接口的三处加固
+
+
+def set_app_config(c, db, value):
+    """写入应用配置（默认年级、学期），并把 settings.Database 换成测试库。"""
+    fake_request({}, db, settings)
+    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('app',?,0,CURRENT_TIMESTAMP)",
+              (json.dumps(value),))
+
+
+def test_find_broken_backslash():
+    """被写坏的反斜杠：控制字符、公式内的换行都能认出来，正常文字不误伤。"""
+    assert find_broken_backslash('计算：\\(\\frac{1}{2}\\times 3\\)') is None      # 正常的公式
+    assert find_broken_backslash('第一行\n第二行') is None                          # 公式外的换行正常
+    for bad in ['\\(\x0crac{1}{2}\\)', '2\times 3', '\\(a\right)\\)', '\\(a\neq b\\)', '退格\x08', '\x7f']:
+        assert '反斜杠' in find_broken_backslash(bad), repr(bad)
+    assert find_broken_backslash('\\[a\n=b\\]') is not None                         # 公式里的换行
+    assert find_broken_backslash('$$x\ny$$') is not None
+    # 固定说明文字：两个反斜杠加 frac、times
+    assert find_broken_backslash('\x08') == '公式里的反斜杠没有写对：JSON 里每个反斜杠要写成两个，比如 \\\\frac、\\\\times。请改好后重新提交。'
+
+
+def test_question_and_paper_reject_broken_backslash():
+    """题目各字段和卷子名称、备注里的坏反斜杠整理时被拒绝，说明里带字段名。"""
+    expect_intake_error('题干', lambda: normalize_question({'parsed_question': '\\(\x0crac{1}{2}\\)'}, 0, None))
+    expect_intake_error('孩子的答案', lambda: normalize_question({'parsed_question': '题干', 'wrong_answer': '2\times 3'}, 0, None))
+    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '题干', 'analysis': '\\(a\neq b\\)'}, 0, None))
+    expect_intake_error('名称', lambda: normalize_paper({'name': '第\t三章'}, '数学', '2026-11-10'))
+    expect_intake_error('备注', lambda: normalize_paper({'notes': '\\(a\neq b\\)'}, '数学', '2026-11-10'))
+    # 其余字段也逐个检查
+    for key, label in [('answer', '正确答案'), ('wrong_evidence', '判错依据'), ('review_note', '疑问说明'), ('question_no', '题号')]:
+        expect_intake_error(label, lambda key=key: normalize_question({'parsed_question': '题干', key: '\x0c'}, 0, None))
+    expect_intake_error('题干：公式里的反斜杠没有写对', lambda: normalize_question({'parsed_question': '\x08'}, 0, None))
+
+
+@with_noop_validator
+def test_submit_rejects_broken_backslash_and_writes_nothing():
+    """第 2 题的正确答案里有被写坏的 \\times：整份不写入，错误在 index 1。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload(); payload['questions'][1]['answer'] = '2\times 3'
+    question_total = c.execute('SELECT COUNT(*) FROM question').fetchone()[0]
+    for status, body in (submit(db, payload), (422, {'errors': check_only(db, payload)[1]['errors']})):
+        assert status == 422 and [e['index'] for e in body['errors']] == [1]
+        assert '正确答案' in body['errors'][0]['detail'] and '反斜杠' in body['errors'][0]['detail']
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
+    assert c.execute('SELECT COUNT(*) FROM request_record').fetchone()[0] == 0
+    assert c.execute('SELECT COUNT(*) FROM question').fetchone()[0] == question_total
+
+
+@with_noop_validator
+def test_default_grade_and_semester_are_filled():
+    """请求不带年级学期时用应用默认值：试提交能看到，入库的卷子和题目都带上。"""
+    c = build_database(); db = adapter(c)
+    set_app_config(c, db, {'default_grade': 6, 'default_semester': 1})
+    status, body = check_only(db, sample_payload(grade=None, semester=None))
+    assert status == 200 and body['ok'] is True and (body['paper']['grade'], body['paper']['semester']) == (6, 1)
+    payload = sample_payload(); del payload['paper']['grade']; del payload['paper']['semester']
+    status, body = submit(db, payload)
+    assert status == 201 and (body['paper']['grade'], body['paper']['semester']) == (6, 1)
+    assert tuple(c.execute('SELECT grade,semester FROM paper WHERE id=?', (body['paper']['id'],)).fetchone()) == (6, 1)
+    rows = c.execute('SELECT grade,semester FROM question WHERE paper_id=?', (body['paper']['id'],)).fetchall()
+    assert [tuple(r) for r in rows] == [(6, 1), (6, 1)]
+
+
+@with_noop_validator
+def test_default_grade_only_fills_missing_values():
+    """请求给了的值不动，只补没给的；没有默认值时保持为空。"""
+    c = build_database(); db = adapter(c)
+    set_app_config(c, db, {'default_grade': 6, 'default_semester': 1})
+    payload = sample_payload(grade=7, semester=None)
+    for q in payload['questions']:
+        q.update(knowledge_point_ids=[], primary_knowledge_point_id=None)
+    status, body = check_only(db, payload)
+    assert status == 200 and (body['paper']['grade'], body['paper']['semester']) == (7, 1)
+    # 没有默认值：两者保持为空，提交成功
+    c2 = build_database(); db2 = adapter(c2)
+    fake_request({}, db2, settings)
+    status, body = submit(db2, sample_payload(grade=None, semester=None))
+    assert status == 201 and (body['paper']['grade'], body['paper']['semester']) == (None, None)
+    rows = c2.execute('SELECT grade,semester FROM question WHERE paper_id=?', (body['paper']['id'],)).fetchall()
+    assert [tuple(r) for r in rows] == [(None, None), (None, None)]
+
+
+@with_noop_validator
+def test_default_grade_decides_catalog():
+    """默认年级是 7（没有考点目录）时，不带考点的题照样直接入库，待核对数为 0。"""
+    c = build_database(); db = adapter(c)
+    set_app_config(c, db, {'default_grade': 7, 'default_semester': 1})
+    payload = sample_payload(grade=None, semester=None)
+    for q in payload['questions']:
+        q.update(knowledge_point_ids=[], primary_knowledge_point_id=None)
+    status, body = submit(db, payload)
+    assert status == 201 and body['pending_count'] == 0 and body['paper']['grade'] == 7
+
+
+@with_noop_validator
+def test_parent_reply_is_required():
+    """parent_reply 缺省、空、只有空白、不是文字、超过 200 字都被拒绝；写了家长的话就通过。"""
+    c = build_database(); db = adapter(c)
+    missing = sample_payload(); del missing['parent_reply']
+    cases = [missing, sample_payload(parent_reply=''), sample_payload(parent_reply='  \n '),
+             sample_payload(parent_reply=5), sample_payload(parent_reply='a' * 201)]
+    for payload in cases:
+        status, body = check_only(db, payload)
+        assert status == 200 and body['ok'] is False and body['errors'][0]['index'] is None, payload.get('parent_reply')
+        assert '家长' in body['errors'][0]['detail']
+        status, body = submit(db, payload)
+        assert status == 422 and '家长' in body['errors'][0]['detail']
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
+    assert check_only(db, sample_payload(parent_reply='a' * 200))[1]['ok'] is True
+    assert check_only(db, sample_payload(parent_reply='家长说不用问'))[1]['ok'] is True
+    status, body = submit(db, sample_payload(parent_reply='家长说不用问'))
+    assert status == 201
+    # 字段不入库，也不影响卷子名称
+    assert body['paper']['name'] == '数学习题 ' + body['paper']['paper_date']
+
+
+@with_noop_validator
+def test_parent_reply_not_checked_on_replay():
+    """同一个 request_id 重交时不再检查 parent_reply：返回 200 和 replayed。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    assert submit(db, payload)[0] == 201
+    del payload['parent_reply']
+    status, body = submit(db, payload)
+    assert status == 200 and body['replayed'] is True
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -1048,6 +1177,14 @@ TESTS = [
     test_history_paper_restrictions,
     test_delete_rules,
     test_manual_paper_rejects_images,
+    test_find_broken_backslash,
+    test_question_and_paper_reject_broken_backslash,
+    test_submit_rejects_broken_backslash_and_writes_nothing,
+    test_default_grade_and_semester_are_filled,
+    test_default_grade_only_fills_missing_values,
+    test_default_grade_decides_catalog,
+    test_parent_reply_is_required,
+    test_parent_reply_not_checked_on_replay,
 ]
 
 

@@ -59,7 +59,7 @@ def build_payload(client, evidence='老师打叉', empty_pages=()):
                   'error_type': guide['error_types'][0], 'knowledge_point_ids': [point_id],
                   'primary_knowledge_point_id': point_id} for page in (1, 2)]
     return {'spec_version': guide['spec_version'], 'request_id': uuid.uuid4().hex[:20],
-            'paper': {'subject_id': 1, 'grade': 6, 'semester': 1, 'name': '', 'paper_type': 'homework',
+            'parent_reply': '跳过', 'paper': {'subject_id': 1, 'grade': 6, 'semester': 1, 'name': '', 'paper_type': 'homework',
                       'images': images}, 'questions': questions}
 
 

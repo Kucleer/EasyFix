@@ -22,12 +22,17 @@ DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 QUESTION_TEXT_FIELDS = (
     ('question_no', '题号'),
     ('parsed_question', '题干'),
-    ('answer', '答案'),
+    ('answer', '正确答案'),
     ('analysis', '解析'),
     ('wrong_answer', '孩子的答案'),
-    ('wrong_evidence', '错误依据'),
-    ('review_note', '核对备注'),
+    ('wrong_evidence', '判错依据'),
+    ('review_note', '疑问说明'),
 )
+
+BROKEN_BACKSLASH_TEXT = ('公式里的反斜杠没有写对：JSON 里每个反斜杠要写成两个，比如 \\\\frac、\\\\times。'
+                         '请改好后重新提交。')
+# 公式的三种写法：\( \)、\[ \]、$$ $$；用最短匹配，每个公式单独取出
+MATH_SPAN_PATTERN = re.compile(r'\\\(.*?\\\)|\\\[.*?\\\]|\$\$.*?\$\$', re.DOTALL)
 
 
 class IntakeError(ValueError):
@@ -56,13 +61,34 @@ def default_paper_name(subject_name, paper_date):
     return '%s习题 %s' % (subject_name, paper_date)
 
 
+def find_broken_backslash(text):
+    """文字里有被写坏的反斜杠时返回一句给人看的说明，没有问题返回 None。
+
+    JSON 里反斜杠没写成两个时，\\f、\\t、\\r、\\n、\\b 会变成换页、制表、回车、换行、退格。
+    """
+    # 换行以外的控制字符（含删除符 127）在正常文字里不会出现
+    for char in text:
+        code = ord(char)
+        if (code < 32 and char != '\n') or code == 127:
+            return BROKEN_BACKSLASH_TEXT
+    # 公式内部不该有换行，\neq、\nu 被写坏时就是这样；公式外的换行是正常的
+    for span in MATH_SPAN_PATTERN.finditer(text):
+        if '\n' in span.group():
+            return BROKEN_BACKSLASH_TEXT
+    return None
+
+
 def read_text(raw, key, label):
-    """读取文字字段：没有或为空返回空字符串，不是文字就报错，去掉首尾空白。"""
+    """读取文字字段：没有或为空返回空字符串，不是文字就报错，坏反斜杠报错，去掉首尾空白。"""
     value = raw.get(key)
     if value is None:
         return ''
     if not isinstance(value, str):
         raise IntakeError('%s必须是文字' % label)
+    # 必须在去空白之前检查：换页、制表等本身算空白，去掉后就查不出来了
+    problem = find_broken_backslash(value)
+    if problem:
+        raise IntakeError('%s：%s' % (label, problem))
     return value.strip()
 
 
@@ -139,7 +165,7 @@ def normalize_paper(raw, subject_name, today):
             raise IntakeError('考试类型不对，只能是 %s' % '、'.join(EXAM_KINDS))
 
     paper_date = normalize_paper_date(raw.get('paper_date'), today)
-    name = read_text(raw, 'name', '卷子名称')
+    name = read_text(raw, 'name', '名称')
     if not name:
         name = default_paper_name(subject_name, paper_date)
     score, full_score = normalize_paper_scores(raw)
