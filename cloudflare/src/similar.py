@@ -17,6 +17,7 @@ async def generate(question_id:int,request:Request):
     db=Database(request.scope['env'].DB)
     original=await db.first('SELECT q.*,s.name AS subject_name FROM question q JOIN subject s ON s.id=q.subject_id AND s.deleted=0 WHERE q.id=? AND q.deleted=0',(question_id,))
     if not original:raise HTTPException(404,'错题不存在')
+    if original['review_status']!='approved':raise HTTPException(409,'这道题还在待核对，处理后才能生成相似题')
     text = original['parsed_question'] or original['original_text']
     if not text:
         raise HTTPException(400, '错题文本为空，无法生成相似题')

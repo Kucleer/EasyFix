@@ -6,6 +6,7 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Query, Request
 from database import Database
+from question_scope import COUNTED, counted
 from knowledge_stats import COUNTING_MODE, module_stats, taxonomy_version
 from settings import generate_json
 
@@ -20,7 +21,7 @@ def now():
 async def grouped(db, field, grade=None, subject_id=None):
     """只允许固定字段进行分组统计。"""
     assert field in ('difficulty', 'error_type', 'grade', 'semester')
-    filters, values = ['deleted=0'], []
+    filters, values = [COUNTED], []
     for key, value in [('grade', grade), ('subject_id', subject_id)]:
         if value is not None:
             filters.append(key + '=?')
@@ -39,7 +40,7 @@ async def grouped(db, field, grade=None, subject_id=None):
 
 async def primary_module_counts(db, grade=None):
     """一次查询返回各学科的一级模块收录题数，供首页兼容字段使用。"""
-    filters, values = ['q.deleted=0'], []
+    filters, values = [counted('q')], []
     if grade is not None:
         filters.append('q.grade=?')
         values.append(grade)
@@ -60,10 +61,10 @@ async def summary(request: Request, grade: int | None = Query(None, ge=1, le=12)
     """按原统计口径返回错题分布、学段分布与单词复习信息。"""
     db = Database(request.scope['env'].DB)
     condition, values = (' AND grade=?', [grade]) if grade is not None else ('', [])
-    q = await db.first('SELECT COUNT(*) AS total,SUM(COALESCE(review_count,0)=0 OR (review_count>0 AND correct_count=0)) AS due,COUNT(DISTINCT date(created_at)) AS days FROM question WHERE deleted=0' + condition, values)
+    q = await db.first('SELECT COUNT(*) AS total,SUM(COALESCE(review_count,0)=0 OR (review_count>0 AND correct_count=0)) AS due,COUNT(DISTINCT date(created_at)) AS days FROM question WHERE ' + COUNTED + condition, values)
     totals = await db.first('SELECT (SELECT COUNT(*) FROM subject WHERE deleted=0) AS subjects,(SELECT COUNT(*) FROM error_book WHERE deleted=0) AS books')
     module_counts = await primary_module_counts(db, grade)
-    subjects = await db.all('SELECT s.id,s.name,COUNT(q.id) AS count FROM subject s JOIN question q ON q.subject_id=s.id AND q.deleted=0 WHERE s.deleted=0' + (' AND q.grade=?' if grade is not None else '') + ' GROUP BY s.id,s.name', values)
+    subjects = await db.all('SELECT s.id,s.name,COUNT(q.id) AS count FROM subject s JOIN question q ON q.subject_id=s.id AND ' + counted('q') + ' WHERE s.deleted=0' + (' AND q.grade=?' if grade is not None else '') + ' GROUP BY s.id,s.name', values)
     by_subject = []
     for s in subjects:
         practices = await db.first('SELECT COUNT(*) AS count FROM practice_set WHERE subject_id=? AND deleted=0', (s['id'],))
@@ -73,13 +74,13 @@ async def summary(request: Request, grade: int | None = Query(None, ge=1, le=12)
                            'difficulty_distribution': await grouped(db, 'difficulty', grade, s['id']),
                            'knowledge_point_counts': module_counts.get(s['id'], {})})
     wg = await db.all('SELECT grade,COUNT(*) AS count FROM word WHERE deleted=0 AND grade IS NOT NULL GROUP BY grade')
-    qg = await db.all('SELECT grade,COUNT(*) AS count FROM question WHERE deleted=0 AND grade IS NOT NULL GROUP BY grade')
+    qg = await db.all('SELECT grade,COUNT(*) AS count FROM question WHERE ' + COUNTED + ' AND grade IS NOT NULL GROUP BY grade')
     wm, qm = {r['grade']: r['count'] for r in wg}, {r['grade']: r['count'] for r in qg}
     by_grade = [{'grade': g, 'question_count': qm.get(g, 0), 'word_count': wm.get(g, 0),
                  'difficulty_distribution': await grouped(db, 'difficulty', g)} for g in sorted(set(wm) | set(qm))]
     by_semester = []
     for semester, count in (await grouped(db, 'semester', grade)).items():
-        rows = await db.all('SELECT difficulty,COUNT(*) AS count FROM question WHERE deleted=0 AND semester=?'
+        rows = await db.all('SELECT difficulty,COUNT(*) AS count FROM question WHERE ' + COUNTED + ' AND semester=?'
                             + condition + ' GROUP BY difficulty', [int(semester), *values])
         by_semester.append({'semester': int(semester), 'question_count': count,
                             'difficulty_distribution': {str(r['difficulty']): r['count'] for r in rows}})
@@ -150,7 +151,7 @@ async def full(request: Request, subject_id: int | None = Query(None, ge=1)):
     """用数据库聚合生成完整分析，避免 ORM 初始化开销。"""
     db = Database(request.scope['env'].DB)
     condition, values = (' AND subject_id=?', [subject_id]) if subject_id is not None else ('', [])
-    q = await db.first('SELECT COUNT(*) AS total,SUM(COALESCE(review_count,0)=0) AS none,SUM(review_count=1) AS once,SUM(review_count>1) AS multiple FROM question WHERE deleted=0' + condition, values)
+    q = await db.first('SELECT COUNT(*) AS total,SUM(COALESCE(review_count,0)=0) AS none,SUM(review_count=1) AS once,SUM(review_count>1) AS multiple FROM question WHERE ' + COUNTED + condition, values)
     modules = await module_stats(db, subject_id=subject_id, level=1)
     modules_by_id = {item['id']: item for item in modules['items']}
     qcurve = await db.all('SELECT date(p.created_at) AS date,SUM(pq.is_correct) AS correct,COUNT(*) AS total FROM practice_set_question pq JOIN practice_set p ON p.id=pq.practice_set_id WHERE p.deleted=0 AND pq.deleted=0 AND p.source_type="question" AND p.reviewed=1 AND pq.is_correct IS NOT NULL' + (' AND p.subject_id=?' if subject_id is not None else '') + ' GROUP BY date(p.created_at) ORDER BY date', values)
@@ -182,7 +183,7 @@ async def full(request: Request, subject_id: int | None = Query(None, ge=1)):
             'FROM knowledge_point k '
             'JOIN knowledge_point m ON m.id=k.parent_id AND m.deleted=0 AND m.level=1 '
             'LEFT JOIN question_knowledge_point l ON l.knowledge_point_id=k.id AND l.deleted=0 '
-            'LEFT JOIN question q ON q.id=l.question_id AND q.deleted=0 '
+            'LEFT JOIN question q ON q.id=l.question_id AND ' + counted('q') + ' '
             'WHERE k.deleted=0 AND k.level=2' + (' AND k.subject_id=?' if subject_id is not None else '')
             + ' GROUP BY k.id ORDER BY k.parent_id,k.id', values):
         child = {'id': str(row['id']), 'name': row['name'], 'level': 2,

@@ -18,6 +18,10 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
+import analytics  # noqa: E402
+import practices  # noqa: E402
+import similar  # noqa: E402
+from knowledge_stats import module_stats  # noqa: E402
 from intake_model import (IntakeError, MAX_QUESTIONS, decide_review, default_paper_name,  # noqa: E402
                           normalize_paper, normalize_question)
 
@@ -282,6 +286,105 @@ def test_max_questions_constant():
     assert MAX_QUESTIONS == 100
 
 
+# ---------------------------------------------------------------- 任务 3 的测试助手
+
+
+def add_question(connection, subject_id=1, status='approved', point_id=101, grade=6, semester=1):
+    """插入一道指定审核状态的题；point_id 不为 None 时再挂上一条主考点关联，返回题目编号。"""
+    cursor = connection.execute(
+        'INSERT INTO question(subject_id,grade,semester,original_text,parsed_question,'
+        'review_count,correct_count,error_count,review_status,deleted,created_at,updated_at) '
+        "VALUES(?,?,?,'新题','新题',0,0,0,?,0,'2026-11-01 00:00:00','2026-11-01 00:00:00')",
+        (subject_id, grade, semester, status))
+    question_id = cursor.lastrowid
+    if point_id is not None:
+        connection.execute(
+            'INSERT INTO question_knowledge_point(question_id,knowledge_point_id,is_primary,source,deleted,'
+            "created_at,updated_at) VALUES(?,?,1,'manual',0,'2026-11-01 00:00:00','2026-11-01 00:00:00')",
+            (question_id, point_id))
+    connection.commit()
+    return question_id
+
+
+class FakeEnv:
+    """伪造 Cloudflare 的 env，DB 属性放测试库。"""
+
+    def __init__(self, db):
+        self.DB = db
+
+
+class FakeRequest:
+    """伪造 FastAPI 的 Request，只提供 scope 与 json()。"""
+
+    def __init__(self, payload, db):
+        self.scope = {'env': FakeEnv(db)}
+        self.payload = payload
+
+    async def json(self):
+        """返回构造时给定的请求体。"""
+        return self.payload
+
+
+def fake_request(payload, db, module):
+    """造一个假请求，并把 module.Database 换成"原样返回 env.DB"的函数。
+
+    替换会一直保留到测试进程结束（协程是在这之后才运行的，不能提前还原）；
+    每个测试都自己建库并通过请求的 env 传入，所以不会互相串库。
+    """
+    module.Database = lambda binding: binding
+    return FakeRequest(payload, db)
+
+
+async def call_endpoint(module, endpoint, payload, db):
+    """用假请求调用模块里的接口函数并等待结果。"""
+    return await endpoint(fake_request(payload, db, module))
+
+
+# ---------------------------------------------------------------- 任务 3：统计口径
+
+
+def test_pending_question_not_counted_in_module_stats():
+    """待核对的题不进考点统计；通过后才计入。"""
+    c = build_database()
+    db = adapter(c)
+    before = run(module_stats(db, subject_id=1, level=1))['total_questions']
+    pending_id = add_question(c, status='pending')
+    assert run(module_stats(db, subject_id=1, level=1))['total_questions'] == before
+    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
+    assert run(module_stats(db, subject_id=1, level=1))['total_questions'] == before + 1
+
+
+def test_pending_question_not_counted_in_grouped_and_primary_counts():
+    """待核对的题不进分组统计和一级模块题数。"""
+    c = build_database()
+    db = adapter(c)
+    before = run(analytics.grouped(db, 'grade'))
+    before_modules = run(analytics.primary_module_counts(db))
+    add_question(c, status='pending')
+    assert run(analytics.grouped(db, 'grade')) == before
+    assert run(analytics.primary_module_counts(db)) == before_modules
+
+
+def test_pending_question_not_selected_for_practice():
+    """自动选题不会选中待核对的题。"""
+    c = build_database()
+    db = adapter(c)
+    c.execute('UPDATE question SET deleted=1')  # 只留一道待核对的题
+    add_question(c, status='pending')
+    expect_http(400, lambda: run(call_endpoint(practices, practices.generate_questions,
+                                               {'subject_id': 1, 'count': 5}, db)))
+
+
+def test_pending_question_rejected_by_create_set_and_similar():
+    """手工建卷和生成相似题都拒绝待核对的题。"""
+    c = build_database()
+    db = adapter(c)
+    pending_id = add_question(c, status='pending')
+    expect_http(400, lambda: run(call_endpoint(practices, practices.create,
+                                               {'question_ids': [pending_id]}, db)))
+    expect_http(409, lambda: run(similar.generate(pending_id, fake_request({}, db, similar))))
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -299,6 +402,10 @@ TESTS = [
     test_question_review_fields_rules,
     test_decide_review,
     test_max_questions_constant,
+    test_pending_question_not_counted_in_module_stats,
+    test_pending_question_not_counted_in_grouped_and_primary_counts,
+    test_pending_question_not_selected_for_practice,
+    test_pending_question_rejected_by_create_set_and_similar,
 ]
 
 

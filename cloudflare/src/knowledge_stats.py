@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 
+from question_scope import counted
+
 COUNTING_MODE = 'level1_primary_share+module_practice_accuracy'
 
 
@@ -50,7 +52,7 @@ async def module_stats(db, subject_id=None, grade=None, days=None, level=1, pare
     保证删除或时间窗口变化后不会静默丢失模块。
     """
     scope, scope_values = scoped_filters(subject_id, grade)
-    question_where = ['q.deleted=0', *scope, *recency_filter(days, 'q.created_at')[0]]
+    question_where = [counted('q'), *scope, *recency_filter(days, 'q.created_at')[0]]
     question_values = [*scope_values, *recency_filter(days, 'q.created_at')[1]]
     practice_where = ['pq.deleted=0', 'pq.is_correct IS NOT NULL', *scope,
                       *recency_filter(practice_days, 'p.last_reviewed_at')[0]]
@@ -93,7 +95,7 @@ async def module_stats(db, subject_id=None, grade=None, days=None, level=1, pare
         'COUNT(DISTINCT CASE WHEN pq.is_correct=1 THEN pq.id END) AS correct_count '
         'FROM practice_set_question pq '
         "JOIN practice_set p ON p.id=pq.practice_set_id AND p.deleted=0 AND p.reviewed=1 AND p.source_type='question' "
-        'JOIN question q ON q.id=pq.question_id AND q.deleted=0 '
+        'JOIN question q ON q.id=pq.question_id AND ' + counted('q') + ' '
         'JOIN question_knowledge_point l ON l.question_id=q.id AND l.deleted=0 '
         'JOIN knowledge_point k ON k.id=l.knowledge_point_id AND k.deleted=0 AND k.level=2 '
         'JOIN knowledge_point m ON m.id=k.parent_id AND m.deleted=0 AND m.level=1 '

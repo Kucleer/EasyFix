@@ -47,7 +47,7 @@ CREATE TABLE question (
   semester INTEGER, parsed_question TEXT, answer TEXT, analysis TEXT, analysis_image VARCHAR(500),
   difficulty INTEGER, error_type VARCHAR(50), knowledge_point VARCHAR(200),
   review_count INTEGER NOT NULL, correct_count INTEGER NOT NULL, error_count INTEGER NOT NULL,
-  last_reviewed_at TIMESTAMP, deleted BOOLEAN NOT NULL, created_at TIMESTAMP, updated_at TIMESTAMP,
+  last_reviewed_at TIMESTAMP, review_status TEXT NOT NULL DEFAULT 'approved', deleted BOOLEAN NOT NULL, created_at TIMESTAMP, updated_at TIMESTAMP,
   CONSTRAINT question_pkey PRIMARY KEY (id));
 CREATE TABLE question_tag (id INTEGER PRIMARY KEY, question_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE tag (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, color VARCHAR(50), deleted BOOLEAN NOT NULL DEFAULT 0);

@@ -5,6 +5,7 @@ import random
 from fastapi import APIRouter,HTTPException,Query,Request
 from database import Database
 from analytics import now
+from question_scope import COUNTED
 from knowledge import (ensure_guard_rows,guard_statement,link_statements,
                        question_links,resolve_many,structure_statement)
 from knowledge_model import map_error, projection_name
@@ -127,6 +128,7 @@ async def create_set(request,payload):
     rows=await db.all('SELECT * FROM question WHERE deleted=0 AND id IN ('+','.join('?' for _ in ids)+')',ids)
     if len(rows)!=len(ids):raise HTTPException(400,'部分题目不存在或已删除')
     if len({row['subject_id'] for row in rows})!=1:raise HTTPException(400,'请选择同一学科的题目')
+    if any(row['review_status']!='approved' for row in rows):raise HTTPException(400,'所选题目里有待核对的题，请先处理')
     similar_ids={}
     if payload.get('question_type')=='similar':
         from similar import generate
@@ -153,7 +155,7 @@ async def generate_questions(request:Request):
     payload=await request.json();db=Database(request.scope['env'].DB)
     count=payload.get('count',5)
     if type(count) is not int or not 1<=count<=90:raise HTTPException(422,'题数需在1至90之间')
-    rows=await db.all('SELECT id FROM question WHERE deleted=0 AND subject_id=?'+(' AND grade=?' if payload.get('grade') else '')+' ORDER BY CASE WHEN COALESCE(review_count,0)=0 THEN 0 WHEN error_count>0 OR correct_count*1.0/NULLIF(review_count,0)<0.6 THEN 1 ELSE 2 END,RANDOM() LIMIT ?',[payload.get('subject_id'),*([payload['grade']] if payload.get('grade') else []),count])
+    rows=await db.all('SELECT id FROM question WHERE '+COUNTED+' AND subject_id=?'+(' AND grade=?' if payload.get('grade') else '')+' ORDER BY CASE WHEN COALESCE(review_count,0)=0 THEN 0 WHEN error_count>0 OR correct_count*1.0/NULLIF(review_count,0)<0.6 THEN 1 ELSE 2 END,RANDOM() LIMIT ?',[payload.get('subject_id'),*([payload['grade']] if payload.get('grade') else []),count])
     if not rows:raise HTTPException(400,'没有符合条件的题目')
     result=await create_set(request,{'question_ids':[row['id'] for row in rows]})
     from pdf import generate_practice

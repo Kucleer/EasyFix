@@ -9,6 +9,7 @@ from datetime import timedelta
 from fastapi import APIRouter, HTTPException, Query, Request
 from database import Database
 from analytics import now
+from question_scope import counted
 from knowledge_stats import COUNTING_MODE, module_stats
 from settings import generate_json
 from prompts import PromptLibrary
@@ -75,7 +76,7 @@ async def generate(request: Request):
     subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (subject_id,)) if subject_id else None
     if subject_id and not subject:
         raise HTTPException(404, '学科不存在')
-    filters, values = ['q.deleted=0'], []
+    filters, values = [counted('q')], []
     for field, value in [('subject_id', subject_id), ('grade', grade)]:
         if value is not None:
             filters.append('q.' + field + '=?')
