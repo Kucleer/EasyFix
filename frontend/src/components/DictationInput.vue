@@ -8,20 +8,28 @@
     @keydown="handleKeydown"
   >
     <div class="letter-cells">
+      <!-- 每个词一组，整组换行，避免一个词被拆到两行 -->
       <div
-        v-for="(cell, i) in cells"
-        :key="i"
-        class="letter-cell"
-        :class="{
-          fixed: cell.fixed,
-          gap: cell.gapBefore,
-          filled: !!answers[i],
-          active: i === activeLetterIdx && !result,
-          correct: cellStatus(cell) === 'correct',
-          wrong: cellStatus(cell) === 'wrong'
-        }"
+        v-for="(group, g) in wordGroups"
+        :key="g"
+        class="letter-word"
+        :class="{ gap: group.gapBefore }"
       >
-        {{ cell.fixed ? cell.char : (answers[i] || '') }}
+        <div
+          v-for="{ cell, i } in group.items"
+          :key="i"
+          class="letter-cell"
+          :class="{
+            fixed: cell.fixed,
+            given: cell.fixed && isLetterOrDigit(cell.char),
+            filled: !!answers[i],
+            active: i === activeLetterIdx && !result,
+            correct: cellStatus(cell) === 'correct',
+            wrong: cellStatus(cell) === 'wrong'
+          }"
+        >
+          {{ cell.fixed ? cell.char : (answers[i] || '') }}
+        </div>
       </div>
     </div>
     <!-- 隐藏输入框：在手机上唤起软键盘，沿用旧实现 -->
@@ -57,7 +65,25 @@ const answers = ref([])
 const activeLetterIdx = ref(0)
 
 // 当前题目的字母格子，来源于 buildCells
+// 固定格里的字母或数字按「给出的字母」样式显示；空格和标点保持窄格
+const isLetterOrDigit = (char) => /[a-zA-Z0-9]/.test(char || '')
+
 const cells = computed(() => buildCells(props.question))
+
+// 把格子按词分组：有 tokens 时按 gapBefore 断开；旧样式里空格本身是一个固定格，单独成组
+const wordGroups = computed(() => {
+  const groups = []
+  let current = null
+  cells.value.forEach((cell, i) => {
+    const isSpace = cell.fixed && cell.char === ' '
+    if (!current || cell.gapBefore || isSpace || current.space) {
+      current = { gapBefore: !!cell.gapBefore, space: isSpace, items: [] }
+      groups.push(current)
+    }
+    current.items.push({ cell, i })
+  })
+  return groups
+})
 
 // 按词对错查表：{tokenIndex: ok}
 const tokenOkMap = computed(() => {
@@ -191,7 +217,7 @@ defineExpose({ focus, reset })
 .letter-cell {
   width: 42px;
   height: 52px;
-  border-bottom: 3px solid #c0c4cc;
+  border-bottom: 3px solid #cdd1e4;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -200,13 +226,23 @@ defineExpose({ focus, reset })
   color: var(--text-primary);
   text-transform: lowercase;
   box-sizing: border-box;
-  background: #fafafa;
-  border-radius: 6px 6px 0 0;
+  background: #eff0f8;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: background-color .15s ease, border-color .15s ease;
 }
 
-/* 词组档位下词间空格不占格，用 gap 格的左侧留白表示词间距 */
-.letter-cell.gap {
-  margin-left: 22px;
+/* 一个词的格子：整组不拆行；单个词比整行还宽时才允许在词内换行 */
+.letter-word {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+/* 词组档位下词间空格不占格，用词组左侧留白表示词间距 */
+.letter-word.gap {
+  margin-left: 14px;
 }
 
 .letter-cell.fixed {
@@ -219,26 +255,40 @@ defineExpose({ focus, reset })
   padding: 0 4px;
 }
 
+
 .letter-cell.active {
   border-bottom-color: var(--accent-blue);
-  box-shadow: 0 2px 0 var(--accent-blue);
-  background: #ecf5ff;
+  background: var(--el-color-primary-light-9);
 }
 
-.letter-cell.filled {
-  background: #fff;
+/* 已填的格子：白底加淡主题色底线；固定格（标点、空格、给出的字母）不套用 */
+.letter-cell.filled:not(.fixed) {
+  background: var(--bg-primary);
+  border-bottom-color: var(--el-color-primary-light-5);
 }
 
 .letter-cell.correct {
-  border-bottom-color: #67c23a;
-  color: #67c23a;
-  background: #f0f9eb;
+  border-bottom-color: var(--success);
+  color: var(--success);
+  background: #eaf5f0;
 }
 
 .letter-cell.wrong {
-  border-bottom-color: #f56c6c;
-  color: #f56c6c;
-  background: #fef0f0;
+  border-bottom-color: var(--danger);
+  color: var(--danger);
+  background: #fbecee;
+}
+
+/* 直接给出的字母（显示的词、首字母提示）：与填写格同宽同字号，只去掉底色，保持整行对齐 */
+.letter-cell.fixed.given {
+  width: 42px;
+  min-width: 0;
+  padding: 0;
+  font-size: 28px;
+  /* 给出的字母用主题色，和孩子自己填的深色字区分开，不再用灰色 */
+  color: var(--accent-blue);
+  background: transparent;
+  border-bottom-color: transparent;
 }
 
 .letter-hidden-input {
@@ -255,11 +305,32 @@ defineExpose({ focus, reset })
     height: 44px;
     font-size: 23px;
   }
-  .letter-cell.gap {
-    margin-left: 14px;
+  .letter-word {
+    gap: 5px;
+  }
+  .letter-word.gap {
+    margin-left: 9px;
+  }
+  .letter-cell.fixed.given {
+    width: 31px;
+    font-size: 23px;
   }
   .letter-cells {
     gap: 5px;
+  }
+}
+
+/* 手机窄屏：格子再收窄一些，让 10 个字母左右的长词能放在一行 */
+@media (max-width: 480px) {
+  .letter-cell,
+  .letter-cell.fixed.given {
+    width: 27px;
+    height: 42px;
+    font-size: 21px;
+  }
+  .letter-word,
+  .letter-cells {
+    gap: 4px;
   }
 }
 </style>
