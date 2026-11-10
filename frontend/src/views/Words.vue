@@ -264,7 +264,7 @@
     </el-dialog>
 
     <!-- 复习弹窗 -->
-    <el-dialog v-model="reviewVisible" title="单词复习" width="min(920px, 94vw)" align-center :close-on-click-modal="false" :show-close="reviewStep !== 'question'" :class="['review-dialog', { 'is-answering': reviewStep === 'question' }]">
+    <el-dialog v-model="reviewVisible" title="单词复习" width="min(920px, 94vw)" align-center :close-on-click-modal="false" :before-close="handleReviewClose" :show-close="reviewStep !== 'question'" :class="['review-dialog', { 'is-answering': reviewStep === 'question' }]">
       <div v-if="reviewStep === 'config'" class="review-config">
         <!-- 来自“重练错词”的预置复习：提示本次固定练这些错词 -->
         <div v-if="presetWordIds && presetWordIds.length" class="preset-review-tip">
@@ -1357,6 +1357,60 @@ const nextQuestion = () => {
       answerInputRef.value?.focus()
     }
   }, 100)
+}
+
+// 是否正在显示“退出练习”的确认框，防止连按 Esc 弹出多个
+let exitConfirming = false
+
+/**
+ * 放弃本次练习：停止计时和读音，清空答题状态，不向后端提交任何结果。
+ */
+const abandonReview = () => {
+  // 作废待播的读音重播
+  autoPlayToken.value++
+  if (reviewTimer.value) {
+    clearInterval(reviewTimer.value)
+    reviewTimer.value = null
+  }
+  correctionActive.value = false
+  copyResult.value = null
+  reviewQuestions.value = []
+  currentSessionId.value = null
+  reviewStep.value = 'config'
+}
+
+/**
+ * 关闭复习弹窗前的处理（按 Esc 或点关闭都会走到这里）。
+ * 答题中需要二次确认：确认后放弃本次练习、不保存；取消则继续答题。
+ * 设置页和结果页直接关闭。
+ * @param {Function} done 调用后弹窗才会真正关闭
+ */
+const handleReviewClose = async (done) => {
+  if (reviewStep.value !== 'question') {
+    done()
+    return
+  }
+  if (exitConfirming) return
+  exitConfirming = true
+  try {
+    await ElMessageBox.confirm('确定退出本次练习吗？退出后本次练习不会保存。', '退出练习', {
+      confirmButtonText: '退出，不保存',
+      cancelButtonText: '继续练习',
+      type: 'warning',
+    })
+  } catch (error) {
+    // 取消（含在确认框里再按 Esc）：回到答题，把输入焦点还回去。
+    // 关掉确认框的那一下 Esc 也会传到弹窗，稍后再放开标记，避免同一次按键又弹出确认框
+    setTimeout(() => { exitConfirming = false }, 300)
+    nextTick(() => {
+      if (correctionActive.value) copyInputRef.value?.focus()
+      else if (reviewConfig.type === 1) dictationInputRef.value?.focus()
+    })
+    return
+  }
+  exitConfirming = false
+  abandonReview()
+  done()
 }
 
 // 终止答题，结算已答题目
