@@ -886,6 +886,110 @@ def test_save_accepts_new_fields_and_old_page_keeps_them():
     assert tuple(row) == ('pending', None, None)
 
 
+# ---------------------------------------------------------------- 任务 7：卷子接口
+
+import papers  # noqa: E402
+
+
+def add_question_to_paper(connection, paper_id, status='approved'):
+    """插入一道挂在指定卷子下的题，学科、年级、学期取自卷子，返回题目编号。"""
+    paper = connection.execute('SELECT subject_id,grade,semester FROM paper WHERE id=?', (paper_id,)).fetchone()
+    question_id = add_question(connection, subject_id=paper[0], status=status, grade=paper[1], semester=paper[2])
+    connection.execute('UPDATE question SET paper_id=? WHERE id=?', (paper_id, question_id))
+    connection.commit()
+    return question_id
+
+
+def call_paper_listing(db, **params):
+    """调用 papers.listing；没给的查询参数显式传默认值。"""
+    values = dict(skip=0, limit=20, subject_id=None, paper_type=None)
+    values.update(params)
+    return papers.listing(fake_request({}, db, papers), **values)
+
+
+def update_paper(db, paper_id, payload):
+    """调用 papers.update。"""
+    return papers.update(paper_id, fake_request(payload, db, papers))
+
+
+def test_manual_paper_create_and_list_counts():
+    """手工新增的卷子来源为 manual；列表的题数和待核对数一次算出，只数未删除的题。"""
+    c = build_database(); db = adapter(c)
+    created = run(call_endpoint(papers, papers.create, {'subject_id': 1, 'name': '期中考试', 'paper_type': 'exam',
+                                                        'exam_kind': 'midterm', 'paper_date': '2026-11-05',
+                                                        'score': 92, 'full_score': 100, 'grade': 6, 'semester': 1}, db))
+    assert created['source'] == 'manual' and created['images'] == [] and created['score'] == 92
+    stored = c.execute('SELECT source,images,student_id,exam_kind FROM paper WHERE id=?', (created['id'],)).fetchone()
+    assert tuple(stored) == ('manual', '[]', 1, 'midterm')
+    status, body = submit(db, sample_payload())
+    extra = add_question_to_paper(c, body['paper']['id'], status='pending')
+    gone = add_question_to_paper(c, body['paper']['id'])
+    c.execute('UPDATE question SET deleted=1 WHERE id=?', (gone,)); c.commit()
+    listed = run(call_paper_listing(db, subject_id=1))
+    by_id = {item['id']: item for item in listed['items']}
+    assert by_id[body['paper']['id']]['question_count'] == 3 and by_id[body['paper']['id']]['pending_count'] == 1
+    assert by_id[created['id']]['question_count'] == 0 and by_id[created['id']]['subject_name'] == '数学'
+    assert listed['total'] == len(listed['items']) and isinstance(by_id[created['id']]['images'], list)
+    assert [item['id'] for item in run(call_paper_listing(db, paper_type='exam'))['items']] == [created['id']]
+    expect_http(422, lambda: run(call_paper_listing(db, paper_type='quiz')))
+    expect_http(422, lambda: run(call_paper_listing(db, limit=0)))
+
+
+def test_paper_detail_orders_questions_by_page():
+    """详情的题目按页码排序并带考点；不存在的卷子 404。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload())
+    data = run(papers.detail(body['paper']['id'], fake_request({}, db, papers)))
+    assert [q['paper_page'] for q in data['questions']] == [1, 2] and data['questions'][0]['knowledge_points']
+    assert data['subject_name'] == '数学' and data['question_count'] == 2 and data['questions'][0]['review_reasons'] == []
+    expect_http(404, lambda: run(papers.detail(99999, fake_request({}, db, papers))))
+
+
+def test_update_rules():
+    """改卷子：没给的字段不变，合并后再校验，年级学期同步到题目，学科不能改。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload()); paper_id = body['paper']['id']
+    out = run(update_paper(db, paper_id, {'paper_type': 'exam', 'score': 85, 'full_score': 100, 'grade': 6, 'semester': 2}))
+    assert (out['paper_type'], out['exam_kind'], out['score']) == ('exam', 'other', 85)
+    assert {tuple(r) for r in c.execute('SELECT grade,semester FROM question WHERE paper_id=?', (paper_id,))} == {(6, 2)}
+    expect_http(422, lambda: run(update_paper(db, paper_id, {'score': 120})))
+    expect_http(422, lambda: run(update_paper(db, paper_id, {'subject_id': 2})))
+    assert run(update_paper(db, paper_id, {'name': '改个名'}))['score'] == 85
+    stored = c.execute('SELECT name,score,images FROM paper WHERE id=?', (paper_id,)).fetchone()
+    assert stored[0] == '改个名' and stored[1] == 85 and len(json.loads(stored[2])) == 2
+    expect_http(404, lambda: run(update_paper(db, 99999, {'name': 'x'})))
+
+
+def test_history_paper_restrictions():
+    """历史记录只能改名称和备注，不能删除。"""
+    c = build_database(); db = adapter(c)
+    history_id = c.execute("SELECT id FROM paper WHERE source='history' LIMIT 1").fetchone()[0]
+    assert run(update_paper(db, history_id, {'name': '五年级旧题', 'notes': '搬家前录的'}))['name'] == '五年级旧题'
+    expect_http(422, lambda: run(update_paper(db, history_id, {'grade': 5})))
+    expect_http(409, lambda: run(papers.remove(history_id, fake_request({}, db, papers), with_questions=1)))
+
+
+def test_delete_rules():
+    """有题时必须明确带题删除；带题删除一次软删卷子和题目。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload()); paper_id = body['paper']['id']
+    expect_http(409, lambda: run(papers.remove(paper_id, fake_request({}, db, papers), with_questions=0)))
+    assert c.execute('SELECT deleted FROM paper WHERE id=?', (paper_id,)).fetchone()[0] == 0
+    response = run(papers.remove(paper_id, fake_request({}, db, papers), with_questions=1))
+    assert response.status_code == 204
+    assert c.execute('SELECT deleted FROM paper WHERE id=?', (paper_id,)).fetchone()[0] == 1
+    assert c.execute('SELECT COUNT(*) FROM question WHERE paper_id=? AND deleted=0', (paper_id,)).fetchone()[0] == 0
+    expect_http(404, lambda: run(papers.detail(paper_id, fake_request({}, db, papers))))
+    expect_http(404, lambda: run(papers.remove(paper_id, fake_request({}, db, papers), with_questions=1)))
+
+
+def test_manual_paper_rejects_images():
+    """手工新增的卷子不能带照片；学科必须存在。"""
+    c = build_database(); db = adapter(c)
+    expect_http(422, lambda: run(call_endpoint(papers, papers.create, {'subject_id': 1, 'images': ['2026/11/aaaaaaaa_p1.jpg']}, db)))
+    expect_http(400, lambda: run(call_endpoint(papers, papers.create, {'subject_id': 999}, db)))
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -938,6 +1042,12 @@ TESTS = [
     test_conditional_update_blocks_late_reviewer,
     test_approve_requires_primary_knowledge_point,
     test_save_accepts_new_fields_and_old_page_keeps_them,
+    test_manual_paper_create_and_list_counts,
+    test_paper_detail_orders_questions_by_page,
+    test_update_rules,
+    test_history_paper_restrictions,
+    test_delete_rules,
+    test_manual_paper_rejects_images,
 ]
 
 
