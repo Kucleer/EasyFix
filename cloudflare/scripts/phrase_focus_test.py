@@ -28,7 +28,9 @@ from phrase_focus import (  # noqa: E402
     split_tokens,
     validate_focus_spec,
 )
+from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
+from words import import_words, list_words, save, word_stats  # noqa: E402
 
 
 def configure_output():
@@ -161,6 +163,16 @@ def adapter(connection):
 def run(coroutine):
     """同步运行一个协程。"""
     return asyncio.run(coroutine)
+
+
+def expect_http(status_code, function):
+    """调用函数，要求它抛出指定状态码的 HTTPException。"""
+    try:
+        function()
+    except HTTPException as error:
+        assert error.status_code == status_code, '期望 %s，实际 %s' % (status_code, error.status_code)
+        return
+    raise AssertionError('期望 HTTP %s，但没有抛出' % status_code)
 
 
 # ---------------------------------------------------------------- 任务 1
@@ -332,6 +344,109 @@ def test_migration_backfill():
     assert {'token_results', 'dictation_level'} <= log_columns
 
 
+# ---------------------------------------------------------------- 任务 4
+
+PROUD_OF_TOKENS = [
+    {'text': 'be', 'role': 'plain'},
+    {'text': 'proud', 'role': 'content', 'lemma': 'proud'},
+    {'text': 'of', 'role': 'collocation'},
+]
+GOOD_AT_TOKENS = [
+    {'text': 'be', 'role': 'plain'},
+    {'text': 'good', 'role': 'plain'},
+    {'text': 'at', 'role': 'collocation'},
+]
+
+# 列表与统计测试的夹具：(english, chinese, 复习次数, 正确次数, 标注状态, 是否删除)
+LISTING_ROWS = [
+    ('apple', '苹果', 0, 0, 'none', 0),
+    ('banana', '香蕉', 3, 2, 'none', 0),
+    ('be good at', '擅长', 4, 2, 'confirmed', 0),
+    ('take part in', '参加', 2, 1, 'draft', 0),
+    ('look forward to', '期待', 0, 0, 'none', 0),
+    ('a lot of', '许多', 5, 5, 'confirmed', 1),  # 已删除，不参与列表与统计
+]
+PHRASES = {'be good at', 'take part in', 'look forward to'}
+CONFIRMED = {'be good at'}
+WORD_TOTAL = 2
+PHRASE_TOTAL = 3
+
+
+def build_listing_database():
+    """建库并写入列表与统计夹具，返回异步数据库接口。"""
+    connection = build_database()
+    for index, (english, chinese, reviews, corrects, status, deleted) in enumerate(LISTING_ROWS, start=1):
+        entry_type = 'phrase' if ' ' in english else 'word'
+        connection.execute(
+            'INSERT INTO word(id,english,chinese,review_count,correct_count,learning_phase,'
+            'deleted,created_at,entry_type,focus_status) VALUES(?,?,?,?,?,?,?,?,?,?)',
+            (index, english, chinese, reviews, corrects, '新学', deleted,
+             '2026-01-01 00:00:0%d' % index, entry_type, status),
+        )
+    connection.commit()
+    return adapter(connection)
+
+
+def test_save_entry_type_and_focus():
+    """保存词条：类型默认值、标注校验、英文改动使标注失效。"""
+    db = adapter(build_database())
+    created = run(save(db, {'english': 'be  proud of', 'chinese': '为…自豪', 'grade': 6}))
+    assert (created['entry_type'], created['focus_status'], created['dictation_level']) == ('phrase', 'none', 1)
+    single = run(save(db, {'english': 'proud', 'chinese': '自豪的'}))
+    assert (single['entry_type'], single['dictation_level']) == ('word', 3)
+    # 带标注保存 → confirmed，并写 focus_updated_at
+    saved = run(save(db, {'focus_spec': {'tokens': PROUD_OF_TOKENS}}, created['id']))
+    assert saved['focus_status'] == 'confirmed' and saved['focus_spec']['source_english'] == 'be proud of'
+    assert saved['focus_updated_at']
+    # 普通编辑不改变标注状态
+    run(db.run("UPDATE word SET focus_status='draft' WHERE id=?", (created['id'],)))
+    assert run(save(db, {'chinese': '以…为荣'}, created['id']))['focus_status'] == 'draft'
+    # 英文改动 → 标注失效但保留
+    changed = run(save(db, {'english': 'be proud in'}, created['id']))
+    assert changed['focus_status'] == 'none' and changed['focus_spec'] is not None
+    # 只是空白不同不算改动
+    run(save(db, {'focus_spec': {'tokens': [{'text': 'be', 'role': 'plain'}, {'text': 'proud', 'role': 'plain'}, {'text': 'in', 'role': 'collocation'}]}}, created['id']))
+    assert run(save(db, {'english': ' be  proud in '}, created['id']))['focus_status'] == 'confirmed'
+    # 非法标注 → 422，原记录不变
+    expect_http(422, lambda: run(save(db, {'focus_spec': {'tokens': PROUD_OF_TOKENS}}, created['id'])))
+    # 手动指定类型
+    assert run(save(db, {'entry_type': 'word'}, created['id']))['entry_type'] == 'word'
+    expect_http(422, lambda: run(save(db, {'entry_type': 'sentence'}, created['id'])))
+
+
+def test_batch_import_with_focus():
+    """批量导入：标注不符的条目照常导入，只在结果里带 focus_error。"""
+    db = adapter(build_database())
+    result = run(import_words(db, {'words': [
+        {'english': 'be good at', 'chinese': '擅长', 'focus_spec': {'tokens': GOOD_AT_TOKENS}},
+        {'english': 'take part in', 'chinese': '参加', 'focus_spec': {'tokens': GOOD_AT_TOKENS}},  # 与英文不符
+        {'english': 'apple', 'chinese': '苹果'},
+    ]}))
+    assert result['success_count'] == 3
+    assert 'focus_error' in result['results'][1] and 'focus_error' not in result['results'][0]
+    rows = {r['english']: r for r in run(db.all('SELECT * FROM word WHERE deleted=0'))}
+    assert (rows['be good at']['focus_status'], rows['take part in']['focus_status'], rows['apple']['entry_type']) == ('confirmed', 'none', 'word')
+    assert (rows['be good at']['dictation_level'], rows['apple']['dictation_level']) == (1, 3)
+    assert rows['take part in']['focus_spec'] is None
+
+
+def test_listing_filters_and_stats():
+    """列表按类型和标注状态筛选，统计按类型汇总。"""
+    db = build_listing_database()
+    assert {r['english'] for r in run(list_words(db, {'entry_type': 'phrase'}, 0, 50))['items']} == PHRASES
+    assert {r['english'] for r in run(list_words(db, {'focus_status': 'confirmed'}, 0, 50))['items']} == CONFIRMED
+    stats = run(word_stats(db))
+    assert stats['by_type']['word']['total'] == WORD_TOTAL and stats['by_type']['phrase']['total'] == PHRASE_TOTAL
+    assert stats['by_type']['phrase']['accuracy'] == 50.0  # 夹具：词组合计 correct 3 / review 6
+    assert stats['by_type']['word']['accuracy'] == round(2 / 3 * 100, 1)
+    # 列表返回新增字段，focus_spec 为解析后的对象或 None
+    item = run(list_words(db, {'entry_type': 'phrase'}, 0, 50))['items'][0]
+    assert {'entry_type', 'focus_status', 'focus_spec', 'dictation_level'} <= set(item)
+    assert item['focus_spec'] is None
+    # 原有统计字段保持不变
+    assert stats['total_words'] == 5
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -343,6 +458,9 @@ TESTS = [
     test_next_level,
     test_next_phase,
     test_migration_backfill,
+    test_save_entry_type_and_focus,
+    test_batch_import_with_focus,
+    test_listing_filters_and_stats,
 ]
 
 
