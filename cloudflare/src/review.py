@@ -7,7 +7,7 @@ from datetime import timedelta,datetime
 from fastapi import APIRouter,HTTPException,Query,Request
 from database import Database
 from analytics import now
-from phrase_focus import build_cells,default_spec,mixed_quota,next_level,next_phase,spec_active,split_tokens
+from phrase_focus import build_cells,default_spec,mixed_quota,next_level,next_phase,spec_active,split_tokens,unannotated_auto_level,unannotated_next_level
 from word_focus import load_focus_context
 
 router=APIRouter(prefix='/api/words/review')
@@ -85,11 +85,13 @@ async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
             cells,level=build_cells(focus_info['spec'],row['dictation_level'] or DEFAULT_LEVEL,dictation_level,focus_info['focus'])
             question['tokens']=cells
             question['dictation_level']=level
-        elif dictation_level==HINT_LEVEL and row['entry_type']=='phrase' and len(split_tokens(row['english']))>1:
-            # 未标注词组手动选「提示」档：不依赖重点，每个词给首字母
-            cells,level=build_cells(default_spec(row['english']),DEFAULT_LEVEL,HINT_LEVEL,[])
-            question['tokens']=cells
-            question['dictation_level']=level
+        elif row['entry_type']=='phrase' and len(split_tokens(row['english']))>1:
+            # 未标注词组没有重点可空：自动模式按存储档位走 提示 → 完整；手动只有「提示」档生效
+            wanted=dictation_level if dictation_level is not None else unannotated_auto_level(row['dictation_level'] or DEFAULT_LEVEL)
+            if wanted==HINT_LEVEL:
+                cells,level=build_cells(default_spec(row['english']),DEFAULT_LEVEL,HINT_LEVEL,[])
+                question['tokens']=cells
+                question['dictation_level']=level
         questions.append(question)
     return {'session_id':session['id'],'questions':questions,'total':len(questions)}
 
@@ -166,7 +168,10 @@ async def submit_session(db,payload):
         # 档位列：手动选档（dictation_auto 为假）只影响本次，不写回；缺省视为自动
         stored_level=word['dictation_level'] or DEFAULT_LEVEL
         if item.get('dictation_auto',True) is False:new_level=stored_level
-        else:new_level=next_level(stored_level,ok,item['review_type'],annotated)
+        elif annotated:new_level=next_level(stored_level,ok,item['review_type'],annotated)
+        # 未标注词组的默写：答对升到完整，答错从完整退回提示
+        elif word['entry_type']=='phrase' and item['review_type']==1:new_level=unannotated_next_level(stored_level,ok)
+        else:new_level=stored_level
         plan.append({'id':word['id'],'correct':int(ok),'user_answer':item.get('user_answer'),'review_type':item['review_type'],'interval':interval,'phase':phase,'next':(current.replace(hour=0,minute=0,second=0,microsecond=0)+timedelta(days=interval)).isoformat(' '),
                      # 逐词结果与日志档位只给已标注词组、以及以低档位作答的未标注词组记录，其余保持为空
                      'token_results':item.get('token_results') if tracked else None,'log_level':level if tracked else None,'word_level':new_level})

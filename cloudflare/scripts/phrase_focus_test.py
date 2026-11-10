@@ -32,6 +32,8 @@ from phrase_focus import (  # noqa: E402
     validate_focus_spec,
     default_spec,
     mixed_quota,
+    unannotated_auto_level,
+    unannotated_next_level,
 )
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
@@ -653,7 +655,9 @@ def test_start_returns_tokens():
     data = run(start_session(db, 10, None, None, None, None))
     by = {q['english']: q for q in data['questions']}
     assert 'tokens' not in by['apple'] and by['apple']['dictation_level'] == 3
-    assert 'tokens' not in by['take part in'] and by['take part in']['dictation_level'] == 3
+    # 未标注词组在自动模式下先走提示档：每个词给首字母
+    assert by['take part in']['dictation_level'] == 2
+    assert [(t['blank'], t['hint']) for t in by['take part in']['tokens']] == [(True, 't'), (True, 'p'), (True, 'i')]
     assert [t['blank'] for t in by['be good at']['tokens']] == [False, False, True]
     assert [t['blank'] for t in by['be proud of']['tokens']] == [False, True, True]  # proud 未牢记
     assert by['apple']['entry_type'] == 'word' and by['be good at']['entry_type'] == 'phrase'
@@ -674,7 +678,8 @@ def test_start_without_annotation_adds_no_queries():
     assert BASELINE_START_QUERIES == 3
     assert counted_queries(db, lambda: start_session(db, 10, None, None, None, None)) == 3
     data = run(start_session(db, 10, None, None, None, None))
-    assert all('tokens' not in q for q in data['questions'])
+    # 单词不带格子；未标注词组的提示格子不需要额外查询
+    assert all('tokens' not in q for q in data['questions'] if q['entry_type'] == 'word')
     assert {q['entry_type'] for q in data['questions']} == {'word', 'phrase'}
 
 
@@ -694,7 +699,8 @@ def test_submit_levels_and_logs():
     words = by_english(db)
     assert words['be good at']['dictation_level'] == 2
     assert words['be proud of']['dictation_level'] == 1
-    assert words['apple']['dictation_level'] == 3 and words['take part in']['dictation_level'] == 1  # 未标注：列值不动
+    # 单词档位不动；未标注词组默写答对后升到完整默写
+    assert words['apple']['dictation_level'] == 3 and words['take part in']['dictation_level'] == 3
     log = latest_log(db, ids['be proud of'])
     assert json.loads(log['token_results']) == [{'i': 1, 'ok': False}, {'i': 2, 'ok': True}] and log['dictation_level'] == 1
     assert latest_log(db, ids['apple'])['token_results'] is None
@@ -1122,8 +1128,8 @@ def test_hint_level_on_unannotated_phrase():
     helper = by['help sb. with sth.']
     assert [(t['blank'], t['hint']) for t in helper['tokens']] == [(True, 'h'), (False, None), (True, 'w'), (False, None)]
     assert 'tokens' not in by['apple'] and by['apple']['dictation_level'] == 3      # 单词不受影响
-    # 自动、重点、完整三种情况下未标注词组仍按原样完整默写
-    for level in (None, 1, 3):
+    # 手动选重点或完整时，未标注词组按原样完整默写
+    for level in (1, 3):
         by = {q['english']: q for q in run(start_session(db, 10, None, None, None, level))['questions']}
         assert 'tokens' not in by['jump for joy'] and by['jump for joy']['dictation_level'] == 3
 
@@ -1182,6 +1188,42 @@ def test_mixed_draw_ratio():
     assert kinds.count('phrase') == 1 and kinds.count('word') == 19
 
 
+
+def test_auto_ladder_for_unannotated_phrase():
+    """自动模式下未标注词组走 提示 → 完整：答对升到完整，完整答错退回提示，提示答错保持。"""
+    assert [unannotated_auto_level(level) for level in (1, 2, 3)] == [2, 2, 3]
+    assert [unannotated_next_level(level, True) for level in (1, 2, 3)] == [3, 3, 3]
+    assert [unannotated_next_level(level, False) for level in (1, 2, 3)] == [1, 2, 2]
+
+    def answer(db, word_id, ok, level, review_type=1):
+        """登记一个只含该词组的场次并提交一次自动模式的结果。"""
+        session, _ = begin(db, only='jump for joy')
+        item = {'word_id': word_id, 'is_correct': ok, 'user_answer': 'x', 'review_type': review_type,
+                'dictation_level': level, 'dictation_auto': True}
+        run(submit_session(db, {'session_id': session, 'duration': 3, 'results': [item]}))
+        return by_english(db)['jump for joy']
+
+    def drawn(db):
+        """自动模式抽题，返回该词组的题目。"""
+        questions = run(start_session(db, 10, None, None, None, None))['questions']
+        return {q['english']: q for q in questions}['jump for joy']
+
+    db = adapter(build_database())
+    word_id = insert_word(db, 'jump for joy', '欢呼雀跃')
+    assert drawn(db)['dictation_level'] == 2 and 'tokens' in drawn(db)       # 初始：提示档
+    assert answer(db, word_id, False, 2)['dictation_level'] == 1             # 提示档答错：保持
+    assert drawn(db)['dictation_level'] == 2
+    row = answer(db, word_id, True, 2)                                       # 提示档答对：升到完整
+    assert row['dictation_level'] == 3 and row['learning_phase'] != '牢记'
+    question = drawn(db)
+    assert question['dictation_level'] == 3 and 'tokens' not in question     # 完整默写，无首字母
+    assert answer(db, word_id, False, 3)['dictation_level'] == 2             # 完整答错：退回提示
+    assert 'tokens' in drawn(db)
+    # 选择题和听力不改变档位
+    assert answer(db, word_id, True, 3, review_type=2)['dictation_level'] == 2
+    assert answer(db, word_id, True, 3, review_type=3)['dictation_level'] == 2
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -1221,6 +1263,7 @@ TESTS = [
     test_hint_level_on_unannotated_phrase,
     test_hint_level_submit_on_unannotated_phrase,
     test_mixed_draw_ratio,
+    test_auto_ladder_for_unannotated_phrase,
 ]
 
 

@@ -296,7 +296,7 @@
             <el-radio :value="3">完整</el-radio>
           </el-radio-group>
           <!-- 档位说明：提示档对所有词组生效，重点档依赖标注 -->
-          <div class="level-tip">「提示」对所有词组生效，每个词给首字母；「重点」只对已标注重点的词组生效，未标注的按完整默写。</div>
+          <div class="level-tip">「自动」按每个词组的进度出题：已标注的走 重点 → 提示 → 完整，未标注的先带首字母、答对后升为完整默写。「提示」对所有词组生效；「重点」只对已标注的词组生效。</div>
         </el-form-item>
         <el-button type="primary" @click="startReviewGame" :disabled="reviewStarting" style="width: 100%">开始复习</el-button>
       </div>

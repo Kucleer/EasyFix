@@ -115,6 +115,24 @@ def default_spec(english):
     return {'version': 1, 'source_english': normalize_english(english), 'tokens': tokens}
 
 
+def unannotated_auto_level(stored_level):
+    """未标注词组在自动模式下的档位：没有重点可空，所以只有 提示(2) → 完整(3) 两级。
+
+    存储档位低于 3（含迁移初值 1）时用提示档，否则完整默写。
+    """
+    return 3 if stored_level >= 3 else 2
+
+
+def unannotated_next_level(stored_level, ok):
+    """未标注词组默写后的档位：答对升到完整(3)；答错时已在完整的退回提示(2)，其余保持不变。
+
+    保持初值 1 不变，是为了以后标注时仍能从「重点」档开始。
+    """
+    if ok:
+        return 3
+    return min(stored_level, 2)
+
+
 def mixed_quota(count, word_available, phrase_available, phrase_share):
     """混合抽题时计算单词与词组各抽多少：词组占 phrase_share，一方不够时由另一方补足。
 
