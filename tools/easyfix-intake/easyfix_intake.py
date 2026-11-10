@@ -35,6 +35,9 @@ EXIT_CONTENT = 2
 EXIT_VERSION = 3
 EXIT_ENV = 4
 
+REPLAY_MESSAGE = '这个提交文件之前已经提交成功过，这次没有再写入，下面是第一次的结果。要录另一份卷子，请重新生成提交文件。'
+EXIT_CODES_TEXT = '退出码：0 成功；2 内容没通过检查，按 errors 修改；3 录入规范版本和服务器不一致；4 环境问题（配置、网络、文件）'
+
 
 class ToolError(Exception):
     """给人看的中文说明和退出码。"""
@@ -52,7 +55,7 @@ def load_config(environ, config_path):
     token = environ.get('EASYFIX_TOKEN') or ''
     if not (base_url and token) and pathlib.Path(config_path).is_file():
         try:
-            file_data = json.loads(pathlib.Path(config_path).read_text(encoding='utf-8'))
+            file_data = json.loads(pathlib.Path(config_path).read_text(encoding='utf-8-sig'))
         except (OSError, ValueError):
             raise ToolError('配置文件读不出来，请检查 ~/.easyfix/intake.json 是否是正确的 JSON', EXIT_ENV)
         if isinstance(file_data, dict):
@@ -247,14 +250,20 @@ def command_submit(config, args, opener):
         raise _version_error()
     if status == 422:
         return EXIT_CONTENT, data
+    if status == 409:
+        # 同一个提交文件的内容改过、或对应的卷子已被删除：服务器没有写入任何内容，把原因原样给人看
+        return EXIT_CONTENT, {'ok': False, 'message': data.get('detail') or '服务器拒绝了这次提交，没有写入任何内容'}
     if status not in (200, 201):
         raise ToolError(_failure_text(status, data), EXIT_ENV)
+    if data.get('replayed'):
+        # 同一个提交文件之前已经成功过：这次没有写入，告诉调用方下面是第一次的结果
+        data = {'message': REPLAY_MESSAGE, **data}
     return EXIT_OK, data
 
 
 def build_parser():
     """构造命令行参数解析器。"""
-    parser = argparse.ArgumentParser(prog='easyfix_intake.py', description='EasyFix 录入小工具')
+    parser = argparse.ArgumentParser(prog='easyfix_intake.py', description='EasyFix 录入小工具', epilog=EXIT_CODES_TEXT)
     sub = parser.add_subparsers(dest='command', required=True)
     guide = sub.add_parser('guide', help='取录入规范')
     guide.add_argument('--subject', required=True, help='学科名称')

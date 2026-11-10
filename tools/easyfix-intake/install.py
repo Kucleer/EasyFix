@@ -3,6 +3,7 @@
 直接运行时以当前用户主目录为 home，从脚本所在目录取技能文件，把每条中文说明
 逐行打印出来。只用 Python 标准库；可重复运行，不覆盖已填好的访问口令。
 """
+import argparse
 import json
 import pathlib
 import shutil
@@ -44,7 +45,7 @@ def ensure_config(home):
     # 只判断口令是否为空，绝不把口令的内容读出来或放进返回的说明里
     token_empty = True
     try:
-        data = json.loads(config_path.read_text(encoding='utf-8'))
+        data = json.loads(config_path.read_text(encoding='utf-8-sig'))
         token_empty = not (isinstance(data, dict) and str(data.get('token') or ''))
     except (OSError, ValueError):
         token_empty = True
@@ -81,11 +82,18 @@ def install(home, source, codex_pointer=False):
     return notes
 
 
-def main():
-    """直接运行：以当前用户主目录为 home，从脚本所在目录取技能文件，逐行打印说明。"""
-    home = pathlib.Path.home()
-    source = pathlib.Path(__file__).parent
-    for line in install(home, source):
+def main(argv=None, home=None, source=None):
+    """命令行入口：读 --codex-pointer 开关，逐行打印说明。
+
+    home、source 不给时取当前用户主目录和脚本所在目录；测试用它们指到临时目录。
+    """
+    parser = argparse.ArgumentParser(description='安装 EasyFix 录入技能')
+    parser.add_argument('--codex-pointer', action='store_true',
+                        help='同时在 ~/.codex/AGENTS.md 里追加指向技能的说明')
+    args = parser.parse_args(argv)
+    home = home or pathlib.Path.home()
+    source = source or pathlib.Path(__file__).parent
+    for line in install(home, source, codex_pointer=args.codex_pointer):
         print(line)
     return 0
 

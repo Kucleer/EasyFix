@@ -1,4 +1,5 @@
 """录入小工具的测试：全部用可替换的 opener 代替真实网络。"""
+import contextlib
 import importlib.util
 import io
 import json
@@ -21,6 +22,8 @@ ENV = {'EASYFIX_URL': BASE_URL, 'EASYFIX_TOKEN': TOKEN}
 
 # 技能文件（SKILL.md、payload-format.md、easyfix_intake.py）所在的目录
 SOURCE_DIR = pathlib.Path(__file__).parent
+# UTF-8 的 BOM 头，Windows 记事本和 PowerShell 存文件时会带上
+BOM_BYTES = bytes([0xEF, 0xBB, 0xBF])
 
 
 def load_install():
@@ -224,6 +227,60 @@ class IntakeToolTest(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn('安装脚本', out)
 
+    def test_submit_conflict_without_spec_version_is_exit_2_with_message(self):
+        """正式提交返回 409（不是版本不一致）：退出码 2，输出 ok 为假并带服务器的说明。"""
+        paper = self.make_paper()
+        detail = '这个提交文件的内容和第一次提交时不一样，这次没有写入任何内容。'
+
+        def handler(method, url, headers, body):
+            if url.endswith('/api/intake/papers/check'):
+                return 200, {'ok': True}
+            return 409, {'detail': detail}
+
+        code, out = self.run_main(['submit', str(paper)], FakeOpener(handler))
+        data = json.loads(out)
+        self.assertEqual(code, 2)
+        self.assertEqual((data['ok'], data['message']), (False, detail))
+
+    def test_submit_replayed_adds_message_first_and_exits_0(self):
+        """正式提交返回 200 且 replayed 为真：退出码 0，message 在输出最前面。"""
+        paper = self.make_paper()
+
+        def handler(method, url, headers, body):
+            if url.endswith('/api/intake/papers/check'):
+                return 200, {'ok': True}
+            return 200, {'paper': {'id': 7}, 'replayed': True}
+
+        code, out = self.run_main(['submit', str(paper)], FakeOpener(handler))
+        data = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(list(data)[0], 'message')
+        self.assertIn('之前已经提交成功过', data['message'])
+        self.assertEqual(data['paper'], {'id': 7})
+
+    def test_submit_first_time_has_no_replay_message(self):
+        """第一次提交成功（201）输出里没有 message。"""
+        paper = self.make_paper()
+
+        def handler(method, url, headers, body):
+            if url.endswith('/api/intake/papers/check'):
+                return 200, {'ok': True}
+            return 201, {'paper': {'id': 7}, 'replayed': False}
+
+        code, out = self.run_main(['submit', str(paper)], FakeOpener(handler))
+        self.assertEqual(code, 0)
+        self.assertNotIn('message', json.loads(out))
+
+    def test_config_file_with_bom_is_readable(self):
+        """Windows 记事本、PowerShell 存出来的带 BOM 配置文件也能读出地址和口令。"""
+        cfg_file = self.dir / 'intake.json'
+        cfg_file.write_bytes(BOM_BYTES + json.dumps({'base_url': 'http://bom.test', 'token': 'bom-token'}).encode('utf-8'))
+        self.assertEqual(tool.load_config({}, cfg_file), {'base_url': 'http://bom.test', 'token': 'bom-token'})
+
+    def test_help_lists_exit_codes(self):
+        """--help 里列出退出码。"""
+        self.assertIn('退出码：0 成功；2 内容没通过检查', tool.build_parser().format_help())
+
     def test_guide_sends_query_and_bearer_header(self):
         opener = FakeOpener(lambda m, u, h, b: (200, {'guide': '规则'}))
         code, out = self.run_main(['guide', '--subject', '数学', '--grade', '3', '--semester', '1'], opener)
@@ -332,6 +389,34 @@ class InstallTest(unittest.TestCase):
         text = (codex / 'AGENTS.md').read_text(encoding='utf-8')
         self.assertEqual(text.count(installer.POINTER_MARK), 1)  # 标记只出现一次
         self.assertIn('这一行要保留。', text)                     # 原有内容还在
+
+    def run_install_main(self, argv):
+        """经由 main 运行安装（home 指到临时目录，不碰真实主目录），返回打印的文字。"""
+        installer = load_install()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(installer.main(argv, home=self.home, source=SOURCE_DIR), 0)
+        return installer, out.getvalue()
+
+    def test_main_with_codex_pointer_flag_writes_pointer(self):
+        installer, _ = self.run_install_main(['--codex-pointer'])
+        text = (self.home / '.codex' / 'AGENTS.md').read_text(encoding='utf-8')
+        self.assertIn(installer.POINTER_MARK, text)
+
+    def test_main_without_flag_does_not_write_pointer(self):
+        self.run_install_main([])
+        self.assertFalse((self.home / '.codex' / 'AGENTS.md').exists())
+        self.assertTrue((self.home / '.easyfix' / 'intake.json').is_file())
+
+    def test_install_reads_bom_config_token(self):
+        """带 BOM 的配置文件里已有口令时，安装不再提醒填口令。"""
+        installer = load_install()
+        config_dir = self.home / '.easyfix'
+        config_dir.mkdir(parents=True)
+        (config_dir / 'intake.json').write_bytes(
+            BOM_BYTES + json.dumps({'base_url': 'http://x.test', 'token': 'filled'}).encode('utf-8'))
+        _, token_empty = installer.ensure_config(self.home)
+        self.assertFalse(token_empty)
 
     def test_install_never_reports_token(self):
         installer = load_install()
