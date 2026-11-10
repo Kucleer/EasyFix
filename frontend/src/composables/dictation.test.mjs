@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildCells, blankTokenCount, judge, shouldPlayBeforeAnswer } from './dictation.js'
+import { buildCells, blankTokenCount, judge, shouldPlayBeforeAnswer, diffAnswer, answerSegments } from './dictation.js'
+
+// 把片段数组还原成仅标红部分的字符串，便于断言
+const wrongText = segs => segs.filter(s => s.wrong).map(s => s.text).join('|')
+const joined = segs => segs.map(s => s.text).join('')
 
 const cloze = q => buildCells(q).map(c => (c.gapBefore ? ' ' : '') + (c.fixed ? c.char : '_')).join('')
 // 有 tokens 时词间空格不是格子，所以先去掉空格再按格下标取字母；无 tokens 时空格是预填格，原样取
@@ -39,6 +43,56 @@ test('按词判对，不区分大小写', () => {
 })
 test('无 tokens 时 tokenResults 为 null', () => {
   assert.deepEqual(judge({ english: 'Apple' }, 'apple'.split('')), { correct: true, userAnswer: 'apple', tokenResults: null })
+})
+test('diffAnswer：完全一致时无错', () => {
+  const d = diffAnswer('be good at', 'be good at')
+  assert.equal(wrongText(d.expected), '')
+  assert.equal(wrongText(d.actual), '')
+  assert.equal(joined(d.expected), 'be good at')
+  assert.equal(joined(d.actual), 'be good at')
+})
+test('diffAnswer：只有不同的那个字母算错', () => {
+  const d = diffAnswer('earthquake drills', 'earthqueke drills')
+  assert.equal(wrongText(d.expected), 'a')   // 正确答案里的 a 漏了
+  assert.equal(wrongText(d.actual), 'e')     // 作答里多出的 e
+})
+test('diffAnswer：整词不同只标该词', () => {
+  const d = diffAnswer('be proud of', 'be proud at')
+  assert.equal(wrongText(d.expected), 'of')
+  assert.equal(wrongText(d.actual), 'at')
+})
+test('diffAnswer：只写了开头', () => {
+  const d = diffAnswer('missing', 'm')
+  assert.equal(wrongText(d.expected), 'issing')
+  assert.equal(wrongText(d.actual), '')      // 作答没有多余错误部分
+})
+test('diffAnswer：没有作答', () => {
+  const d = diffAnswer('missing', '')
+  assert.equal(wrongText(d.expected), 'missing')
+  assert.deepEqual(d.actual, [])
+})
+test('diffAnswer：不区分大小写', () => {
+  const d = diffAnswer('Apple', 'apple')
+  assert.equal(wrongText(d.expected), '')
+  assert.equal(joined(d.expected), 'Apple')  // 保留原大小写
+})
+test('diffAnswer：多写的字母', () => {
+  const d = diffAnswer('blog', 'bloog')
+  assert.equal(wrongText(d.expected), '')
+  assert.equal(wrongText(d.actual), 'o')     // 多出的一个 o
+})
+test('diffAnswer：下划线按普通字符处理', () => {
+  const d = diffAnswer('a___ of', 'a of')
+  assert.equal(wrongText(d.expected), '___')
+})
+test('answerSegments：有逐词结果时优先按词标红', () => {
+  const seg = answerSegments({ english: 'be good at', userAnswer: 'be good in', tokenResults: [{ i: 2, ok: false }] })
+  assert.equal(wrongText(seg.expected), 'at')   // 第 2 个词判错
+  assert.equal(wrongText(seg.actual), 'in')     // 作答侧仍按字符对比
+})
+test('answerSegments：无逐词结果回退到字符对比', () => {
+  const seg = answerSegments({ english: 'apple', user_answer: 'aple' })
+  assert.equal(wrongText(seg.expected), 'p')
 })
 test('发音规则', () => {
   assert.equal(shouldPlayBeforeAnswer({ english: 'apple' }, 1), true)

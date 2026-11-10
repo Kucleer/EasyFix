@@ -1224,6 +1224,58 @@ def test_auto_ladder_for_unannotated_phrase():
     assert answer(db, word_id, True, 3, review_type=3)['dictation_level'] == 2
 
 
+# ---------------------------------------------------------------- 任务 8（单词练习明细与按 id 打印）
+
+
+def test_word_practice_items_fields():
+    """单词练习明细：返回逐词结果、默写档位，以及截至本场次的累计错误次数。"""
+    import practices
+    db = adapter(build_database())
+    proud = insert_word(db, 'be proud of', '为…自豪', spec=SPEC_PROUD_OF, status='confirmed',
+                        focus_updated_at=FOCUS_STAMP)
+    apple = insert_word(db, 'apple', '苹果')
+    # 历史错误（更早的场次，不同 reviewed_at）：proud 先错 1 次
+    add_log(db, proud, False, review_type=1, reviewed_at='2026-01-01 00:00:00',
+            token_results=[{'i': 1, 'ok': False}, {'i': 2, 'ok': True}])
+    # 本场次提交：proud 再错一次（带逐词结果、档位），apple 答对
+    session, ids = begin(db)
+    run(submit_session(db, {'session_id': session, 'duration': 10, 'results': [
+        {'word_id': proud, 'is_correct': False, 'user_answer': 'be prud of', 'review_type': 1,
+         'dictation_level': 1, 'token_results': [{'i': 1, 'ok': False}, {'i': 2, 'ok': True}]},
+        {'word_id': apple, 'is_correct': True, 'user_answer': 'apple', 'review_type': 1}]}))
+    practice_id = run(db.first("SELECT id FROM practice_set WHERE source_type='word' ORDER BY id DESC"))['id']
+    items = run(practices.word_practice_items(db, practice_id))
+    by = {item['question_text']: item for item in items}
+    # proud：历史 1 次 + 本场次 1 次 = 累计 2 次错
+    assert by['be proud of']['error_count'] == 2
+    assert by['be proud of']['token_results'] == [{'i': 1, 'ok': False}, {'i': 2, 'ok': True}]
+    assert by['be proud of']['dictation_level'] == 1
+    # apple：答对，累计 0 次错，无逐词结果
+    assert by['apple']['error_count'] == 0
+    assert by['apple']['token_results'] is None
+    # 保留原有字段
+    assert by['apple']['is_correct'] is True and by['apple']['user_answer'] == 'apple'
+    assert by['apple']['question_id'] == apple and by['apple']['answer'] == '苹果'
+
+
+def test_select_print_words_by_ids():
+    """按 word_ids 打印：保持传入顺序、跳过已删除/不存在、超过 100 个报 422。"""
+    import media
+    db = adapter(build_database())
+    apple = insert_word(db, 'apple', '苹果')
+    banana = insert_word(db, 'banana', '香蕉')
+    cherry = insert_word(db, 'cherry', '樱桃')
+    run(db.run('UPDATE word SET deleted=1 WHERE id=?', (banana,)))
+    # 按传入顺序返回，已删除的 banana 与不存在的 9999 都跳过
+    picked = run(media.select_print_words(db, 25, None, '%d,%d,%d,9999' % (cherry, banana, apple)))
+    assert [row['english'] for row in picked] == ['cherry', 'apple']
+    # 超过 100 个 → 422
+    expect_http(422, lambda: run(media.select_print_words(db, 25, None, ','.join(str(i) for i in range(1, 102)))))
+    # 不传 word_ids 时随机抽样（仅未删除）
+    rows = run(media.select_print_words(db, 25, None, None))
+    assert {row['english'] for row in rows} == {'apple', 'cherry'}
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -1264,6 +1316,8 @@ TESTS = [
     test_hint_level_submit_on_unannotated_phrase,
     test_mixed_draw_ratio,
     test_auto_ladder_for_unannotated_phrase,
+    test_word_practice_items_fields,
+    test_select_print_words_by_ids,
 ]
 
 

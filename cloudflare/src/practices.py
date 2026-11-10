@@ -33,6 +33,33 @@ async def word_stats(db,practice_id):
     return row
 
 
+async def word_practice_items(db,practice_id):
+    """返回单词练习的逐词明细：含逐词结果、默写档位，以及截至本场次的累计错误次数。"""
+    logs=await db.all('SELECT l.*,w.english,w.chinese,w.phonetic FROM word_review_session s JOIN word_review_log l ON l.reviewed_at=s.reviewed_at AND l.deleted=0 JOIN word w ON w.id=l.word_id AND w.deleted=0 WHERE s.deleted=0 AND s.practice_set_id=? ORDER BY l.id',(practice_id,))
+    # 一次批量查询每条日志对应单词截至该日志（含）的累计错误次数，避免逐词查询（Workers 免费版限制）
+    pairs=[{'log_id':item['id'],'word_id':item['word_id']} for item in logs]
+    error_counts={}
+    if pairs:
+        rows=await db.all('SELECT json_extract(j.value,\'$.log_id\') AS log_id,'
+                          '(SELECT COUNT(*) FROM word_review_log l WHERE l.deleted=0 AND l.is_correct=0 '
+                          'AND l.word_id=json_extract(j.value,\'$.word_id\') '
+                          'AND l.id<=json_extract(j.value,\'$.log_id\')) AS error_count '
+                          'FROM json_each(?) j',(json.dumps(pairs),))
+        error_counts={row['log_id']:row['error_count'] for row in rows}
+    items=[]
+    for index,item in enumerate(logs):
+        items.append({'id':item['id'],'question_id':item['word_id'],'display_order':index,
+                      'question_text':item['english'],'answer':item['chinese'],'phonetic':item['phonetic'],
+                      'is_correct':bool(item['is_correct']),'user_answer':item['user_answer'],
+                      # 逐词结果解析为列表或 null；默写档位直接取日志列
+                      'token_results':json.loads(item['token_results']) if item['token_results'] else None,
+                      'dictation_level':item['dictation_level'],
+                      # 累计错误次数：同一单词 is_correct=0 且 id 不晚于本条日志的记录数
+                      'error_count':error_counts.get(item['id'],0),
+                      'knowledge_point':None,'knowledge_points':[],'tags':[]})
+    return items
+
+
 async def get(db,practice_id,details=True):
     """返回练习集详情，阅读、单词与错题来源分别处理。"""
     row=await db.first('SELECT p.*,s.name AS subject_name FROM practice_set p LEFT JOIN subject s ON s.id=p.subject_id AND s.deleted=0 WHERE p.id=? AND p.deleted=0',(practice_id,))
@@ -49,8 +76,7 @@ async def get(db,practice_id,details=True):
             for item in await db.all('SELECT * FROM reading_question WHERE passage_id=? AND deleted=0 ORDER BY question_number',(row['passage_id'],)):
                 row['questions'].append({'id':item['id'],'question_id':item['id'],'display_order':item['question_number']-1,'question_text':item['question_text'],'answer':item['correct_answer'],'original_question_text':item['question_text'],'original_answer':item['correct_answer'],'difficulty':passage['difficulty'],'topic':passage['topic'],'knowledge_point':None,'knowledge_points':[],'legacy_knowledge_point':None,'is_correct':None,'is_reading_question':True,'tags':[],**{key:item[key] for key in ('option_a','option_b','option_c','option_d','explanation')}})
     elif row['source_type']=='word':
-        logs=await db.all('SELECT l.*,w.english,w.chinese,w.phonetic FROM word_review_session s JOIN word_review_log l ON l.reviewed_at=s.reviewed_at AND l.deleted=0 JOIN word w ON w.id=l.word_id AND w.deleted=0 WHERE s.deleted=0 AND s.practice_set_id=? ORDER BY l.id',(practice_id,))
-        row['questions']=[{'id':item['id'],'question_id':item['word_id'],'display_order':index,'question_text':item['english'],'answer':item['chinese'],'phonetic':item['phonetic'],'is_correct':bool(item['is_correct']),'user_answer':item['user_answer'],'knowledge_point':None,'knowledge_points':[],'tags':[]} for index,item in enumerate(logs)]
+        row['questions']=await word_practice_items(db,practice_id)
     else:
         rows=await db.all('SELECT pq.*,q.subject_id,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.legacy_knowledge_point,q.knowledge_revision,q.error_type,q.review_count,q.original_image,s.similar_text,s.similar_answer FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(practice_id,))
         link_map=await question_links(db,[item['question_id'] for item in rows])

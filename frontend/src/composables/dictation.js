@@ -73,6 +73,120 @@ export function judge(question, answers) {
 }
 
 /**
+ * 把字符按「是否写错」连续归并成片段；只含空格的一段永远不算错。
+ * @param {string} text 原文
+ * @param {boolean[]} wrongFlags 与 text 等长的逐字符错误标记
+ * @returns {Array<{text: string, wrong: boolean}>}
+ */
+function group_segments(text, wrongFlags) {
+  const segments = []
+  for (let k = 0; k < text.length; k++) {
+    const ch = text[k]
+    // 空格对齐和其它字符一样，但只由空格组成的片段永远不标红
+    const wrong = ch === ' ' ? false : !!wrongFlags[k]
+    const last = segments[segments.length - 1]
+    if (last && last.wrong === wrong) last.text += ch
+    else segments.push({ text: ch, wrong })
+  }
+  return segments
+}
+
+/**
+ * 对比正确答案与实际作答，用最长公共子序列（不区分大小写）对齐字符。
+ * expected 中没对上的字符为写错或漏写，actual 中没对上的字符为多写或写错。
+ * actual 为空时：expected 全部算错，actual 返回空数组。
+ * @param {string} expected 正确答案
+ * @param {string} actual 实际作答
+ * @returns {{expected: Array<{text: string, wrong: boolean}>, actual: Array<{text: string, wrong: boolean}>}}
+ */
+export function diffAnswer(expected, actual) {
+  const exp = expected == null ? '' : String(expected)
+  const act = actual == null ? '' : String(actual)
+  // 没有作答：正确答案整体标红，作答侧为空
+  if (!act) {
+    return { expected: group_segments(exp, new Array(exp.length).fill(true)), actual: [] }
+  }
+  // 不区分大小写的 LCS 动态规划表
+  const a = exp.toLowerCase()
+  const b = act.toLowerCase()
+  const n = a.length
+  const m = b.length
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+    }
+  }
+  // 回溯对齐，标记两侧哪些字符被匹配
+  const expMatched = new Array(n).fill(false)
+  const actMatched = new Array(m).fill(false)
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      expMatched[i] = true
+      actMatched[j] = true
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i++
+    } else {
+      j++
+    }
+  }
+  return {
+    expected: group_segments(exp, expMatched.map(v => !v)),
+    actual: group_segments(act, actMatched.map(v => !v)),
+  }
+}
+
+/**
+ * 按逐词结果给正确答案的「词」标红：ok 为 false 的词算错，其余不算。
+ * 词按空白切分，索引与 tokenResults 的 i 对应；词间空格不标红。
+ * @param {string} english 完整英文
+ * @param {Array<{i: number, ok: boolean}>} tokenResults 逐词结果
+ * @returns {Array<{text: string, wrong: boolean}>}
+ */
+function token_segments(english, tokenResults) {
+  const okMap = {}
+  for (const r of tokenResults) {
+    if (r && typeof r.i === 'number') okMap[r.i] = r.ok
+  }
+  const segments = []
+  // 用正则捕获空格串，保留词与词之间的空白
+  const parts = (english || '').split(/( +)/)
+  let wordIndex = 0
+  for (const part of parts) {
+    if (part === '') continue
+    if (/^ +$/.test(part)) {
+      segments.push({ text: part, wrong: false })
+      continue
+    }
+    segments.push({ text: part, wrong: okMap[wordIndex] === false })
+    wordIndex++
+  }
+  return segments
+}
+
+/**
+ * 计算一条作答的高亮片段：正确答案侧优先用逐词结果，缺失时回退到字符级对比；
+ * 实际作答侧始终用字符级对比标红。
+ * @param {object} item 含 english、userAnswer/user_answer、可选 tokenResults/token_results
+ * @returns {{expected: Array<{text: string, wrong: boolean}>, actual: Array<{text: string, wrong: boolean}>}}
+ */
+export function answerSegments(item) {
+  const english = item.english || ''
+  const userAnswer = item.userAnswer ?? item.user_answer ?? ''
+  const diff = diffAnswer(english, userAnswer)
+  const tokenResults = item.tokenResults ?? item.token_results
+  // 有逐词结果时用它高亮正确答案，更贴合「按词判对」的判定
+  if (Array.isArray(tokenResults) && tokenResults.length > 0) {
+    return { expected: token_segments(english, tokenResults), actual: diff.actual }
+  }
+  return diff
+}
+
+/**
  * 默写题答题前是否自动发音：仅当题型为默写(1)、带 tokens 且等级为 1 或 2 时不发音。
  * @param {object} question 题目
  * @param {number} reviewType 复习题型

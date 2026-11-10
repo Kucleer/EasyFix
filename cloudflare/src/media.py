@@ -104,13 +104,30 @@ async def generate_audio(request:Request,grade:int|None=None):
     return {'total':row['total'],'message':'音频采用按需缓存：首次播放时生成，之后复用，不批量请求未播放的单词。'}
 
 
+PRINT_WORD_COLUMNS='id,english,chinese,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,grade'
+
+
+async def select_print_words(db,count,grade,word_ids):
+    """选取要打印的单词：给定 word_ids 时按传入顺序打印这些未删除的词（忽略 count/grade），否则随机抽样。"""
+    if word_ids is not None:
+        # 逗号分隔的整数，最多 100 个；非法片段跳过
+        ids=[int(part) for part in word_ids.split(',') if part.strip().isdigit()]
+        if len(ids)>100:raise HTTPException(422,'每次最多打印100个单词')
+        if not ids:return []
+        rows=await db.all('SELECT '+PRINT_WORD_COLUMNS+' FROM word WHERE deleted=0 AND id IN ('+','.join('?' for _ in ids)+')',ids)
+        by_id={row['id']:row for row in rows}
+        # 保持传入顺序，跳过已删除或不存在的 id
+        return [by_id[i] for i in ids if i in by_id]
+    return await db.all('SELECT '+PRINT_WORD_COLUMNS+' FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
+
+
 @router.post('/api/words/print-pdf')
-async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|None=None,dictation_level:int=Query(1,ge=1,le=3)):
-    """生成默写试卷：已标注词组按档位出完形填空；未标注词组仅「提示」档给首字母，其余与单词一样保持「中文 （N个字母）」。"""
+async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|None=None,dictation_level:int=Query(1,ge=1,le=3),word_ids:str|None=None):
+    """生成默写试卷：已标注词组按档位出完形填空；未标注词组仅「提示」档给首字母，其余与单词一样保持「中文 （N个字母）」。给定 word_ids 时只打印这些词。"""
     from phrase_focus import build_cells,default_spec,print_text,split_tokens
     from word_focus import load_focus_context
     db=Database(request.scope['env'].DB)
-    words=await db.all('SELECT id,english,chinese,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,grade FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
+    words=await select_print_words(db,count,grade,word_ids)
     if not words:raise HTTPException(400,'没有可打印的单词')
     # 一次批量载入全部已标注词组的重点，不按词查询
     context=await load_focus_context(db,words)
