@@ -330,7 +330,10 @@ defineExpose({ focus, reset })
   }
   .letter-word,
   .letter-cells {
-    gap: 4px;
+    gap: 3px;
+  }
+  .letter-cells {
+    padding: 8px 0;
   }
 }
 </style>

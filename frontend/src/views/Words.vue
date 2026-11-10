@@ -264,7 +264,7 @@
     </el-dialog>
 
     <!-- 复习弹窗 -->
-    <el-dialog v-model="reviewVisible" title="单词复习" width="1200px" :close-on-click-modal="false" class="review-dialog">
+    <el-dialog v-model="reviewVisible" title="单词复习" width="min(1040px, 94vw)" align-center :close-on-click-modal="false" class="review-dialog">
       <div v-if="reviewStep === 'config'" class="review-config">
         <!-- 来自“重练错词”的预置复习：提示本次固定练这些错词 -->
         <div v-if="presetWordIds && presetWordIds.length" class="preset-review-tip">
@@ -306,9 +306,13 @@
       </div>
 
       <div v-else-if="reviewStep === 'question'" class="review-question">
+        <!-- 顶部一行：题号、进度条、用时 -->
         <div class="question-header">
           <span class="progress">{{ currentIndex + 1 }} / {{ reviewQuestions.length }}</span>
-          <span class="timer">用时: {{ Math.floor(reviewElapsed / 60) }}:{{ String(reviewElapsed % 60).padStart(2, '0') }}</span>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: reviewProgressPercent + '%' }"></div>
+          </div>
+          <span class="timer">{{ Math.floor(reviewElapsed / 60) }}:{{ String(reviewElapsed % 60).padStart(2, '0') }}</span>
         </div>
 
         <div class="question-content">
@@ -337,7 +341,6 @@
                 v-model="copyAnswers"
                 @submit="checkCopy"
               />
-              <el-button link class="correction-skip" @click="skipCorrection">跳过</el-button>
             </div>
           </div>
 
@@ -400,7 +403,9 @@
         </div>
 
         <div class="question-actions">
-          <el-button type="danger" @click="terminateReview">终止答题</el-button>
+          <el-button class="quiet" plain @click="terminateReview">终止答题</el-button>
+          <!-- 订正时可以跳过抄写，放在底部操作区，始终可见 -->
+          <el-button v-if="correctionActive" class="quiet" plain @click="skipCorrection">跳过抄写</el-button>
           <el-button v-if="currentQuestion.correct === undefined" type="primary" @click="submitAnswer">提交</el-button>
           <!-- 只有最后一题答完才显示“完成”；中途订正时不显示，避免带着未作答的题目提前提交 -->
           <el-button v-else-if="currentIndex === reviewQuestions.length - 1" type="success" @click="finishReview">完成</el-button>
@@ -746,12 +751,20 @@ const reviewResultItems = computed(() => reviewQuestions.value.map(q => ({
 // 长中文自适应字号，避免溢出
 const chineseFontSize = computed(() => {
   const len = (currentQuestion.value?.chinese || '').length
-  if (len <= 6) return '64px'
-  if (len <= 10) return '48px'
-  if (len <= 16) return '36px'
-  if (len <= 24) return '28px'
-  if (len <= 36) return '22px'
-  return '18px'
+  if (len <= 6) return '52px'
+  if (len <= 10) return '42px'
+  if (len <= 16) return '32px'
+  if (len <= 24) return '26px'
+  if (len <= 36) return '20px'
+  return '17px'
+})
+
+// 复习进度百分比：已完成的题数 / 总题数（当前题答完后才算完成）
+const reviewProgressPercent = computed(() => {
+  const total = reviewQuestions.value.length
+  if (!total) return 0
+  const done = currentIndex.value + (currentQuestion.value?.correct !== undefined ? 1 : 0)
+  return Math.round(done / total * 100)
 })
 
 // 打印相关
@@ -2633,6 +2646,172 @@ watch(() => route.query.review_ids, (val) => {
   color: var(--text-secondary);
   font-size: var(--font-small);
 }
+/* ===== 复习弹窗：单屏布局（放在最后，覆盖上面的旧尺寸） ===== */
+:deep(.review-dialog) {
+  max-width: 94vw;
+  border-radius: 16px;
+}
+
+:deep(.review-dialog .el-dialog__header) {
+  padding: 14px 24px 0;
+}
+
+/* 答题区固定在一屏内：顶部进度、中间内容、底部操作三段 */
+.review-question {
+  padding: 6px 32px 20px;
+  height: min(620px, calc(100vh - 120px));
+  height: min(620px, calc(100dvh - 120px));
+  max-height: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.question-header {
+  position: static;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 6px;
+  padding: 6px 0;
+}
+
+.progress {
+  font-size: 18px;
+  font-weight: var(--font-weight-bold);
+  min-width: 64px;
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--el-color-primary-light-9);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent-blue);
+  transition: width .3s ease;
+}
+
+.timer {
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 500;
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 中间内容垂直居中；内容特别长时只在这一段内滚动，底部按钮始终可见 */
+.question-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  justify-content: center;
+}
+
+.dictation {
+  padding: 8px 12px;
+}
+
+.dictation .chinese {
+  margin-bottom: 10px;
+  letter-spacing: 2px;
+  line-height: 1.3;
+}
+
+.dictation .audio-row {
+  margin-bottom: 8px;
+}
+
+.dictation .hint-box {
+  margin-bottom: 16px;
+}
+
+.dictation .hint {
+  font-size: 15px;
+  padding: 5px 16px;
+  margin-bottom: 0;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+}
+
+/* 订正时中文释义退为次要信息，把位置让给正确答案 */
+.dictation.correction .chinese {
+  font-size: 22px !important;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.correction-card {
+  gap: 10px;
+}
+
+.correction-answer {
+  font-size: 38px;
+}
+
+.correction-yours {
+  font-size: 16px;
+}
+
+.correction-tip {
+  font-size: 14px;
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+}
+
+/* 底部操作区：固定在弹窗内，按钮回到正常大小 */
+.question-actions {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.question-actions .el-button {
+  font-size: 16px;
+  padding: 12px 40px;
+  height: auto;
+  margin-left: 0;
+}
+
+.question-actions .el-button.quiet {
+  padding: 12px 20px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .review-question {
+    padding: 4px 10px 12px;
+    height: calc(100vh - 150px);
+    height: calc(100dvh - 150px);
+  }
+  /* 手机上把横向留白让给字母格，10 个字母的词能排在一行 */
+  .dictation {
+    padding: 8px 0;
+  }
+  .correction-answer {
+    font-size: 28px;
+  }
+  .dictation.correction .chinese {
+    font-size: 18px !important;
+  }
+  .question-actions .el-button {
+    padding: 10px 24px;
+  }
+  .question-actions .el-button.quiet {
+    padding: 10px 14px;
+  }
+}
 </style>
 
 <style>
@@ -2654,4 +2833,5 @@ watch(() => route.query.review_ids, (val) => {
 
   font-size: 24px !important;
 }
+
 </style>
