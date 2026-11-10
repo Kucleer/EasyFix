@@ -93,6 +93,41 @@ def spec_active(row):
 ERROR_WINDOW = 5
 ERROR_THRESHOLD = 2
 
+# 未标注词组临时识别的占位符（小写比较）；标注后以标注为准
+DEFAULT_PLACEHOLDERS = ('sb.', 'sb', 'sth.', 'sth', 'sp.', 'sp', "one's", "sb.'s", "sb's", 'oneself')
+
+
+def default_spec(english):
+    """为未标注的词组生成临时标注：常见占位符照常显示，其余都按基础词处理。
+
+    只用于「提示默写」这类不依赖重点的档位，不写入数据库。
+    """
+    parts = split_tokens(english)
+    # 比较前去掉句末标点，例如 "sth.?" 也算占位符
+    bare = [text.lower().rstrip('?!,;') for text in parts]
+    tokens = []
+    for index, text in enumerate(parts):
+        is_placeholder = bare[index] in DEFAULT_PLACEHOLDERS
+        # "do sth." / "doing sth." 里的 do、doing 也是占位符
+        if bare[index] in ('do', 'doing') and index + 1 < len(parts) and bare[index + 1] in ('sth.', 'sth'):
+            is_placeholder = True
+        tokens.append({'text': text, 'role': 'placeholder' if is_placeholder else 'plain'})
+    return {'version': 1, 'source_english': normalize_english(english), 'tokens': tokens}
+
+
+def mixed_quota(count, word_available, phrase_available, phrase_share):
+    """混合抽题时计算单词与词组各抽多少：词组占 phrase_share，一方不够时由另一方补足。
+
+    返回 (单词数, 词组数)。
+    """
+    phrase_count = min(phrase_available, round(count * phrase_share))
+    word_count = min(word_available, count - phrase_count)
+    # 单词不够时把缺口让给词组
+    shortfall = count - phrase_count - word_count
+    if shortfall > 0:
+        phrase_count = min(phrase_available, phrase_count + shortfall)
+    return word_count, phrase_count
+
 
 def has_letter(text):
     """判断 token 中是否含有字母（纯标点 token 永不空出）。"""

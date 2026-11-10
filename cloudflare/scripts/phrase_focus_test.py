@@ -30,6 +30,8 @@ from phrase_focus import (  # noqa: E402
     spec_active,
     split_tokens,
     validate_focus_spec,
+    default_spec,
+    mixed_quota,
 )
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
@@ -1089,6 +1091,97 @@ def test_print_words_endpoint_text():
         media.Database = original_database
 
 
+
+def test_default_spec_and_quota():
+    """未标注词组的临时标注与混合抽题配额。"""
+    spec = default_spec(' help  sb. with sth. ')
+    assert [t['role'] for t in spec['tokens']] == ['plain', 'placeholder', 'plain', 'placeholder']
+    assert spec['source_english'] == 'help sb. with sth.'
+    about = default_spec('What/How about doing sth.?')
+    assert [t['role'] for t in about['tokens']] == ['plain', 'plain', 'placeholder', 'placeholder']
+    assert [t['role'] for t in default_spec('do morning reading')['tokens']] == ['plain', 'plain', 'plain']
+    assert mixed_quota(20, 100, 100, 0.4) == (12, 8)
+    assert mixed_quota(25, 100, 100, 0.4) == (15, 10)
+    assert mixed_quota(20, 100, 3, 0.4) == (17, 3)      # 词组不够，单词补足
+    assert mixed_quota(20, 5, 100, 0.4) == (5, 15)      # 单词不够，词组补足
+    assert mixed_quota(20, 5, 3, 0.4) == (5, 3)         # 都不够，有多少抽多少
+    assert mixed_quota(20, 100, 0, 0.4) == (20, 0)
+
+
+def test_hint_level_on_unannotated_phrase():
+    """未标注的词组手动选「提示」档也给首字母；其他档位保持原样。"""
+    db = adapter(build_database())
+    insert_word(db, 'jump for joy', '欢呼雀跃')
+    insert_word(db, 'help sb. with sth.', '帮助某人做某事')
+    insert_word(db, 'apple', '苹果')
+    by = {q['english']: q for q in run(start_session(db, 10, None, None, None, 2))['questions']}
+    joy = by['jump for joy']
+    assert joy['dictation_level'] == 2
+    assert [(t['text'], t['blank'], t['hint']) for t in joy['tokens']] == [
+        ('jump', True, 'j'), ('for', True, 'f'), ('joy', True, 'j')]
+    helper = by['help sb. with sth.']
+    assert [(t['blank'], t['hint']) for t in helper['tokens']] == [(True, 'h'), (False, None), (True, 'w'), (False, None)]
+    assert 'tokens' not in by['apple'] and by['apple']['dictation_level'] == 3      # 单词不受影响
+    # 自动、重点、完整三种情况下未标注词组仍按原样完整默写
+    for level in (None, 1, 3):
+        by = {q['english']: q for q in run(start_session(db, 10, None, None, None, level))['questions']}
+        assert 'tokens' not in by['jump for joy'] and by['jump for joy']['dictation_level'] == 3
+
+
+def test_hint_level_submit_on_unannotated_phrase():
+    """未标注词组以提示档答对：记录档位与逐词结果，不授予牢记，不改档位列。"""
+    db = adapter(build_database())
+    due = stamp_of(now() - datetime.timedelta(days=1))
+    word_id = insert_word(db, 'jump for joy', '欢呼雀跃', reviews=2, corrects=2, interval=8, next_review_at=due)
+    add_log(db, word_id, True, reviewed_at='2026-01-01 00:00:00')
+    add_log(db, word_id, True, reviewed_at='2026-01-02 00:00:00')
+    session, ids = begin(db)
+    results = [{'i': 0, 'ok': True}, {'i': 1, 'ok': True}, {'i': 2, 'ok': True}]
+    run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+        {'word_id': word_id, 'is_correct': True, 'user_answer': 'jump for joy', 'review_type': 1,
+         'dictation_level': 2, 'dictation_auto': False, 'token_results': results}]}))
+    row = by_english(db)['jump for joy']
+    assert row['learning_phase'] != '牢记'            # 连续 3 次答对且间隔足够，但本次是提示档
+    assert row['interval'] == 16 and row['dictation_level'] == 1
+    log = latest_log(db, word_id)
+    assert log['dictation_level'] == 2 and json.loads(log['token_results']) == results
+    # 同样条件按完整默写（旧前端不带档位）答对 → 牢记，与旧行为一致
+    db = adapter(build_database())
+    word_id = insert_word(db, 'jump for joy', '欢呼雀跃', reviews=2, corrects=2, interval=8, next_review_at=due)
+    add_log(db, word_id, True, reviewed_at='2026-01-01 00:00:00')
+    add_log(db, word_id, True, reviewed_at='2026-01-02 00:00:00')
+    session, ids = begin(db)
+    run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+        {'word_id': word_id, 'is_correct': True, 'user_answer': 'jump for joy', 'review_type': 1}]}))
+    assert by_english(db)['jump for joy']['learning_phase'] == '牢记'
+    assert latest_log(db, word_id)['dictation_level'] is None
+
+
+def test_mixed_draw_ratio():
+    """不限类型时按 60% 单词 + 40% 词组抽题；限定类型或指定词条时不套用比例。"""
+    db = adapter(build_database())
+    for index in range(30):
+        insert_word(db, 'word%d' % index)
+        insert_word(db, 'phrase number %d' % index)
+    questions = run(start_session(db, 20, None, None, None, None))['questions']
+    kinds = [q['entry_type'] for q in questions]
+    assert kinds.count('word') == 12 and kinds.count('phrase') == 8
+    assert len({q['word_id'] for q in questions}) == 20
+    assert [q['entry_type'] for q in run(start_session(db, 20, None, None, 'phrase', None))['questions']].count('phrase') == 20
+    assert [q['entry_type'] for q in run(start_session(db, 20, None, None, 'word', None))['questions']].count('word') == 20
+    # 指定词条时全部按所选词条出题
+    chosen = [row['id'] for row in run(db.all("SELECT id FROM word WHERE entry_type='word' ORDER BY id LIMIT 10"))]
+    picked = run(start_session(db, 10, None, ','.join(str(i) for i in chosen), None, None))['questions']
+    assert sorted(q['word_id'] for q in picked) == chosen
+    # 词组不够时由单词补足
+    db = adapter(build_database())
+    for index in range(30):
+        insert_word(db, 'word%d' % index)
+    insert_word(db, 'only phrase')
+    kinds = [q['entry_type'] for q in run(start_session(db, 20, None, None, None, None))['questions']]
+    assert kinds.count('phrase') == 1 and kinds.count('word') == 19
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -1124,6 +1217,10 @@ TESTS = [
     test_prompt_contents,
     test_print_text,
     test_print_words_endpoint_text,
+    test_default_spec_and_quota,
+    test_hint_level_on_unannotated_phrase,
+    test_hint_level_submit_on_unannotated_phrase,
+    test_mixed_draw_ratio,
 ]
 
 

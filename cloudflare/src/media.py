@@ -106,8 +106,8 @@ async def generate_audio(request:Request,grade:int|None=None):
 
 @router.post('/api/words/print-pdf')
 async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|None=None,dictation_level:int=Query(1,ge=1,le=3)):
-    """生成默写试卷：已标注词组按档位出完形填空，单词与未标注词组保持「中文 （N个字母）」。"""
-    from phrase_focus import build_cells,print_text
+    """生成默写试卷：已标注词组按档位出完形填空；未标注词组仅「提示」档给首字母，其余与单词一样保持「中文 （N个字母）」。"""
+    from phrase_focus import build_cells,default_spec,print_text,split_tokens
     from word_focus import load_focus_context
     db=Database(request.scope['env'].DB)
     words=await db.all('SELECT id,english,chinese,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,grade FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
@@ -120,6 +120,9 @@ async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|
         tokens=None
         if item:
             tokens,_=build_cells(item['spec'],word['dictation_level'],dictation_level,item['focus'])
+        elif dictation_level==2 and word['entry_type']=='phrase' and len(split_tokens(word['english']))>1:
+            # 未标注词组选「提示」档：不依赖重点，每个词给首字母
+            tokens,_=build_cells(default_spec(word['english']),3,2,[])
         questions.append({'question_text':print_text(word,tokens)})
     from pdf import call
     result=await call(request,'/pdf',{'title':'单词默写','questions':questions})

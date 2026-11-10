@@ -283,7 +283,7 @@
         </el-form-item>
         <el-form-item label="范围">
           <el-radio-group v-model="reviewConfig.entry_type">
-            <el-radio value="">全部</el-radio>
+            <el-radio value="">混合（单词 60% + 词组 40%）</el-radio>
             <el-radio value="word">只练单词</el-radio>
             <el-radio value="phrase">只练词组</el-radio>
           </el-radio-group>
@@ -295,6 +295,8 @@
             <el-radio :value="2">提示</el-radio>
             <el-radio :value="3">完整</el-radio>
           </el-radio-group>
+          <!-- 档位说明：提示档对所有词组生效，重点档依赖标注 -->
+          <div class="level-tip">「提示」对所有词组生效，每个词给首字母；「重点」只对已标注重点的词组生效，未标注的按完整默写。</div>
         </el-form-item>
         <el-button type="primary" @click="startReviewGame" :disabled="reviewStarting" style="width: 100%">开始复习</el-button>
       </div>
@@ -650,7 +652,7 @@ const reviewConfig = reactive({
   count: 20,
   grade: appConfigStore.defaultGrade,
   type: 1,
-  entry_type: '',        // '' 全部 / 'word' 只练单词 / 'phrase' 只练词组
+  entry_type: '',        // '' 混合（单词 60% + 词组 40%）/ 'word' 只练单词 / 'phrase' 只练词组
   dictation_level: 0,    // 0 自动 / 1 重点 / 2 提示 / 3 完整
 })
 const reviewQuestions = ref([])
@@ -1637,6 +1639,14 @@ onMounted(async () => {
 
   backdrop-filter: blur(8px);
   background: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 复习设置里词组档位的说明文字 */
+.level-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #64748b);
 }
 
 .review-config  {

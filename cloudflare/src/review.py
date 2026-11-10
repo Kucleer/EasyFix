@@ -7,7 +7,7 @@ from datetime import timedelta,datetime
 from fastapi import APIRouter,HTTPException,Query,Request
 from database import Database
 from analytics import now
-from phrase_focus import build_cells,next_level,next_phase,spec_active
+from phrase_focus import build_cells,default_spec,mixed_quota,next_level,next_phase,spec_active,split_tokens
 from word_focus import load_focus_context
 
 router=APIRouter(prefix='/api/words/review')
@@ -16,6 +16,10 @@ router=APIRouter(prefix='/api/words/review')
 REVIEW_TYPES=(1,2,3)
 # 没有提交档位（旧前端）或词条未标注时使用的默认档位
 DEFAULT_LEVEL=3
+# 提示默写档位：每个词给首字母，不依赖重点标注
+HINT_LEVEL=2
+# 混合抽题（不限类型）时词组所占比例，其余为单词
+PHRASE_SHARE=0.4
 
 
 @router.post('/start')
@@ -23,6 +27,22 @@ async def start(request:Request,count:int=Query(25,ge=10,le=100),grade:int|None=
     """沿用未复习、到期、低正确率、其他的抽词优先级；可按类型筛选并手动指定档位。"""
     db=Database(request.scope['env'].DB)
     return await start_session(db,count,grade,word_ids,entry_type,dictation_level)
+
+
+def pick_by_priority(rows,count,current):
+    """按 未复习 → 到期 → 正确率低于 60% → 其他 的优先级抽取最多 count 个词条。"""
+    pools=[[],[],[],[]]
+    for row in rows:
+        if not row['review_count']:index=0
+        elif row['next_review_at'] and datetime.fromisoformat(row['next_review_at'])<=current:index=1
+        elif (row['correct_count'] or 0)/row['review_count']<0.6:index=2
+        else:index=3
+        pools[index].append(row)
+    selected=[]
+    for pool in pools:
+        if len(selected)>=count:break
+        selected+=random.sample(pool,min(len(pool),count-len(selected)))
+    return selected
 
 
 async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
@@ -37,17 +57,17 @@ async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
     if entry_type:filters.append('entry_type=?');values.append(entry_type)
     rows=await db.all('SELECT id,english,chinese,review_count,correct_count,next_review_at,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,learning_phase,grade FROM word WHERE '+' AND '.join(filters),values)
     if not rows:raise HTTPException(400,'没有可复习的单词')
-    pools=[[],[],[],[]];current=now()
-    for row in rows:
-        if not row['review_count']:index=0
-        elif row['next_review_at'] and datetime.fromisoformat(row['next_review_at'])<=current:index=1
-        elif (row['correct_count'] or 0)/row['review_count']<0.6:index=2
-        else:index=3
-        pools[index].append(row)
-    selected=[]
-    for pool in pools:
-        selected+=random.sample(pool,min(len(pool),count-len(selected)))
-        if len(selected)>=count:break
+    current=now()
+    if entry_type is None and not ids:
+        # 混合抽题：词组占 PHRASE_SHARE，其余为单词；一方不够时由另一方补足，各自仍按优先级抽
+        word_rows=[row for row in rows if row['entry_type']!='phrase']
+        phrase_rows=[row for row in rows if row['entry_type']=='phrase']
+        word_count,phrase_count=mixed_quota(count,len(word_rows),len(phrase_rows),PHRASE_SHARE)
+        selected=pick_by_priority(word_rows,word_count,current)+pick_by_priority(phrase_rows,phrase_count,current)
+        # 打乱顺序，让单词和词组穿插出现
+        random.shuffle(selected)
+    else:
+        selected=pick_by_priority(rows,count,current)
     stamp=current.isoformat(' ')
     session=await db.first('INSERT INTO word_review(total_count,correct_count,error_count,duration,reviewed_at) VALUES(?,0,0,0,?) RETURNING id',(len(selected),stamp))
     await db.run('INSERT INTO request_record(name,value,deleted,created_at) VALUES(?,?,0,?)',('word-session:'+str(session['id']),json.dumps([row['id'] for row in selected]),stamp))
@@ -63,6 +83,11 @@ async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
         if focus_info:
             # 已标注词组：按存储档位（或手动指定档位）生成格子，并返回实际使用的档位
             cells,level=build_cells(focus_info['spec'],row['dictation_level'] or DEFAULT_LEVEL,dictation_level,focus_info['focus'])
+            question['tokens']=cells
+            question['dictation_level']=level
+        elif dictation_level==HINT_LEVEL and row['entry_type']=='phrase' and len(split_tokens(row['english']))>1:
+            # 未标注词组手动选「提示」档：不依赖重点，每个词给首字母
+            cells,level=build_cells(default_spec(row['english']),DEFAULT_LEVEL,HINT_LEVEL,[])
             question['tokens']=cells
             question['dictation_level']=level
         questions.append(question)
@@ -135,14 +160,16 @@ async def submit_session(db,payload):
         # 已标注的词组按档位与题型决定能否「牢记」；单词与未标注词组沿用旧规则
         annotated=spec_active(word)
         level=item.get('dictation_level') or DEFAULT_LEVEL
-        phase=next_phase(word['learning_phase'],ok,consecutive,interval,was_due,annotated,item['review_type'],level)
+        # 未标注的词组若以低于完整默写的档位（如提示档）作答，同样不能据此授予「牢记」，并记录档位
+        tracked=annotated or (word['entry_type']=='phrase' and item['review_type']==1 and level<DEFAULT_LEVEL)
+        phase=next_phase(word['learning_phase'],ok,consecutive,interval,was_due,tracked,item['review_type'],level)
         # 档位列：手动选档（dictation_auto 为假）只影响本次，不写回；缺省视为自动
         stored_level=word['dictation_level'] or DEFAULT_LEVEL
         if item.get('dictation_auto',True) is False:new_level=stored_level
         else:new_level=next_level(stored_level,ok,item['review_type'],annotated)
         plan.append({'id':word['id'],'correct':int(ok),'user_answer':item.get('user_answer'),'review_type':item['review_type'],'interval':interval,'phase':phase,'next':(current.replace(hour=0,minute=0,second=0,microsecond=0)+timedelta(days=interval)).isoformat(' '),
-                     # 逐词结果与日志档位只给已标注词组记录，其余保持为空
-                     'token_results':item.get('token_results') if annotated else None,'log_level':level if annotated else None,'word_level':new_level})
+                     # 逐词结果与日志档位只给已标注词组、以及以低档位作答的未标注词组记录，其余保持为空
+                     'token_results':item.get('token_results') if tracked else None,'log_level':level if tracked else None,'word_level':new_level})
     correct=sum(item['is_correct'] for item in results);accuracy=round(correct/len(results)*100,1)
     output={'total':len(results),'correct':correct,'error':len(results)-correct,'accuracy':accuracy}
     subject=await db.first('SELECT id FROM subject WHERE name=\'英语\' AND deleted=0')
