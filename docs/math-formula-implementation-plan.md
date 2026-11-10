@@ -1,3 +1,5 @@
+> **2026-11-10 说明**：正式环境已切换到 Cloudflare（D1 / R2）。本文的公式书写与校验规范仍然有效；其中 PostgreSQL / MySQL / SQLite 备份恢复、本地后端部署和 Playwright 打印路径是切换前的记录，已不适用。当前部署与备份见 `docs/cloudflare-migration-status.md`，Agent 入库规范见 `AGENTS.md`。
+
 # 数学公式及 PDF 打印支持实施方案
 
 ## 目标与业务边界

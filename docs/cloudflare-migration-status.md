@@ -127,7 +127,7 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 
 现在打开正式入口，使用原密码登录即可，不需要再开通付费服务或填写额外迁移配置。以后如需自有域名，可将自己持有的域名接入 Cloudflare 再绑定 Pages；这是可选工作，不影响当前使用。
 
-## 变更记录：两级知识点改造（2026-11-10，代码已实现，生产未执行）
+## 变更记录：两级知识点改造（2026-11-10，发布前的实施记录；正式发布与回填结果见文首两节）
 
 - 分支：`codex/knowledge-hierarchy-20261110`；实施规格见 `docs/knowledge-hierarchy-final-plan.md`，实现说明见 `docs/knowledge-hierarchy-implementation-notes.md`。
 - 追加迁移 `cloudflare/migrations/0009_knowledge_hierarchy.sql`：`knowledge_point` 增加 `code/name_key/level/parent_id/sort_order/updated_at`；`question` 增加 `knowledge_revision/legacy_knowledge_point`；新增 `question_knowledge_point`、`knowledge_assert`；部分唯一索引与 `KP_*` 触发器。
@@ -158,7 +158,7 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - Worker：新版本 `d0df1517-fad2-4ff7-b4ff-89eda4204a29`，上一版本 `c8639a41-e616-4b63-93db-ca3e1d25b7b8`（回滚用）。Pages：新部署 `d061cbde`，上一部署 `6bd68197`。
 - 发布后只做了无需登录的核对：`/health` 200、未登录访问接口 401、登录页 200、新前端资源可访问。登录后的功能（默写各档位、标注、重点编辑、打印）和手机真机输入尚未在正式环境验证。
 - 本机情况：`tmp/cloudflare-config`、`cloudflare/python_modules`、`cloudflare/node_modules` 在本次使用的工作树里都不存在。本次用系统默认位置的 Wrangler 登录（未经 `cloudflare/tools/cli.cjs` 包装器），Wrangler 4.158.0 取自 `D:/code/easyfix-cloudflare-inspect/cloudflare/node_modules`；Python 依赖用 `uv run pywrangler sync` 按 `pylock.toml` 重新打包（依赖版本未变）。`pywrangler` 1.17.9 要求 uv ≥ 0.13.4，本次在 `tmp/uv-new` 单独安装了 uv 0.13.7，未改动系统 uv。本机代理访问 Cloudflare API 不稳定，命令需去掉代理环境变量直连。
-- 该分支尚未合并到 `main`，也未推送远端。
+- 该分支截至提交 `7cc0c5b9` 的内容已合并到 `main` 并推送远端。
 - 追加发布（同日，提交 `5671d5ed`）：未标注的词组手动选"提示"档也给每个词首字母（占位符照常显示，打印同理），以提示档答对不授予"牢记"；不限类型的混合抽题按 60% 单词 + 40% 词组，一方不足时由另一方补足。无数据库变更。Worker 版本 `9e1b49c8-5da7-4f30-a071-cebc84fc41fc`（上一版本 `d0df1517`），Pages 部署 `82bc4e43`（上一部署 `d061cbde`）。已用当日正式数据副本实际抽题验证；登录后的页面未实测。
 - 追加发布（同日，提交 `7da9f971`）：自动模式下未标注的词组走 提示 → 完整 两级（先带首字母，默写答对升为完整默写，完整默写答错退回提示）；"牢记"仍只在完整默写答对时授予。无数据库变更。Worker 版本 `47608c9c-f681-4d66-8ea4-3d4e045fa4df`（上一版本 `9e1b49c8`），Pages 部署 `68875cb9`（上一部署 `82bc4e43`）。已用当日正式数据副本跑完整一轮验证；登录后的页面未实测。
 - 追加发布（同日，提交 `db6b82ed`，仅前端）：默写格子样式统一——给出的字母与填写格同宽同字号并改用主题色，配色改用主题变量，词整体换行，手机窄屏格子收窄。Pages 部署 `6a65e573`（上一部署 `68875cb9`）。本地用真实组件在桌面与 375px 宽度下核对过布局；正式环境登录后的页面未实测。

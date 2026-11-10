@@ -1,126 +1,110 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code 在本仓库工作时提供指引。实操细则见 `AGENTS.md`，部署、备份与发布记录见 `docs/cloudflare-migration-status.md`。
 
 ## 项目概述
 
-EasyFix 是一款面向学生的本地错题整理应用，主要功能包括：错题图片上传与OCR识别、错题归档整理、多维度统计分析、以及基于LLM的相似题目智能推荐。
+EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知识点、单词与词组默写、阅读理解、练习集与 PDF 打印、统计分析、学习报告、激励系统，以及基于 LLM 的相似题与报告生成。
 
-## 开发命令
+**正式环境自 2026-11-09 起运行在 Cloudflare 上**，入口 https://easyfix-bl2.pages.dev ，需访问密码登录。数据在 D1，附件在私有 R2。
 
-### 后端 (Python FastAPI)
+## 开发者背景与协作偏好
 
-```bash
-cd backend
-pip install -r requirements.txt
-python -m app.main        # 启动后端服务 (http://localhost:8000)
-# 或使用 uvicorn
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 前端 (Vue 3 + Vite)
-
-```bash
-cd frontend
-npm install
-npm run dev       # 启动开发服务器 (http://localhost:5173，代理 /api 到 :8000)
-npm run build     # 生产构建
-```
-
-### 数据库
-
-- 默认使用 SQLite (`backend/easyfix.db`)
-- 可通过 `backend/.env` 配置切换到 MySQL (设置 `DB_TYPE=mysql`)
-- 表结构通过 `Base.metadata.create_all()` 在 `main.py` 中自动创建
+- 开发者是编程初学者，偏好简洁易懂的代码和详细注释。
+- 无特殊要求时，交流、注释和文档均使用中文。
 
 ## 架构概览
 
-### 后端结构 (`backend/app/`)
+| 组件 | 位置 | 说明 |
+|------|------|------|
+| 前端 | `frontend/` | Vue 3 + Vite + Element Plus + Pinia + ECharts + KaTeX，构建后发布到 Cloudflare Pages（项目 `easyfix`） |
+| Pages 网关 | `cloudflare/pages/_worker.js` | 校验会话、提供静态资源、从 R2 直读 `/uploads/` 附件，`/api/` 请求经服务绑定转给后端 Worker |
+| 后端 Worker | `cloudflare/src/` | Python Worker `easyfix`：FastAPI + 异步 D1，不开放 workers.dev |
+| PDF Worker | `cloudflare/pdf/` | 内部 Worker `easyfix-pdf`：KaTeX 校验 + Browser Run 生成 PDF，无公开路由 |
+| 数据库 | D1 `easyfix` | 结构变更只通过 `cloudflare/migrations/` 追加 |
+| 附件 | 私有 R2 `easyfix` | 原图、PDF、单词音频 |
+| 共享代码 | `shared/math-text.mjs` | 前端与 PDF 共用的公式文本处理 |
+| 旧本地后端 | `backend/app/` | 切换前的 FastAPI + SQLAlchemy 版本，仅保留作参考，**不是生产代码** |
 
-| 目录/文件 | 用途 |
-|-----------|------|
-| `main.py` | FastAPI 入口，CORS 中间件，路由注册 |
-| `config.py` | Pydantic 配置管理 |
-| `database.py` | SQLAlchemy 数据库连接 |
-| `models/` | ORM 模型（question, word, error_book, subject, tag, knowledge_point, practice_set, similar_question, operation_log） |
-| `routers/` | API 路由处理（11个路由模块） |
-| `schemas/` | Pydantic 请求/响应模型 |
-| `services/` | 业务逻辑（ocr.py, llm.py, multimodal_ocr.py, pdf.py） |
+`backend/scripts/` 里仍有正在使用的云端工具（前端构建、密钥准备、D1 导出等），其余多为切换前的历史脚本。
 
-### 前端结构 (`frontend/src/`)
+### 后端 Worker 模块（`cloudflare/src/`）
 
-| 目录/文件 | 用途 |
-|-----------|------|
-| `main.js` | Vue 3 应用入口 |
-| `App.vue` | 根组件，包含导航菜单 |
-| `api/` | Axios API 调用封装 |
-| `views/` | 页面组件（Home, Questions, Upload, Stats, Management, Settings, Words, PracticeSets） |
-| `router/index.js` | Vue Router 路由配置 |
-| `stores/` | Pinia 状态管理（当前为空） |
-
-### API 路由 (前缀 `/api`)
-
-| 路由 | 用途 |
+| 模块 | 用途 |
 |------|------|
-| `question` | 错题 CRUD |
-| `upload` | 图片上传 + OCR |
-| `stats` | 统计分析 |
-| `similar` | LLM 相似题生成 |
-| `word` | 单词本管理 + 复习 |
-| `error_book` | 错题本管理 |
-| `subject` | 学科管理 |
-| `tag` | 标签管理 |
-| `knowledge_point` | 知识点管理 |
-| `practice_set` | 练习集管理 |
-| `config` | LLM/OCR 配置 |
+| `main.py` | FastAPI 入口，注册路由；`/health`、`/api/subjects`、`/api/upload/file` |
+| `auth.py` | 密码登录、签名会话 Cookie、Agent Bearer 令牌、维护写开关 |
+| `database.py` / `cache.py` | D1 访问封装与统计缓存 |
+| `questions.py` / `similar.py` | 错题 CRUD、批量入库、相似题生成 |
+| `knowledge.py` / `knowledge_model.py` / `knowledge_stats.py` | 两级知识点目录、关联与统计 |
+| `catalog.py` | 学科、标签、错题本、错误类型等目录 |
+| `words.py` / `review.py` / `word_focus.py` / `phrase_focus.py` | 单词本、复习与默写、词组重点标注 |
+| `readings.py` | 阅读短文与题目 |
+| `practices.py` / `pdf.py` | 练习集、批改、PDF 生成与复用 |
+| `analytics.py` / `reports.py` | 统计分析、学习报告 |
+| `motivation.py` | 星星、奖励、成就 |
+| `media.py` / `audio_index.py` | 上传、单词音频、打印 |
+| `settings.py` / `prompts.py` / `provenance.py` | 应用与 LLM 配置、提示词、阅读来源 |
 
-### 前端路由
+完整接口清单见 `docs/cloudflare-api-checklist.md`。
+
+### 前端结构（`frontend/src/`）
+
+| 目录/文件 | 用途 |
+|-----------|------|
+| `main.js` / `App.vue` | 应用入口；桌面分组侧栏与手机底部导航 |
+| `api/` | Axios 封装（`http.js` 带 GET 去重与短时缓存） |
+| `views/` | 页面组件 |
+| `composables/` | 默写判分（`dictation.js`）、知识点配色 |
+| `stores/appConfig.js` | 默认年级/学期 |
+| `router/index.js` | 路由配置 |
 
 | 路径 | 页面 |
 |------|------|
-| `/` | 首页 Dashboard |
+| `/` | 首页 |
 | `/questions` | 错题列表 |
-| `/upload` | 图片上传 |
-| `/stats` | 统计页面 |
-| `/management` | 管理中心 |
-| `/settings` | 配置页面 |
-| `/words` | 单词本 |
+| `/upload` | 录入错题 |
+| `/stats`、`/learning-analysis` | 统计与学习分析 |
 | `/practice-sets` | 练习集 |
+| `/words` | 单词本 |
+| `/reading`、`/reading-test/:id` | 阅读理解 |
+| `/learning-reports` | 学习报告 |
+| `/motivation` | 激励 |
+| `/management`、`/settings` | 管理中心、配置 |
+
+## 常用命令
+
+均在仓库根目录执行。Wrangler 固定 4.158.0，先执行一次 `npm install --prefix cloudflare`。
+
+```bash
+# 测试
+python cloudflare/scripts/phrase_focus_test.py
+python cloudflare/scripts/knowledge_invariants_test.py
+node --test frontend/src/composables/dictation.test.mjs
+
+# 后端：语法检查后部署 Worker
+python -m compileall -q cloudflare/src
+node cloudflare/tools/cli.cjs deploy --config cloudflare/wrangler.jsonc
+
+# 前端：构建到 tmp/cloudflare-pages-build
+python backend/scripts/prepare_cloudflare_frontend.py
+```
+
+Pages 发布、D1 迁移、依赖变更、密钥与回滚的完整命令见 `docs/cloudflare-migration-status.md` 的"日常部署"与"备份与恢复"。
+
+## 必须遵守
+
+- **生产数据只在 D1 / R2**。旧 PostgreSQL 已冻结只读，不要用 `backend/` 下的旧导入脚本或 `.mcp.json` 里的 MySQL 服务写生产数据。
+- **禁止重新运行 `sync_cloudflare_d1.py`** 等旧快照同步工具，会覆盖云端新数据。
+- 数据库变更只追加 `cloudflare/migrations/` 迁移，执行前先导出 D1 备份。
+- 所有表保留 `deleted` 字段，只做软删除；查询必须过滤已删除记录。
+- 保持 Workers 免费计划：统计用 SQL 聚合，避免逐记录查询、重复 LLM 调用和重复生成 PDF。
+- 访问密码、会话密钥、Agent 令牌只存在 Worker / Pages 密钥和被忽略的 `tmp/cloudflare-config/` 中，不写入仓库或文档。
+- `tmp/`、`backups/` 含学生数据与密钥，不得提交或发布。
 
 ## 代码规范
 
-### 命名规范
-- 变量：`snake_case`
-- 函数：动词或动词短语
-- 类：`PascalCase`
-- 常量：`SNAKE_CASE`
-
-### 数据库
-- **所有表必须包含 `deleted` 字段用于软删除**
-
-### 注释要求
-- 每个函数前添加中文文档字符串
-- 复杂逻辑添加行内注释
-
-## 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| 前端 | Vue 3 + Element Plus + Vite + Pinia + Vue Router + ECharts |
-| 后端 | Python FastAPI + SQLAlchemy + Pydantic |
-| 数据库 | MySQL 8.0 / SQLite |
-| OCR | PaddleOCR（本地）+ 多模态 LLM（OpenAI/Anthropic/MiniMax） |
-| LLM | MiniMax / OpenAI / Anthropic |
-
-## 配置说明
-
-- 后端配置文件：`backend/config/` 目录下的 JSON 文件（llm.json, ocr.json）
-- 环境变量：`backend/.env`
-- 前端访问密码：`32167`（配置/管理中心）
-
-## 存储结构
-
-上传文件存储在 `backend/uploads/` 目录，按年月分目录：
-```
-uploads/images/{year}/{month}/{uuid}_{filename}
-```
+- 变量与函数 `snake_case`，函数名用动词或动词短语；类 `PascalCase`；常量全大写下划线。
+- 每个函数前写中文文档字符串，复杂逻辑加行内注释。
+- 前端使用 Vue 3 Composition API + `<script setup>`，UI 组件用 Element Plus。
+- 数学内容使用带边界的 LaTeX：行内 `\(...\)`，独立公式 `\[...\]`，细则见 `AGENTS.md`。

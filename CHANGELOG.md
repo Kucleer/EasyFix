@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-11-10
+
+### Changed
+- 正式环境切换到 Cloudflare（Pages + Python Worker + D1 + R2），入口 https://easyfix-bl2.pages.dev ；旧 PostgreSQL 冻结只读。发布与迁移细节见 `docs/cloudflare-migration-status.md`
+- `CLAUDE.md`、`AGENTS.md`、`docs/SPEC.md` 按云端架构重写，删除本地 SQLite / MySQL、OCR、本地启动与本地上传目录等旧说明；移除过时的 `.claude/CLAUDE.md`
+
 ## [Unreleased] - 2026-04-11
 
 ### Added
