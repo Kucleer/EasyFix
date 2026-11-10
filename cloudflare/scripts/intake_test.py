@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
+from intake_model import (IntakeError, MAX_QUESTIONS, decide_review, default_paper_name,  # noqa: E402
+                          normalize_paper, normalize_question)
 
 SCHEMA_FILE = ROOT / 'scripts' / 'd1_schema_before_0011.sql'
 MIGRATION_FILE = ROOT / 'migrations' / '0011_intake_papers.sql'
@@ -116,6 +118,16 @@ def expect_http(status_code, function):
     raise AssertionError('期望 HTTP %s，但没有抛出' % status_code)
 
 
+def expect_intake_error(fragment, function):
+    """调用函数，要求它抛出 IntakeError 且说明里包含指定文字。"""
+    try:
+        function()
+    except IntakeError as error:
+        assert fragment in error.detail, '说明里没有「%s」：%s' % (fragment, error.detail)
+        return
+    raise AssertionError('期望抛出 IntakeError（含「%s」），但没有抛出' % fragment)
+
+
 # ---------------------------------------------------------------- 任务 1：迁移 0011
 
 
@@ -170,12 +182,119 @@ def test_student_id_added_to_all_listed_tables():
         assert 'student_id' in columns, table
 
 
+# ---------------------------------------------------------------- 任务 2：纯规则 intake_model
+
+
+def test_paper_defaults():
+    """只传学科时，卷子取默认类型、默认名称和今天的日期。"""
+    paper = normalize_paper({'subject_id': 1}, '数学', '2026-11-10')
+    assert paper['name'] == '数学习题 2026-11-10' == default_paper_name('数学', '2026-11-10')
+    assert (paper['paper_type'], paper['exam_kind'], paper['paper_date']) == ('homework', None, '2026-11-10')
+    assert paper['images'] == [] and paper['score'] is None and paper['full_score'] is None
+
+
+def test_paper_blank_name_uses_default_with_given_date():
+    """名称为空白时用默认名称，日期取传入的日期。"""
+    paper = normalize_paper({'name': '  ', 'paper_date': '2026-11-08'}, '英语', '2026-11-10')
+    assert paper['name'] == '英语习题 2026-11-08'
+
+
+def test_paper_exam_kind_rules():
+    """考试细分只在考试时有效，考试默认 other，类型不认识要报错。"""
+    assert normalize_paper({'paper_type': 'exam'}, '数学', '2026-11-10')['exam_kind'] == 'other'
+    assert normalize_paper({'paper_type': 'homework', 'exam_kind': 'final'}, '数学', '2026-11-10')['exam_kind'] is None
+    expect_intake_error('类型', lambda: normalize_paper({'paper_type': 'quiz'}, '数学', '2026-11-10'))
+
+
+def test_paper_score_rules():
+    """得分和满分要么都填要么都不填，且为不超过满分的非负整数。"""
+    ok = normalize_paper({'score': 85, 'full_score': 100}, '数学', '2026-11-10')
+    assert (ok['score'], ok['full_score']) == (85, 100)
+    for bad in [{'score': 85}, {'full_score': 100}, {'score': 101, 'full_score': 100},
+                {'score': -1, 'full_score': 100}, {'score': '85', 'full_score': 100},
+                {'score': True, 'full_score': 100}]:
+        expect_intake_error('分', lambda bad=bad: normalize_paper(bad, '数学', '2026-11-10'))
+
+
+def test_paper_date_and_images_rules():
+    """日期不能是未来或格式不对；照片路径必须是上传接口返回的格式。"""
+    expect_intake_error('日期', lambda: normalize_paper({'paper_date': '2026-11-11'}, '数学', '2026-11-10'))
+    expect_intake_error('日期', lambda: normalize_paper({'paper_date': '11/10'}, '数学', '2026-11-10'))
+    assert normalize_paper({'images': ['2026/11/ab12cd34_p1.jpg']}, '数学', '2026-11-10')['images'] == ['2026/11/ab12cd34_p1.jpg']
+    for bad in [['../x.jpg'], ['http://a/b.jpg'], 'x', [1]]:
+        expect_intake_error('照片', lambda bad=bad: normalize_paper({'images': bad}, '数学', '2026-11-10'))
+
+
+def test_question_page_rules():
+    """有照片时页码必填且在范围内；没有照片时页码必须为空。"""
+    base = {'parsed_question': '题干', 'wrong_evidence': '老师打叉'}
+    assert normalize_question({**base, 'page': 2}, 2, None)['page'] == 2
+    for bad in [{**base}, {**base, 'page': 0}, {**base, 'page': 3}, {**base, 'page': '1'}]:
+        expect_intake_error('第几张', lambda bad=bad: normalize_question(bad, 2, None))
+    assert normalize_question(base, 0, None)['page'] is None
+    expect_intake_error('第几张', lambda: normalize_question({**base, 'page': 1}, 0, None))
+
+
+def test_question_required_and_ranges():
+    """题干必填，难度默认 3 且限定 1 到 5。"""
+    expect_intake_error('题干', lambda: normalize_question({'parsed_question': '  '}, 0, None))
+    assert normalize_question({'parsed_question': '题干'}, 0, None)['difficulty'] == 3
+    expect_intake_error('难度', lambda: normalize_question({'parsed_question': '题干', 'difficulty': 6}, 0, None))
+
+
+def test_question_error_type_rules():
+    """错因逐项对照清单；清单为空或没传时不校验。"""
+    names = {'计算错误', '概念错误'}
+    ok = normalize_question({'parsed_question': '题干', 'error_type': '计算错误, 概念错误'}, 0, names)
+    assert ok['error_type'] == '计算错误,概念错误'
+    expect_intake_error('错因', lambda: normalize_question({'parsed_question': '题干', 'error_type': '粗心'}, 0, names))
+    assert normalize_question({'parsed_question': '题干', 'error_type': '粗心'}, 0, set())['error_type'] == '粗心'
+
+
+def test_question_review_fields_rules():
+    """标记待核对必须给出合法原因；考点编号必须是整数。"""
+    base = {'parsed_question': '题干'}
+    expect_intake_error('原因', lambda: normalize_question({**base, 'needs_review': True}, 0, None))
+    expect_intake_error('原因', lambda: normalize_question({**base, 'needs_review': True, 'review_reasons': ['blurry']}, 0, None))
+    expect_intake_error('考点', lambda: normalize_question({**base, 'knowledge_point_ids': ['101']}, 0, None))
+
+
+def test_decide_review():
+    """判断直接入库还是待核对，原因去重并按固定顺序排列。"""
+    clear = {'wrong_evidence': '老师打叉', 'primary_knowledge_point_id': 101, 'needs_review': False, 'review_reasons': []}
+    assert decide_review(clear, True) == ('approved', [])
+    assert decide_review({**clear, 'wrong_evidence': ''}, True) == ('pending', ['wrong_unclear'])
+    assert decide_review({**clear, 'primary_knowledge_point_id': None}, True) == ('pending', ['kp_unsure'])
+    # Review Focus 1：这个年级没有目录时，没有考点不算待核对
+    assert decide_review({**clear, 'primary_knowledge_point_id': None}, False) == ('approved', [])
+    flagged = {**clear, 'needs_review': True, 'review_reasons': ['other', 'text_unclear'], 'wrong_evidence': ''}
+    assert decide_review(flagged, True) == ('pending', ['wrong_unclear', 'text_unclear', 'other'])
+    # 孩子的答案留空不影响
+    assert decide_review({**clear, 'wrong_answer': ''}, True) == ('approved', [])
+
+
+def test_max_questions_constant():
+    """一份卷子最多 100 道题。"""
+    assert MAX_QUESTIONS == 100
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
     test_migration_builds_history_papers,
     test_old_insert_without_new_columns_still_works,
     test_student_id_added_to_all_listed_tables,
+    test_paper_defaults,
+    test_paper_blank_name_uses_default_with_given_date,
+    test_paper_exam_kind_rules,
+    test_paper_score_rules,
+    test_paper_date_and_images_rules,
+    test_question_page_rules,
+    test_question_required_and_ranges,
+    test_question_error_type_rules,
+    test_question_review_fields_rules,
+    test_decide_review,
+    test_max_questions_constant,
 ]
 
 
