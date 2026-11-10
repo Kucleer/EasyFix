@@ -110,7 +110,7 @@ async def date_stats(db, start, end, grade=None, use_last_review=False):
     else:
         w = await db.first('SELECT COUNT(*) AS total,COALESCE(SUM(l.is_correct),0) AS correct FROM word_review_log l JOIN word w ON w.id=l.word_id WHERE l.deleted=0 AND w.deleted=0 AND w.grade=? AND l.reviewed_at>=? AND l.reviewed_at<?', [grade, *dates])
     field = 'last_reviewed_at' if use_last_review else 'created_at'
-    q = await db.first('SELECT COUNT(DISTINCT pq.question_id) AS total,COALESCE(SUM(pq.is_correct),0) AS correct FROM practice_set_question pq JOIN practice_set p ON p.id=pq.practice_set_id JOIN question q ON q.id=pq.question_id WHERE p.deleted=0 AND pq.deleted=0 AND p.source_type="question" AND pq.is_correct IS NOT NULL AND p.' + field + '>=? AND p.' + field + '<?' + (' AND q.deleted=0 AND q.grade=?' if grade is not None else ''), [*dates, *([grade] if grade is not None else [])])
+    q = await db.first('SELECT COUNT(DISTINCT pq.question_id) AS total,COALESCE(SUM(pq.is_correct),0) AS correct FROM practice_set_question pq JOIN practice_set p ON p.id=pq.practice_set_id JOIN question q ON q.id=pq.question_id WHERE p.deleted=0 AND pq.deleted=0 AND p.source_type="question" AND pq.is_correct IS NOT NULL AND p.' + field + '>=? AND p.' + field + '<?' + (' AND ' + counted('q') + ' AND q.grade=?' if grade is not None else ''), [*dates, *([grade] if grade is not None else [])])
     return {'word_review_count': w['total'], 'word_accuracy': round(w['correct'] / w['total'] * 100, 1) if w['total'] else 0,
             'question_review_count': q['total'], 'question_accuracy': round(q['correct'] / q['total'] * 100, 1) if q['total'] else 0}
 
