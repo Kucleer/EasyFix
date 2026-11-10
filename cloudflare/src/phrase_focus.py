@@ -231,3 +231,32 @@ def apply_annotation(rows, llm_output, known_words):
                 'source_word_id': row['id'],
             })
     return {'updates': updates, 'failures': failures, 'missing_lemmas': missing_lemmas}
+
+
+# 空出的词至少留这么多下划线，保证纸上有足够的书写空间
+MIN_BLANK_LENGTH = 4
+
+
+def print_text(row, tokens):
+    """生成打印默写试卷上的一行文字。
+
+    tokens 为 None（单词或未标注词组）时沿用旧格式：中文 （N个字母）；
+    否则按格子输出完形填空：中文 + 全角空格 + 以空格连接的各个词。
+    """
+    chinese = row.get('chinese') or ''
+    if tokens is None:
+        return chinese + ' （' + str(len(row['english'])) + '个字母）'
+
+    parts = []
+    for token in tokens:
+        if not token['blank']:
+            parts.append(token['text'])
+            continue
+        # 需填字母数 = token 中的字母数，减去已给出的提示字母
+        letters = sum(1 for char in token['text'] if char.isalpha())
+        hint = token['hint'] or ''
+        if hint:
+            letters -= 1
+        # 下划线数量取 2 倍字母数，但不少于最小长度
+        parts.append(hint + '_' * max(MIN_BLANK_LENGTH, 2 * letters))
+    return chinese + '\u3000' + ' '.join(parts)

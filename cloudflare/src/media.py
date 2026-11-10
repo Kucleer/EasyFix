@@ -105,13 +105,24 @@ async def generate_audio(request:Request,grade:int|None=None):
 
 
 @router.post('/api/words/print-pdf')
-async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|None=None):
-    """生成中文释义与字母长度提示的默写试卷。"""
+async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|None=None,dictation_level:int=Query(1,ge=1,le=3)):
+    """生成默写试卷：已标注词组按档位出完形填空，单词与未标注词组保持「中文 （N个字母）」。"""
+    from phrase_focus import build_cells,print_text
+    from word_focus import load_focus_context
     db=Database(request.scope['env'].DB)
-    words=await db.all('SELECT chinese,LENGTH(english) AS length FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
+    words=await db.all('SELECT id,english,chinese,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,grade FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
     if not words:raise HTTPException(400,'没有可打印的单词')
+    # 一次批量载入全部已标注词组的重点，不按词查询
+    context=await load_focus_context(db,words)
+    questions=[]
+    for word in words:
+        item=context.get(word['id'])
+        tokens=None
+        if item:
+            tokens,_=build_cells(item['spec'],word['dictation_level'],dictation_level,item['focus'])
+        questions.append({'question_text':print_text(word,tokens)})
     from pdf import call
-    result=await call(request,'/pdf',{'title':'单词默写','questions':[{'question_text':word['chinese']+' （'+str(word['length'])+'个字母）'} for word in words]})
+    result=await call(request,'/pdf',{'title':'单词默写','questions':questions})
     key='practice_sets/word_'+uuid4().hex+'.pdf'
     from js import Object
     from pyodide.ffi import to_js

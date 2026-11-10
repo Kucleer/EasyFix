@@ -26,6 +26,7 @@ from phrase_focus import (  # noqa: E402
     next_level,
     next_phase,
     normalize_english,
+    print_text,
     spec_active,
     split_tokens,
     validate_focus_spec,
@@ -1043,6 +1044,51 @@ def test_prompt_contents():
     assert '三年级' in mixed
 
 
+# ---------------------------------------------------------------- 任务 7
+
+
+def test_print_text():
+    """打印文本：已标注词组按档位出完形填空，其余沿用「中文 （N个字母）」。"""
+    tokens, _ = build_cells(SPEC_GOOD_AT, 1, 1, [2])
+    assert print_text({'english': 'be good at', 'chinese': '擅长'}, tokens) == '擅长　be good ____'
+    tokens, _ = build_cells(SPEC_HELP_WITH, 1, 2, [2])
+    assert print_text({'english': 'help sb. with sth.', 'chinese': '帮助某人做某事'}, tokens) == '帮助某人做某事　h______ sb. w______ sth.'
+    assert print_text({'english': 'apple', 'chinese': '苹果'}, None) == '苹果 （5个字母）'
+    assert print_text({'english': 'take part in', 'chinese': '参加'}, None) == '参加 （12个字母）'    # 未标注：沿用 LENGTH(english)
+    # 长词按 2 倍字母数留足书写空间；档位 3 全空（占位符保留）
+    tokens, _ = build_cells(SPEC_PROUD_OF, 3, 3, [])
+    assert print_text({'english': 'be proud of', 'chinese': '为…自豪'}, tokens) == '为…自豪　' + '____ ' + '_' * 10 + ' ____'
+
+
+def test_print_words_endpoint_text():
+    """print_words 的取数与组句：一次 load_focus_context，已标注词组出填空，其余格式不变。"""
+    import media
+    db = seeded()
+    run(db.run("UPDATE word SET grade=6"))
+    questions = []
+
+    async def fake_call(request, path, payload):
+        questions.extend(item['question_text'] for item in payload['questions'])
+        raise RuntimeError('stop')   # 不真正生成 PDF / 写 R2
+
+    import pdf
+    original_call, original_database = getattr(pdf, 'call', None), media.Database
+    pdf.call = fake_call
+    media.Database = lambda binding: db
+    try:
+        for level, expected in ((1, '擅长　be good ____'), (3, '擅长　____ ________ ____')):
+            questions.clear()
+            try:
+                run(media.print_words(FakeRequest(None), count=100, grade=None, dictation_level=level))
+            except RuntimeError:
+                pass
+            assert expected in questions, questions
+            assert '苹果 （5个字母）' in questions and '参加 （12个字母）' in questions
+    finally:
+        pdf.call = original_call
+        media.Database = original_database
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -1076,6 +1122,8 @@ TESTS = [
     test_annotate_all_skipped_makes_no_llm_call,
     test_annotate_endpoint_validation,
     test_prompt_contents,
+    test_print_text,
+    test_print_words_endpoint_text,
 ]
 
 
