@@ -41,7 +41,7 @@
       </el-card>
 
       <el-card shadow="never" class="section-card">
-        <template #header><strong>错题（{{ questions.length }}）</strong></template>
+        <template #header><strong>错题（{{ paper.question_count }}）</strong></template>
         <el-empty v-if="!questions.length" description="这份记录下还没有错题" :image-size="80" />
         <component
           :is="q.review_status === 'pending' ? 'router-link' : 'div'"
@@ -65,6 +65,12 @@
             <span v-else class="muted">还没有考点</span>
           </div>
         </component>
+        <!-- 历史卷子下面题很多，分批加载：已显示的少于总数时给出加载更多 -->
+        <div v-if="questions.length < paper.question_count" class="load-more">
+          <el-button :loading="loadingMore" @click="loadMore">
+            加载更多（已显示 {{ questions.length }} / 共 {{ paper.question_count }} 道）
+          </el-button>
+        </div>
       </el-card>
 
       <PaperFormDialog v-model="editVisible" :paper="paper" :subjects="[]" @saved="fetchPaper" />
@@ -88,7 +94,11 @@ const route = useRoute()
 const router = useRouter()
 const reviewCountStore = useReviewCountStore()
 
+// 每次向服务器取多少道题
+const PAGE_SIZE = 50
+
 const loading = ref(false)
+const loadingMore = ref(false)
 const deleting = ref(false)
 const notFound = ref(false)
 const paper = ref(null)
@@ -115,11 +125,11 @@ const headDescription = computed(() => {
   return [p.subject_name, paperTypeLabel(p), p.paper_date].filter(Boolean).join(' · ')
 })
 
-// 加载这份卷子和它下面的题目
+// 加载这份卷子和它下面的第一页题目（编辑保存后也从头重新取）
 async function fetchPaper() {
   loading.value = true
   try {
-    const { data } = await paperApi.get(route.params.id)
+    const { data } = await paperApi.get(route.params.id, { skip: 0, limit: PAGE_SIZE })
     paper.value = data
     notFound.value = false
   } catch (error) {
@@ -134,9 +144,24 @@ async function fetchPaper() {
   }
 }
 
+// 再取一页题目，接在已显示的后面
+async function loadMore() {
+  loadingMore.value = true
+  try {
+    const { data } = await paperApi.get(route.params.id, { skip: questions.value.length, limit: PAGE_SIZE })
+    // 卷子信息和总数用最新的，题目接在后面
+    paper.value = { ...data, questions: [...questions.value, ...data.questions] }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '加载失败，请稍后再试')
+  } finally {
+    loadingMore.value = false
+  }
+}
+
 // 确认后删除：下面有题目时一起删除，成功后回到列表并刷新待核对数量
 async function removePaper() {
-  const count = questions.value.length
+  // 用整份卷子的题数，不是已经加载出来的条数
+  const count = paper.value.question_count
   const message = count > 0 ? `这份记录下有 ${count} 道错题，会一起删除。确定吗？` : '确定删除这份记录吗？'
   try {
     await ElMessageBox.confirm(message, '删除记录', {
@@ -189,6 +214,7 @@ onMounted(fetchPaper)
 .stem { max-height: 140px; overflow: hidden; margin-bottom: 8px; font-size: 14px; }
 .field { margin-bottom: 6px; font-size: 14px; }
 .label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+.load-more { text-align: center; margin-top: 4px; }
 .kp-list { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .muted { color: var(--text-muted); font-size: 13px; }
 

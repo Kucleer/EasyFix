@@ -10,8 +10,9 @@ export const paperApi = {
   list(params) {
     return api.get('/papers', { params })
   },
-  get(id) {
-    return api.get(`/papers/${id}`)
+  // params 里可带 skip、limit，用来分页取卷子下面的题目
+  get(id, params) {
+    return api.get(`/papers/${id}`, { params })
   },
   create(data) {
     return api.post('/papers', data)
