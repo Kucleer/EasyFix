@@ -27,7 +27,7 @@ from knowledge_stats import knowledge_options, validate_filter_ids
 router = APIRouter()
 FIELDS = {'error_book_id', 'subject_id', 'original_image', 'original_images', 'original_text',
           'parsed_question', 'grade', 'semester', 'answer', 'analysis', 'analysis_image',
-          'difficulty', 'error_type'}
+          'difficulty', 'error_type', 'wrong_answer', 'question_no'}
 
 
 def stamp_now():
@@ -46,8 +46,31 @@ def batch_error(error):
     raise HTTPException(500, '错题保存失败，请稍后重试')
 
 
+def parse_review_reasons(text):
+    """把库里的核对原因 JSON 文本转成列表；空值或无法解析时返回空列表。"""
+    try:
+        value = json.loads(text) if text else []
+    except (TypeError, ValueError):
+        return []
+    return value if isinstance(value, list) else []
+
+
+async def attach_papers(db, rows):
+    """给每道题补上 paper 和 review_reasons；所属卷子用一次查询取出，不逐题查询。"""
+    paper_ids = sorted({row['paper_id'] for row in rows if row.get('paper_id') is not None})
+    papers = {}
+    if paper_ids:
+        for paper in await db.all(
+                'SELECT id,name,paper_type,exam_kind,paper_date FROM paper '
+                'WHERE deleted=0 AND id IN (SELECT value FROM json_each(?))', (json.dumps(paper_ids),)):
+            papers[paper['id']] = paper
+    for row in rows:
+        row['paper'] = papers.get(row.get('paper_id'))
+        row['review_reasons'] = parse_review_reasons(row.get('review_reasons'))
+
+
 async def hydrate(db, row):
-    """返回兼容前端的图片数组、标签、相似题与两级知识点。"""
+    """返回兼容前端的图片数组、标签、相似题、两级知识点与所属卷子。"""
     row['original_images'] = json.loads(row.get('original_images') or 'null')
     row['tags'] = await db.all(
         'SELECT t.* FROM tag t JOIN question_tag qt ON qt.tag_id=t.id '
@@ -55,6 +78,7 @@ async def hydrate(db, row):
     row['similar_questions'] = await db.all(
         'SELECT * FROM similar_question WHERE source_question_id=? AND deleted=0', (row['id'],))
     links = (await question_links(db, [row['id']])).get(row['id'], [])
+    await attach_papers(db, [row])
     return decorate_question(row, links)
 
 
@@ -207,15 +231,19 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
                   knowledge_point_id: int | None = Query(None, ge=1),
                   unclassified: int | None = Query(None, ge=0, le=1),
                   difficulty: str | None = None, error_type: str | None = None,
-                  tag_ids: str | None = None, accuracy_range: str | None = None):
+                  tag_ids: str | None = None, accuracy_range: str | None = None,
+                  review_status: str | None = None, paper_id: int | None = Query(None, ge=1)):
     """读取错题分页；知识点筛选走结构化关联，不再依赖文本子串。"""
     db = Database(request.scope['env'].DB)
     await validate_filter_ids(db, subject_id, knowledge_parent_id, knowledge_point_id)
     if unclassified and (knowledge_parent_id is not None or knowledge_point_id is not None or knowledge_point):
         raise HTTPException(422, '未分类筛选不能与具体知识点筛选项同时使用')
+    if review_status is not None and review_status not in ('approved', 'pending'):
+        raise HTTPException(422, '核对状态只能是 approved 或 pending')
     filters, values = ['q.deleted=0'], []
     for name, value in [('subject_id', subject_id), ('error_book_id', error_book_id),
-                        ('grade', grade), ('semester', semester)]:
+                        ('grade', grade), ('semester', semester), ('review_status', review_status),
+                        ('paper_id', paper_id)]:
         if value is not None:
             filters.append('q.' + name + '=?')
             values.append(value)
@@ -282,6 +310,7 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
                                     + marks + ')', ids):
             similar_map.setdefault(similar['source_question_id'], []).append(similar)
     link_map = await question_links(db, [row['id'] for row in rows])
+    await attach_papers(db, rows)
     for row in rows:
         row['original_images'] = json.loads(row['original_images']) if row['original_images'] else None
         row['tags'] = tag_map.get(row['id'], [])

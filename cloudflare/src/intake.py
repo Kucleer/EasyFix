@@ -14,7 +14,7 @@ from knowledge import (decorate_question, ensure_guard_rows, guard_statement, qu
 from knowledge_model import map_error
 from pdf import validate_math
 from question_scope import current_student_id
-from questions import batch_error, stamp_now
+from questions import batch_error, hydrate as hydrate_question, stamp_now
 import settings
 
 router = APIRouter()
@@ -442,3 +442,41 @@ async def submit_paper(request: Request):
     paper_id, replayed = await write_submission(db, request, checked, request_id)
     body = await load_result_body(db, paper_id, replayed)
     return JSONResponse(body, status_code=200) if replayed else body
+
+
+@router.get('/api/questions/review/count')
+async def review_count(request: Request):
+    """返回等待家长核对的题目数量。"""
+    db = Database(request.scope['env'].DB)
+    row = await db.first("SELECT COUNT(*) AS total FROM question WHERE deleted=0 AND review_status='pending'")
+    return {'pending': row['total']}
+
+
+@router.post('/api/questions/{question_id}/review')
+async def review_question(question_id: int, request: Request):
+    """通过或移除一道待核对的题；条件更新保证两人同时操作时只有一人成功。"""
+    payload = await request.json()
+    action = payload.get('action') if isinstance(payload, dict) else None
+    db = Database(request.scope['env'].DB)
+    row = await db.first('SELECT id,review_status FROM question WHERE id=? AND deleted=0', (question_id,))
+    if row is None:
+        raise HTTPException(404, '错题不存在')
+    if action not in ('approve', 'reject'):
+        raise HTTPException(422, '操作只能是 approve 或 reject')
+    if row['review_status'] != 'pending':
+        raise HTTPException(409, '这道题已经处理过了')
+    if action == 'approve' and await db.first(
+            'SELECT 1 AS ok FROM question_knowledge_point WHERE question_id=? AND deleted=0 AND is_primary=1',
+            (question_id,)) is None:
+        raise HTTPException(422, '请先选择考点再通过')
+    stamp = stamp_now()
+    # 通过只改状态，移除同时软删除；WHERE 里再次要求待核对，晚到的一方拿不到返回行
+    changes = "review_status='approved'" if action == 'approve' else "deleted=1,review_status='rejected'"
+    done = await db.first(
+        'UPDATE question SET ' + changes + ',reviewed_at=?,updated_at=? '
+        "WHERE id=? AND deleted=0 AND review_status='pending' RETURNING id", (stamp, stamp, question_id))
+    if done is None:
+        raise HTTPException(409, '这道题已经处理过了')
+    if action == 'reject':
+        return {'id': question_id, 'review_status': 'rejected'}
+    return await hydrate_question(db, await db.first('SELECT * FROM question WHERE id=?', (question_id,)))

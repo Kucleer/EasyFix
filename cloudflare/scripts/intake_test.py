@@ -761,6 +761,131 @@ def test_math_validator_called_once_and_only_for_math():
     assert check_only(db, english)[1]['ok'] is True and len(calls) == 1
 
 
+
+# ---------------------------------------------------------------- 任务 6：核对接口与错题接口
+
+def call_listing(db, **params):
+    """调用 questions.listing；没给的查询参数显式传默认值（直接调用时 Query 默认值不会展开）。"""
+    import questions
+    values = dict(skip=0, limit=20, subject_id=None, error_book_id=None, grade=None, semester=None,
+                  keyword=None, knowledge_point=None, knowledge_parent_id=None, knowledge_point_id=None,
+                  unclassified=None, difficulty=None, error_type=None, tag_ids=None, accuracy_range=None,
+                  review_status=None, paper_id=None)
+    values.update(params)
+    return questions.listing(fake_request({}, db, questions), **values)
+
+
+def review(db, question_id, action):
+    """调用核对接口：对指定题执行 approve 或 reject。"""
+    return intake.review_question(question_id, fake_request({'action': action}, db, intake))
+
+
+def test_review_count_and_listing_filter():
+    """待核对数量只算待核对题；列表默认带出待核对题，也能只看待核对题。"""
+    c = build_database(); db = adapter(c)
+    pending_id = add_question(c, status='pending')
+    assert run(intake.review_count(fake_request({}, db, intake))) == {'pending': 1}
+    listed = run(call_listing(db, review_status='pending'))
+    assert [item['id'] for item in listed['items']] == [pending_id]
+    assert pending_id in [item['id'] for item in run(call_listing(db))['items']]
+    expect_http(422, lambda: run(call_listing(db, review_status='rejected')))
+
+
+@with_noop_validator
+def test_listing_includes_paper_and_reasons():
+    """列表按卷子筛选，每题带卷子信息和（空的）核对原因列表。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload(name='第三章单元测试', paper_type='exam'))
+    items = run(call_listing(db, paper_id=body['paper']['id']))['items']
+    assert len(items) == 2 and items[0]['paper']['name'] == '第三章单元测试'
+    assert items[0]['paper']['paper_type'] == 'exam' and items[0]['review_reasons'] == []
+    lone = add_question(c)
+    row = [item for item in run(call_listing(db))['items'] if item['id'] == lone][0]
+    assert row['paper'] is None and row['review_reasons'] == []
+
+
+def test_review_reasons_parsed_and_detail_has_paper():
+    """库里的核对原因文本解析成列表，坏文本给空列表；详情也带 paper。"""
+    import questions
+    c = build_database(); db = adapter(c)
+    question_id = add_question(c, status='pending')
+    c.execute('UPDATE question SET review_reasons=? WHERE id=?', ('["wrong_unclear","other"]', question_id))
+    c.execute("INSERT INTO paper(id,subject_id,name,paper_type,deleted) VALUES(7,1,'卷子','homework',0)")
+    c.execute('UPDATE question SET paper_id=7 WHERE id=?', (question_id,))
+    c.commit()
+    out = run(questions.detail(question_id, fake_request({}, db, questions)))
+    assert out['review_reasons'] == ['wrong_unclear', 'other']
+    assert out['paper'] == {'id': 7, 'name': '卷子', 'paper_type': 'homework', 'exam_kind': None, 'paper_date': None}
+    c.execute('UPDATE question SET review_reasons=? WHERE id=?', ('不是json', question_id)); c.commit()
+    assert run(questions.detail(question_id, fake_request({}, db, questions)))['review_reasons'] == []
+
+
+def test_approve_and_reject():
+    """通过后状态为 approved 并记时间；移除后软删除，待核对数量随之减少。"""
+    c = build_database(); db = adapter(c)
+    first, second = add_question(c, status='pending'), add_question(c, status='pending')
+    out = run(review(db, first, 'approve'))
+    assert out['review_status'] == 'approved' and 'paper' in out and out['review_reasons'] == []
+    assert c.execute('SELECT reviewed_at FROM question WHERE id=?', (first,)).fetchone()[0]
+    assert run(review(db, second, 'reject')) == {'id': second, 'review_status': 'rejected'}
+    assert tuple(c.execute('SELECT deleted,review_status FROM question WHERE id=?', (second,)).fetchone()) == (1, 'rejected')
+    assert c.execute('SELECT reviewed_at FROM question WHERE id=?', (second,)).fetchone()[0]
+    assert run(intake.review_count(fake_request({}, db, intake))) == {'pending': 0}
+
+
+def test_second_reviewer_gets_conflict():
+    """已处理的题再次处理得 409，已移除的题得 404，且不会被改动。"""
+    c = build_database(); db = adapter(c)
+    question_id = add_question(c, status='pending')
+    run(review(db, question_id, 'reject'))
+    expect_http(404, lambda: run(review(db, question_id, 'approve')))
+    other = add_question(c, status='pending'); run(review(db, other, 'approve'))
+    expect_http(409, lambda: run(review(db, other, 'approve')))
+    expect_http(409, lambda: run(review(db, other, 'reject')))
+    assert c.execute('SELECT deleted FROM question WHERE id=?', (other,)).fetchone()[0] == 0
+
+
+def test_conditional_update_blocks_late_reviewer():
+    """两人同时读到待核对：先到的写入后，晚到的条件更新没有返回行，得 409 且不改数据。"""
+    c = build_database(); db = adapter(c)
+    question_id = add_question(c, status='pending')
+    real_first = db.first
+
+    async def first_with_race(sql, parameters=()):
+        """在读取题目之后、条件更新之前，让另一个人先通过这道题。"""
+        row = await real_first(sql, parameters)
+        if sql.startswith('SELECT id,review_status FROM question'):
+            c.execute("UPDATE question SET review_status='approved' WHERE id=?", (question_id,)); c.commit()
+        return row
+    db.first = first_with_race
+    expect_http(409, lambda: run(review(db, question_id, 'reject')))
+    assert tuple(c.execute('SELECT deleted,review_status FROM question WHERE id=?', (question_id,)).fetchone()) == (0, 'approved')
+
+
+def test_approve_requires_primary_knowledge_point():
+    """没有主考点不能通过；不认识的操作 422；这两种情况都不改题目。"""
+    c = build_database(); db = adapter(c)
+    question_id = add_question(c, status='pending', point_id=None)
+    expect_http(422, lambda: run(review(db, question_id, 'approve')))
+    expect_http(422, lambda: run(review(db, question_id, 'archive')))
+    assert c.execute('SELECT review_status FROM question WHERE id=?', (question_id,)).fetchone()[0] == 'pending'
+    expect_http(404, lambda: run(review(db, 9999, 'approve')))
+
+
+def test_save_accepts_new_fields_and_old_page_keeps_them():
+    """保存接口认 wrong_answer、question_no；旧页面不带时保持原值；不认识的字段被忽略。"""
+    import questions
+    c = build_database(); db = adapter(c)
+    question_id = add_question(c, status='pending')
+    run(questions.save(db, {'wrong_answer': '3/4', 'question_no': '二、5'}, question_id))
+    run(questions.save(db, {'answer': '2/3'}, question_id))
+    row = c.execute('SELECT wrong_answer,question_no,review_status,answer FROM question WHERE id=?', (question_id,)).fetchone()
+    assert tuple(row) == ('3/4', '二、5', 'pending', '2/3')
+    run(questions.save(db, {'review_status': 'approved', 'paper_id': 999, 'wrong_evidence': 'x'}, question_id))
+    row = c.execute('SELECT review_status,paper_id,wrong_evidence FROM question WHERE id=?', (question_id,)).fetchone()
+    assert tuple(row) == ('pending', None, None)
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -805,6 +930,14 @@ TESTS = [
     test_question_count_limits,
     test_malformed_paper_and_question_items_are_reported,
     test_math_validator_called_once_and_only_for_math,
+    test_review_count_and_listing_filter,
+    test_listing_includes_paper_and_reasons,
+    test_review_reasons_parsed_and_detail_has_paper,
+    test_approve_and_reject,
+    test_second_reviewer_gets_conflict,
+    test_conditional_update_blocks_late_reviewer,
+    test_approve_requires_primary_knowledge_point,
+    test_save_accepts_new_fields_and_old_page_keeps_them,
 ]
 
 
