@@ -328,7 +328,8 @@ def test_decide_review():
     clear = {'wrong_evidence': '老师打叉', 'primary_knowledge_point_id': 101, 'needs_review': False, 'review_reasons': []}
     assert decide_review(clear, True) == ('approved', [])
     assert decide_review({**clear, 'wrong_evidence': ''}, True) == ('pending', ['wrong_unclear'])
-    assert decide_review({**clear, 'primary_knowledge_point_id': None}, True) == ('pending', ['kp_unsure'])
+    # 目录里找不到合适考点：直接入库为未分类，不算待核对（用户 2026-11-11 决定）
+    assert decide_review({**clear, 'primary_knowledge_point_id': None}, True) == ('approved', [])
     # Review Focus 1：这个年级没有目录时，没有考点不算待核对
     assert decide_review({**clear, 'primary_knowledge_point_id': None}, False) == ('approved', [])
     flagged = {**clear, 'needs_review': True, 'review_reasons': ['other', 'text_unclear'], 'wrong_evidence': ''}

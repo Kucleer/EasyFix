@@ -313,7 +313,8 @@ def decide_review(question, catalog_available):
     """判断一道题直接入库还是待核对，返回 (状态, 原因列表)。
 
     原因去重，并按 REVIEW_REASONS 里的顺序排列。孩子的答案留空不影响；
-    当前年级没有考点目录时，没有主考点不算待核对的理由。
+    没有主考点也不算待核对：目录里找不到合适考点的题直接入库，记为未分类
+    （用户 2026-11-11 决定）。catalog_available 保留在参数里，调用方不用改。
     """
     reasons = set()
     flagged = bool(question.get('needs_review'))
@@ -321,9 +322,6 @@ def decide_review(question, catalog_available):
         reasons.update(question.get('review_reasons') or [])
     if not (question.get('wrong_evidence') or '').strip():
         reasons.add('wrong_unclear')
-        flagged = True
-    if question.get('primary_knowledge_point_id') is None and catalog_available:
-        reasons.add('kp_unsure')
         flagged = True
     if not flagged:
         return 'approved', []

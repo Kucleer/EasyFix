@@ -58,7 +58,7 @@
 | `difficulty` |  | 难度 1–5，默认 3。 |
 | `error_type` |  | 错因，逗号分隔。每一项**必须在 `guide` 返回的 `error_types` 清单里**（清单为空时可不填，也不校验）。不要因为题型复杂就随手标"计算"。 |
 | `knowledge_point_ids` |  | 考点编号数组，**只能用 `guide` 清单里的二级考点编号，不能用文字名称**。 |
-| `primary_knowledge_point_id` |  | 主考点编号，取自上面的数组。**没有主考点、且这个年级有考点目录时，系统会自动标成待核对（`kp_unsure`）。** 清单为空（`catalog_available` 为 false）时留空即可，不算待核对。 |
+| `primary_knowledge_point_id` |  | 主考点编号，取自上面的数组。清单里确实没有合适的考点、或清单为空（`catalog_available` 为 false）时留空，题目直接入库为未分类，不算待核对。 |
 | `needs_review` |  | 是否待核对，`true` / `false`（默认 `false`）。标 `true` 时 `review_reasons` 不能为空。 |
 | `review_reasons` |  | 待核对原因代码数组，见下。 |
 | `review_note` |  | 一句话说清疑问在哪，给家长看。标了待核对就写上。**老师没有批改的题，这一句必须以"老师没有批改这一题"开头。** |
@@ -68,8 +68,9 @@
 一道题满足下面任一条就是待核对（其余直接入库）：
 
 - 你把 `needs_review` 标成了 `true`（此时必须给 `review_reasons`）；
-- `wrong_evidence` 留空了 → 系统自动加原因 `wrong_unclear`；
-- 没有主考点、且这个年级有考点目录 → 系统自动加原因 `kp_unsure`。
+- `wrong_evidence` 留空了 → 系统自动加原因 `wrong_unclear`。
+
+没有主考点**不会**变成待核对：题目直接入库，记为"未分类"。
 
 ### 四个待核对原因代码
 
@@ -77,7 +78,7 @@
 | --- | --- |
 | `wrong_unclear` | **只用于"不确定孩子到底做错了没有"**：符号和你的验算对不上；或老师没有批改、但你验算发现写错了；或你自己也做不出、老师的符号也看不清。**孩子的答案看不清不属于这里**——老师判错就直接入库、`wrong_answer` 留空、`wrong_evidence` 写明字迹看不清，不用这个代码。 |
 | `text_unclear` | **题干或正确答案**拿不准：照片模糊、缺字或被裁切。孩子的答案看不清不属于这里（按上面 `wrong_answer` 留空处理，不标 `text_unclear`）。 |
-| `kp_unsure` | 看遍所有模块后，`guide` 清单里仍找不到合适的考点。 |
+| `kp_unsure` | 一般不用。清单里找不到合适考点时，不填考点、直接入库为未分类即可，不用标待核对。 |
 | `other` | 其他说不清的疑问，具体写在 `review_note` 里。 |
 
 ## 多小问的大题怎么拆（`SKILL.md` 指到这里）
