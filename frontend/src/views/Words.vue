@@ -323,7 +323,7 @@
             </div>
             <div class="correction-card">
               <!-- 正确写法与孩子写的左右并排，对比最直接 -->
-              <div class="compare">
+              <div class="compare" :class="{ 'is-long': isLongAnswer }">
                 <div class="compare-panel is-right">
                   <div class="compare-label">正确写法</div>
                   <div class="compare-text">
@@ -344,6 +344,7 @@
               <div class="correction-tip">照着抄一遍</div>
               <DictationInput
                 ref="copyInputRef"
+                :compact="isLongAnswer"
                 :question="copyQuestion"
                 :result="copyResult"
                 v-model="copyAnswers"
@@ -364,6 +365,7 @@
             </div>
             <DictationInput
               ref="dictationInputRef"
+              :compact="isLongAnswer"
               :question="currentQuestion"
               :disabled="currentQuestion.correct !== undefined"
               :result="currentQuestion.correct === undefined ? null : { tokenResults: currentQuestion.tokenResults, correct: currentQuestion.correct }"
@@ -711,6 +713,9 @@ const correctionDiff = computed(() => {
   return answerSegments({ english: q.english, userAnswer: q.userAnswer, tokenResults: q.tokenResults })
 })
 const correctionSegs = computed(() => correctionDiff.value.expected)
+// 长答案（整句、长词组）：对比面板上下排列、格子缩小，保证一屏放得下
+const LONG_ANSWER_LENGTH = 22
+const isLongAnswer = computed(() => (currentQuestion.value?.english || '').length > LONG_ANSWER_LENGTH)
 // 孩子所写内容的片段：写错的部分加删除线；没有作答时为空
 const correctionActualSegs = computed(() => (currentQuestion.value?.userAnswer ? correctionDiff.value.actual : []))
 
@@ -2676,8 +2681,8 @@ watch(() => route.query.review_ids, (val) => {
 /* 答题区固定在一屏内：顶部进度、中间内容、底部操作三段 */
 .review-question {
   padding: 0;
-  height: min(560px, calc(100vh - 80px));
-  height: min(560px, calc(100dvh - 80px));
+  height: min(640px, calc(100vh - 80px));
+  height: min(640px, calc(100dvh - 80px));
   max-height: none;
   min-height: 0;
   display: flex;
@@ -2731,8 +2736,14 @@ watch(() => route.query.review_ids, (val) => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 16px 28px;
+}
+
+/* 用自动外边距做垂直居中：内容比容器高时从顶部开始排，不会被裁掉 */
+.question-content > * {
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 .dictation {
@@ -2787,7 +2798,32 @@ watch(() => route.query.review_ids, (val) => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  width: min(560px, 100%);
+  width: min(680px, 100%);
+}
+
+/* 长答案：两个面板上下排列，各占一整行，标签放在左侧 */
+.compare.is-long {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: min(840px, 100%);
+}
+
+.compare.is-long .compare-panel {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 14px;
+  text-align: left;
+}
+
+.compare.is-long .compare-label {
+  flex-shrink: 0;
+  width: 56px;
+  margin: 0;
+}
+
+.compare.is-long .compare-text {
+  font-size: 20px;
 }
 
 .compare-panel {
@@ -2885,6 +2921,12 @@ watch(() => route.query.review_ids, (val) => {
   }
   .compare-text {
     font-size: 20px;
+  }
+  .compare.is-long .compare-text {
+    font-size: 17px;
+  }
+  .compare.is-long .compare-label {
+    width: 52px;
   }
   .compare-panel {
     padding: 8px 8px 10px;

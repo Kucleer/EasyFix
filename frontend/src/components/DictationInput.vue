@@ -3,6 +3,7 @@
   <div
     ref="boxRef"
     class="letter-input"
+    :class="{ compact }"
     tabindex="0"
     @click="focusInput"
     @keydown="handleKeydown"
@@ -52,6 +53,8 @@ const props = defineProps({
   question: { type: Object, required: true },
   // 是否禁用输入（已提交作答后为 true）
   disabled: { type: Boolean, default: false },
+  // 紧凑模式：内容很长时用小一号的格子
+  compact: { type: Boolean, default: false },
   // 判对结果 {tokenResults, correct}，未提交时为 null
   result: { type: Object, default: null },
   // v-model：与格子等长的各格内容
@@ -289,6 +292,31 @@ defineExpose({ focus, reset })
   color: var(--accent-blue);
   background: transparent;
   border-color: transparent;
+}
+
+/* 紧凑模式：长句、长词组用小一号的格子，减少行数 */
+.letter-input.compact .letter-cell,
+.letter-input.compact .letter-cell.fixed.given {
+  width: 30px;
+  height: 38px;
+  font-size: 18px;
+  border-radius: var(--radius-sm);
+}
+
+.letter-input.compact .letter-cell.fixed:not(.given) {
+  width: auto;
+  min-width: 10px;
+  font-size: 18px;
+  padding: 0 2px;
+}
+
+.letter-input.compact .letter-word,
+.letter-input.compact .letter-cells {
+  gap: 4px;
+}
+
+.letter-input.compact .letter-word.gap {
+  margin-left: 8px;
 }
 
 .letter-hidden-input {
