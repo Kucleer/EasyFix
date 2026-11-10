@@ -245,6 +245,21 @@
             <el-radio :value="3">听力</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="范围">
+          <el-radio-group v-model="reviewConfig.entry_type">
+            <el-radio value="">全部</el-radio>
+            <el-radio value="word">只练单词</el-radio>
+            <el-radio value="phrase">只练词组</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="reviewConfig.type === 1" label="词组档位">
+          <el-radio-group v-model="reviewConfig.dictation_level">
+            <el-radio :value="0">自动</el-radio>
+            <el-radio :value="1">重点</el-radio>
+            <el-radio :value="2">提示</el-radio>
+            <el-radio :value="3">完整</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-button type="primary" @click="startReviewGame" :disabled="reviewStarting" style="width: 100%">开始复习</el-button>
       </div>
 
@@ -261,42 +276,19 @@
               {{ currentQuestion.chinese }}
             </div>
             <div class="audio-row">
-              <el-button class="audio-btn" @click="playWordAudio(currentQuestion.word_id)" :loading="audioLoading">🔊</el-button>
+              <el-button class="audio-btn" @click="playWordAudio(currentQuestion.word_id)" :loading="audioLoading" :disabled="dictationSpeakerDisabled">🔊</el-button>
             </div>
             <div class="hint-box">
-              <div class="hint">提示：{{ letterBlankCount }}个字母</div>
+              <div class="hint">{{ dictationHint }}</div>
             </div>
-            <div
-              ref="letterInputBoxRef"
-              class="letter-input"
-              tabindex="0"
-              @click="focusLetterInput"
-              @keydown="handleLetterKeydown"
-            >
-              <div class="letter-cells">
-                <div
-                  v-for="(cell, i) in dictationCells"
-                  :key="i"
-                  class="letter-cell"
-                  :class="{
-                    fixed: cell.fixed,
-                    filled: !!letterAnswers[i],
-                    active: i === activeLetterIdx && currentQuestion.correct === undefined,
-                    correct: currentQuestion.correct === true && !cell.fixed,
-                    wrong: currentQuestion.correct === false && !cell.fixed
-                  }"
-                >
-                  {{ cell.fixed ? cell.char : (letterAnswers[i] || '') }}
-                </div>
-              </div>
-              <input
-                ref="letterInputRef"
-                class="letter-hidden-input"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-              />
-            </div>
+            <DictationInput
+              ref="dictationInputRef"
+              :question="currentQuestion"
+              :disabled="currentQuestion.correct !== undefined"
+              :result="currentQuestion.correct === undefined ? null : { tokenResults: currentQuestion.tokenResults, correct: currentQuestion.correct }"
+              v-model="answers"
+              @submit="submitAnswer"
+            />
           </div>
 
           <!-- 选择模式：显示英文 + 喇叭按钮 -->
@@ -505,10 +497,12 @@ orange 橙子"
 
 <script setup>
 import PageHeading from '@/components/PageHeading.vue'
-import { ref, reactive, onMounted, computed } from 'vue'
+import DictationInput from '@/components/DictationInput.vue'
+import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Printer, Upload } from '@element-plus/icons-vue'
+import { buildCells, blankTokenCount, judge, shouldPlayBeforeAnswer } from '@/composables/dictation'
 import { wordApi } from '@/api/word'
 import { questionApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
@@ -590,14 +584,14 @@ const reviewConfig = reactive({
   count: 20,
   grade: appConfigStore.defaultGrade,
   type: 1,
+  entry_type: '',        // '' 全部 / 'word' 只练单词 / 'phrase' 只练词组
+  dictation_level: 0,    // 0 自动 / 1 重点 / 2 提示 / 3 完整
 })
 const reviewQuestions = ref([])
 const currentIndex = ref(0)
 const userAnswer = ref('')
-const letterAnswers = ref([])
-const activeLetterIdx = ref(0)
-const letterInputRef = ref(null)
-const letterInputBoxRef = ref(null)
+const answers = ref([])              // 默写各格内容，供 judge 使用
+const dictationInputRef = ref(null)  // 默写组件引用
 const autoPlayToken = ref(0)
 const selectedOption = ref('')
 const currentSessionId = ref(null)
@@ -615,9 +609,22 @@ const reviewStartTime = ref(null)
 const reviewTimer = ref(null)
 const reviewElapsed = ref(0) // 秒
 const answerInputRef = ref(null)
-const letterBlankCount = computed(() => {
-  const cells = dictationCells.value
-  return cells.filter(c => !c.fixed).length
+
+// 默写提示文字：有 tokens 时提示词数，否则提示字母数
+const dictationHint = computed(() => {
+  const q = currentQuestion.value
+  if (!q) return ''
+  if (Array.isArray(q.tokens) && q.tokens.length > 0) {
+    return `提示：${blankTokenCount(q)}个词`
+  }
+  return `提示：${buildCells(q).filter(c => !c.fixed).length}个字母`
+})
+
+// 重点/提示档词组：作答前不发音，此时喇叭按钮禁用，提交后才可点
+const dictationSpeakerDisabled = computed(() => {
+  const q = currentQuestion.value
+  if (!q || reviewConfig.type !== 1) return false
+  return !shouldPlayBeforeAnswer(q, reviewConfig.type) && q.correct === undefined
 })
 
 // 长中文自适应字号，避免溢出
@@ -630,74 +637,6 @@ const chineseFontSize = computed(() => {
   if (len <= 36) return '22px'
   return '18px'
 })
-
-// 默写字母格：空格/符号预填，字母留空
-const dictationCells = computed(() => {
-  const en = currentQuestion.value?.english || ''
-  return en.split('').map(ch => ({
-    char: ch,
-    fixed: !/[a-zA-Z]/.test(ch),
-  }))
-})
-
-const resetLetterInput = () => {
-  letterAnswers.value = dictationCells.value.map(c => (c.fixed ? c.char : ''))
-  const firstBlank = dictationCells.value.findIndex(c => !c.fixed)
-  activeLetterIdx.value = firstBlank >= 0 ? firstBlank : 0
-}
-
-const focusLetterInput = () => {
-  if (currentQuestion.value?.correct !== undefined) return
-  letterInputBoxRef.value?.focus()
-}
-
-const fillBuiltAnswer = () => {
-  // 按格子拼出完整答案（含预置空格/符号）
-  return dictationCells.value
-    .map((c, i) => (c.fixed ? c.char : (letterAnswers.value[i] || '')))
-    .join('')
-}
-
-const handleLetterKeydown = (e) => {
-  if (currentQuestion.value?.correct !== undefined) return
-
-  if (e.key === 'Backspace') {
-    e.preventDefault()
-    const cells = dictationCells.value
-    let idx = activeLetterIdx.value
-    // 当前格有内容则清空；否则回退到上一个可填格
-    if (idx < cells.length && !cells[idx].fixed && letterAnswers.value[idx]) {
-      letterAnswers.value[idx] = ''
-      return
-    }
-    let i = idx - 1
-    while (i >= 0 && cells[i].fixed) i--
-    if (i >= 0) {
-      letterAnswers.value[i] = ''
-      activeLetterIdx.value = i
-    }
-    return
-  }
-
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    submitAnswer()
-    return
-  }
-
-  if (/^[a-zA-Z]$/.test(e.key)) {
-    e.preventDefault()
-    const cells = dictationCells.value
-    let idx = activeLetterIdx.value
-    while (idx < cells.length && cells[idx].fixed) idx++
-    if (idx >= cells.length) return
-    letterAnswers.value[idx] = e.key.toLowerCase()
-    // 跳到下一个可填格
-    let next = idx + 1
-    while (next < cells.length && cells[next].fixed) next++
-    activeLetterIdx.value = Math.min(next, cells.length - 1)
-  }
-}
 
 // 打印相关
 const printDialogVisible = ref(false)
@@ -979,6 +918,10 @@ const startReviewGame = async () => {
       count: reviewConfig.count,
     }
     if (reviewConfig.grade) params.grade = reviewConfig.grade
+    // 范围：非默认时传 entry_type（只练单词/词组）
+    if (reviewConfig.entry_type) params.entry_type = reviewConfig.entry_type
+    // 词组档位：非自动（0）时传 dictation_level
+    if (reviewConfig.dictation_level) params.dictation_level = reviewConfig.dictation_level
     // 如果有选中单词，传递单词ID列表
     if (selectedWords.value.length > 0) {
       params.word_ids = selectedWords.value.map(w => w.id).join(',')
@@ -996,13 +939,17 @@ const startReviewGame = async () => {
     currentQuestion.value = reviewQuestions.value[0]
     reviewStep.value = 'question'
     if (reviewConfig.type === 1) {
-      resetLetterInput()
-      setTimeout(() => focusLetterInput(), 100)
+      // 组件会随题目变化自动重置，这里挂载后再聚焦并复位光标
+      nextTick(() => {
+        dictationInputRef.value?.reset()
+        setTimeout(() => dictationInputRef.value?.focus(), 100)
+      })
     }
 
-    // 默写/听力：自动播放（播完停3秒再播一次）
-    if (reviewConfig.type === 1 || reviewConfig.type === 3) {
-      setTimeout(() => autoPlayWithReplay(reviewQuestions.value[0].word_id), 400)
+    // 听力固定自动播放；默写仅在作答前应发音时播放（播完停3秒再播一次）
+    const firstQ = reviewQuestions.value[0]
+    if (reviewConfig.type === 3 || (reviewConfig.type === 1 && shouldPlayBeforeAnswer(firstQ, reviewConfig.type))) {
+      setTimeout(() => autoPlayWithReplay(firstQ.word_id), 400)
     }
 
     // 启动计时器 - 先清除可能存在的旧计时器
@@ -1077,10 +1024,16 @@ const autoPlayWithReplay = async (wordId) => {
 const submitAnswer = () => {
   const q = currentQuestion.value
   if (reviewConfig.type === 1) {
-    // 默写：从字母格拼答案
-    userAnswer.value = fillBuiltAnswer()
-    q.correct = userAnswer.value.toLowerCase() === q.english.toLowerCase()
-    q.userAnswer = userAnswer.value
+    // 默写：用 judge 按词（或整条）判对
+    const res = judge(q, answers.value)
+    q.correct = res.correct
+    q.userAnswer = res.userAnswer
+    q.tokenResults = res.tokenResults
+    userAnswer.value = res.userAnswer
+    // 重点/提示档词组作答前不发音，提交后补播一次
+    if (!shouldPlayBeforeAnswer(q, reviewConfig.type)) {
+      playWordAudio(q.word_id)
+    }
   } else if (reviewConfig.type === 3) {
     // 听力：比较英文输入
     q.correct = userAnswer.value.toLowerCase().trim() === q.english.toLowerCase().trim()
@@ -1116,16 +1069,19 @@ const nextQuestion = () => {
   userAnswer.value = ''
   selectedOption.value = ''
   if (reviewConfig.type === 1) {
-    resetLetterInput()
-    setTimeout(() => focusLetterInput(), 100)
+    // 组件随题目变化自动重置，这里复位光标并聚焦
+    nextTick(() => {
+      dictationInputRef.value?.reset()
+      setTimeout(() => dictationInputRef.value?.focus(), 100)
+    })
   }
-  // 默写/听力自动播放
-  if (reviewConfig.type === 1 || reviewConfig.type === 3) {
+  // 听力固定自动播放；默写仅在作答前应发音时播放
+  if (reviewConfig.type === 3 || (reviewConfig.type === 1 && shouldPlayBeforeAnswer(currentQuestion.value, reviewConfig.type))) {
     setTimeout(() => autoPlayWithReplay(currentQuestion.value.word_id), 300)
   }
   setTimeout(() => {
     if (reviewConfig.type === 1) {
-      focusLetterInput()
+      dictationInputRef.value?.focus()
       return
     }
     const input = answerInputRef.value?.$el?.querySelector('input')
@@ -1166,12 +1122,20 @@ const finishReview = async () => {
   }
   const duration = reviewElapsed.value
 
-  const results = reviewQuestions.value.map(q => ({
-    word_id: q.word_id,
-    is_correct: q.correct,
-    user_answer: q.userAnswer || '',
-    review_type: reviewConfig.type,
-  }))
+  const results = reviewQuestions.value.map(q => {
+    const r = {
+      word_id: q.word_id,
+      is_correct: q.correct,
+      user_answer: q.userAnswer || '',
+      review_type: reviewConfig.type,
+      dictation_auto: reviewConfig.dictation_level === 0,
+    }
+    // 题目带档位时回传档位
+    if (q.dictation_level != null) r.dictation_level = q.dictation_level
+    // 按词判对结果（无 tokens 时为 null，不回传）
+    if (q.tokenResults != null) r.token_results = q.tokenResults
+    return r
+  })
 
   try {
     const { data } = await wordApi.submitReview({
@@ -1678,92 +1642,6 @@ onMounted(async () => {
   border-radius: 8px;
   display: inline-block;
   margin-bottom: 12px;
-}
-
-.letter-input  {
-
-  outline: none;
-  cursor: text;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  position: relative;
-  min-height: 80px;
-  width: 100%;
-}
-
-.letter-cells  {
-
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  max-width: 100%;
-  padding: 8px 4px;
-}
-
-.letter-cell  {
-
-  width: 42px;
-  height: 52px;
-  border-bottom: 3px solid #c0c4cc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-transform: lowercase;
-  box-sizing: border-box;
-  background: #fafafa;
-  border-radius: 6px 6px 0 0;
-}
-
-.letter-cell.fixed  {
-
-  border-bottom-color: transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 24px;
-  min-width: 20px;
-  width: auto;
-  padding: 0 4px;
-}
-
-.letter-cell.active  {
-
-  border-bottom-color: var(--accent-blue);
-  box-shadow: 0 2px 0 var(--accent-blue);
-  background: #ecf5ff;
-}
-
-.letter-cell.filled  {
-
-  background: #fff;
-}
-
-.letter-cell.correct  {
-
-  border-bottom-color: #67c23a;
-  color: #67c23a;
-  background: #f0f9eb;
-}
-
-.letter-cell.wrong  {
-
-  border-bottom-color: #f56c6c;
-  color: #f56c6c;
-  background: #fef0f0;
-}
-
-.letter-hidden-input  {
-
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
 }
 
 .dictation .answer-input  {
@@ -2345,12 +2223,6 @@ onMounted(async () => {
   min-height:60vh}
 .question-header {
   gap:18px}
-.letter-cell {
-  width:31px;
-  height:44px;
-  font-size:23px}
-.letter-cells {
-  gap:5px}
 .question-content {
   min-width:0}
 }
