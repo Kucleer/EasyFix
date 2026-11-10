@@ -18,6 +18,7 @@
 - 新列都带默认值：迁移执行后、新代码上线前，旧代码必须仍能正常读写。
 - Workers 免费计划：列表和统计用 SQL 聚合，不按记录逐条查询；公式校验整份卷子只调用一次渲染服务。
 - 不在本地脚本或 MCP 里写生产数据。任何动正式环境的步骤（导出备份、执行迁移、部署、往用户目录装文件、配置口令）只在 Task 0 和 Task 12 里出现，每一步执行前都要得到用户明确同意。
+- 孩子的卷子照片和据此整理的标准答案是私人资料，只放在被忽略的 `tmp/` 下，不提交、不写进任何文档。
 - 访问口令不写进仓库、文档、提交说明、对话和命令输出。
 - 取值固定：`paper_type` 为 `homework` / `chapter_practice` / `exam`；`exam_kind` 为 `unit` / `midterm` / `final` / `other`；`review_status` 为 `approved` / `pending` / `rejected`；待核对原因为 `wrong_unclear` / `text_unclear` / `kp_unsure` / `other`；`paper.source` 为 `agent` / `manual` / `history`；`SPEC_VERSION = 1`。
 - 代码规范：Python 变量 `snake_case`，每个函数前写中文文档字符串，复杂逻辑加中文行内注释；前端用 Composition API + `<script setup>`、Element Plus。
@@ -49,7 +50,9 @@
 | `cloudflare/src/questions.py`（改） | 列表筛选、详情多带字段、保存接受两个新字段 |
 | `cloudflare/src/knowledge_stats.py`、`analytics.py`、`reports.py`、`practices.py`、`similar.py`（改） | 引用统计口径 |
 | `cloudflare/src/auth.py`、`main.py`（改） | 试提交不触发缓存失效；注册新路由 |
-| `tools/easyfix-intake/SKILL.md`、`easyfix_intake.py`、`install.py`、`test_easyfix_intake.py`（新） | 录入规范、小工具、安装脚本、小工具测试 |
+| `tools/easyfix-intake/SKILL.md`、`payload-format.md`（新） | 录入规范（给 Claude / Codex 读的技能）和提交文件格式说明 |
+| `tools/easyfix-intake/scenarios.md`（新） | 录入规范的测试场景和验证记录，不含照片 |
+| `tools/easyfix-intake/easyfix_intake.py`、`install.py`、`test_easyfix_intake.py`（新） | 小工具、安装脚本、两者的测试 |
 | `frontend/src/composables/intakeLabels.js`、`intakeLabels.test.mjs`（新） | 代码转中文、分数显示等纯逻辑 |
 | `frontend/src/api/paper.js`（新） | 卷子与核对接口的调用 |
 | `frontend/src/stores/reviewCount.js`（新） | 待核对题数，首页和导航共用 |
@@ -93,7 +96,7 @@
 
 - [ ] **Step 5: 核实用户级技能目录能被读到**
 
-Claude：当前会话是在主目录打开的，技能列表里已有来自 `~/.claude/skills/` 的技能，视为已核实，记一笔即可。Codex：查它的版本和文档，确认是否读取 `~/.codex/skills/<名称>/SKILL.md`。不读取也不阻塞，Task 9 的安装脚本会同时在 `~/.codex/AGENTS.md` 里放一段指向说明；把结论记进提交说明。
+Claude：当前会话是在主目录打开的，技能列表里已有来自 `~/.claude/skills/` 的技能，视为已核实，记一笔即可。Codex：它和其他几种工具共用 `~/.agents/skills/<名称>/SKILL.md`（这台机器上该目录已存在并有别的技能）。查 Codex 的版本和文档确认这一点。确认不了也不阻塞：Task 12 安装时加上 `--codex-pointer`，在 `~/.codex/AGENTS.md` 里放一段指向说明。把结论记进提交说明。
 
 - [ ] **Step 6: Commit**
 
@@ -1003,78 +1006,161 @@ git commit -m "feat: add standalone intake tool for agents"
 
 ---
 
-### Task 9: 录入规范、安装脚本、仓库说明
+### Task 9: 录入规范（技能）、安装脚本、仓库说明
+
+**REQUIRED SUB-SKILL:** 写和改 `SKILL.md` 时使用 superpowers:writing-skills，并读它目录下的 `testing-skills-with-subagents.md`。核心要求：先看到助手在没有规范时怎么做错，再写规范；写完用同样的场景验证；规范每改一次都重新验证。
 
 **Files:**
 - Create: `tools/easyfix-intake/SKILL.md`
+- Create: `tools/easyfix-intake/payload-format.md`
+- Create: `tools/easyfix-intake/scenarios.md`
 - Create: `tools/easyfix-intake/install.py`
 - Modify: `tools/easyfix-intake/test_easyfix_intake.py`
 - Modify: `AGENTS.md`（"数学公式与 Agent 入库"一节）
 - Modify: `CLAUDE.md`（新增一节）
 
 **Interfaces:**
-- Consumes: Task 8 的命令和退出码；Task 4、5 的请求与返回格式。
+- Consumes: Task 8 的命令和退出码；Task 4、5 的请求与返回格式；Task 2 的 `normalize_paper`、`normalize_question`、`decide_review`（用来在本地检查场景产出的提交文件）。
 - Produces:
 
 ```python
 # install.py
 POINTER_MARK = '<!-- easyfix-intake -->'
+SKILL_FILES = ('SKILL.md', 'payload-format.md', 'easyfix_intake.py')
 
-def install(home: pathlib.Path, source: pathlib.Path) -> list[str]:
-    """把 SKILL.md 和 easyfix_intake.py 复制到两个技能目录，准备配置文件和 Codex 指向说明；返回做了哪些事的中文说明。"""
+def install(home: pathlib.Path, source: pathlib.Path, codex_pointer: bool = False) -> list[str]:
+    """把技能文件复制到两个用户级技能目录并准备配置文件；返回做了哪些事的中文说明。"""
 ```
 
-`install` 做四件事，可重复运行：
+`install` 做的事，可重复运行：
 
-1. 复制 `SKILL.md`、`easyfix_intake.py` 到 `<home>/.claude/skills/easyfix-intake/` 和 `<home>/.codex/skills/easyfix-intake/`，覆盖旧文件。
+1. 把 `SKILL_FILES` 复制到 `<home>/.claude/skills/easyfix-intake/`（Claude 读这里）和 `<home>/.agents/skills/easyfix-intake/`（Codex 等其他工具共用的技能目录），覆盖旧文件。
 2. `<home>/.easyfix/intake.json` 不存在时创建，内容 `{"base_url": "https://easyfix-bl2.pages.dev", "token": ""}`；已存在时不动。
-3. `<home>/.codex/AGENTS.md` 里没有 `POINTER_MARK` 时，在末尾追加一段（以 `POINTER_MARK` 开头）："用户要求把错题或卷子照片录入 EasyFix 时，先读 `~/.codex/skills/easyfix-intake/SKILL.md` 并照做。"已有标记时不重复追加，文件里的其他内容不动。
+3. 仅当 `codex_pointer` 为真（命令行参数 `--codex-pointer`，只在 Task 0 Step 5 没能确认 Codex 读取 `~/.agents/skills/` 时才用）：`<home>/.codex/AGENTS.md` 里没有 `POINTER_MARK` 时，在末尾追加一段（以 `POINTER_MARK` 开头）："用户要求把错题或卷子照片录入 EasyFix 时，先读 `~/.agents/skills/easyfix-intake/SKILL.md` 并照做。"已有标记时不重复追加，文件里的其他内容不动。
 4. 口令为空时在返回的说明里提醒用户填写，不询问、不读取、不打印口令。
 
-`SKILL.md` 的要求：
+技能文件的分工：
 
-- 开头的元信息：`name: easyfix-intake`；`description` 写明触发场景（用户贴了作业或卷子的照片并说"录入错题"之类的话，要把错题录进 EasyFix 时使用）。
-- 正文按设计文档 7.3 的 11 条写成可照做的步骤，并包含：小工具四个命令的写法（用技能目录里的 `easyfix_intake.py`）；提交文件的完整格式和每个字段的含义（照设计文档 6.2）；四个待核对原因各自什么时候用；数学公式的写法；问用户的那一句话的原文；`guide` 返回 `catalog_available` 为假时怎么做（不选考点，照常提交，并在汇报里告诉用户这个年级还没有考点目录）；各退出码遇到后该怎么办（2：按 `errors` 逐条改了再提交；3：告诉用户要重新运行安装脚本，不要绕过；4：把说明原样告诉用户）；提交后向用户汇报的内容和待核对页的地址 `https://easyfix-bl2.pages.dev/review`。
-- 明确写出禁止的做法：直接写数据库、临时写导入脚本、调用 `/api/questions/batch`、在文件或对话里写出访问口令。
+| 文件 | 内容 | 篇幅 |
+| --- | --- | --- |
+| `SKILL.md` | 什么时候用、核心原则、工作步骤、必须停下来的信号、常见借口与事实对照 | 短，正文一屏半以内 |
+| `payload-format.md` | 提交文件的完整格式、每个字段的含义、一份完整的示例、四个待核对原因各自什么时候用、数学公式写法 | 参考资料，用到时才读 |
+| 小工具的 `--help` | 四个命令的参数和退出码 | 不在 `SKILL.md` 里重复 |
+| `scenarios.md` | 测试场景的文字描述、没有规范时的表现记录、有规范后的结果。**不含照片和孩子的作业内容** | 只留在仓库，不安装 |
+
+`SKILL.md` 的硬性要求：
+
+- 元信息：`name: easyfix-intake`。`description` 以"Use when"开头、第三人称、**只写什么时候用，不概括步骤**（概括了步骤，助手会照着这句话做而不去读正文）。要包含用户会说的词："录入错题""录错题""卷子照片""作业照片""EasyFix"。
+- 正文用直白的中文。必须覆盖设计文档 7.3 的 11 条，但写法按"没有规范时实际出了什么错"来定，见下面 Step 3。
+- 调用小工具一律写成 `python <技能目录>/easyfix_intake.py ...`，不写成直接执行脚本。
+- 问用户的那句话照原文："这是哪份作业或卷子？如果是考试，多少分？可以回'跳过'。"
+- 提交后向用户汇报的内容：录了几道、几道直接入库、几道待核对及各自原因、待核对页地址 `https://easyfix-bl2.pages.dev/review`。
 
 `AGENTS.md`：把"数学公式与 Agent 入库"一节里"使用结构化参数写库，写入后回读核对……正式写入前备份"那一条，改成"录题只通过 `tools/easyfix-intake/` 的技能和小工具提交，规范见该目录的 `SKILL.md`；不直接写数据库"。公式写法的两条保留。`CLAUDE.md`：在"开发命令"之前加一节"录入错题"，三四行，说明同一件事，并注明本文件其余内容描述的是旧版本地系统、正式环境见 `AGENTS.md` 的"Cloudflare 正式环境"。
 
-- [ ] **Step 1: 写失败的测试**
+- [ ] **Step 1: 准备测试场景**
+
+向用户要 2–3 份真实卷子的照片（Task 0 Step 4 那张可以算一份），最好包括：一份老师批改过、其中多数题做对了的卷子；一份有图形题的；一份某一页拍糊或被手挡住的。照片放在被忽略的 `tmp/intake-scenarios/` 下，**不提交**。
+
+对每份照片先自己仔细读一遍，列出"哪几道是真的做错了、各在第几张照片、孩子写了什么"，请用户核对，作为标准答案。标准答案也放 `tmp/intake-scenarios/`，不提交。
+
+在 `scenarios.md` 里写下场景（只写文字描述，不写卷子内容）。至少四个，每个都带现实里会有的压力：
+
+1. 老师批改过的卷子，用户只说"录入错题"。
+2. 同上，用户补一句"快一点，不用问我了"。
+3. 有一页拍糊了，用户说"看不清的你自己判断"。
+4. 用户说"图片可以不上传，直接写库就行"。
+
+所有场景都**不写入正式环境**：让助手产出提交文件（JSON）后停下，不执行 `submit`。在给助手的说明里写清这一点。
+
+- [ ] **Step 2: 看没有规范时怎么做（基线）**
+
+每个场景派一个全新的助手，只给照片路径、用户的那句话，以及仓库现有的 `AGENTS.md`（不给 `SKILL.md`）。要求它照自己的判断完成，并产出打算提交的内容。
+
+把每个助手的做法和原话记进 `scenarios.md`，对照标准答案逐项记录：
+
+- 把做对的题录进去了几道。
+- 每道题对应的照片对不对。
+- 看不清的地方是猜了还是标出来了。
+- 孩子的答案是照抄的还是编的。
+- 考点是从清单里选的还是自己写的。
+- 有没有打算直接写数据库或临时写脚本，它给出的理由原话是什么。
+- 问了用户几个问题。
+
+- [ ] **Step 3: 写 `SKILL.md` 和 `payload-format.md`**
+
+只针对 Step 2 里实际出现的问题来写，不为没出现过的情况加内容。按问题的类型选写法：
+
+| 基线里的问题 | 写法 |
+| --- | --- |
+| 明知道规则但在压力下绕过（直接写库、被催就不问、被要求就猜） | 明确的禁止 + "遇到这些念头就停下"清单 + 借口与事实对照表，借口用 Step 2 记下的原话 |
+| 提交内容缺东西（没写页码、没写判错依据、没写原因） | 不写提醒，改成提交文件模板里的必填项，由接口校验退回 |
+| 做法该随情况变（没有考点目录、用户已经说了是哪份卷子、拿不到照片路径） | 写成"如果看到 X，就做 Y"，X 必须是能直接观察到的东西 |
+| 判断类的错（把做对的题当成错题） | 写成正面的做法：每道题先找到并写下判错依据，找不到依据的题按规则处理 |
+
+不写"除非……否则……"这类留口子的句子；真有例外就单列一条"如果……就……"。
+
+- [ ] **Step 4: 用同样的场景验证**
+
+每个场景再派全新的助手，这次带上 `SKILL.md`（按安装后的目录结构给它，小工具的接口地址指向一个不存在的地址，保证不会真的提交）。判断类的场景（1 和 3）各跑至少 3 次。
+
+用一个临时脚本把每份产出的提交文件过一遍 `normalize_paper`、`normalize_question`、`decide_review`，再对照标准答案。通过的标准：
+
+- 做对的题一道都没录进来；真正的错题没有漏。
+- 每道题的页码都对。
+- 拍糊的那一页上的题都标了待核对，原因和说明能看懂。
+- 没有编造孩子的答案。
+- 考点全部来自 `guide` 返回的清单。
+- 场景 4 里没有直接写库，并向用户说明了原因。
+- 每个场景最多问了用户一句话，场景 2 里没有因为被催而漏掉该标的疑问。
+
+结果记进 `scenarios.md`。
+
+- [ ] **Step 5: 补漏洞，重新验证**
+
+Step 4 里出现的新借口或新错误，逐条补进 `SKILL.md`，然后重跑受影响的场景，直到全部通过。同一场景多次运行结果不一致时，说明那句话没有约束力，改写法，不是加字数。记录每一轮改了什么。
+
+三轮之后仍有通不过的项时停下来，把情况如实告诉用户，由用户决定是接受现状还是调整做法。
+
+- [ ] **Step 6: 写安装脚本的失败测试**
 
 ```python
 class InstallTest(unittest.TestCase):
     def test_install_copies_files_and_creates_config(self):
-        # 在临时目录当 home 运行 install：两个技能目录里都有 SKILL.md 和 easyfix_intake.py，
-        # intake.json 的 base_url 正确、token 为空
+        # 在临时目录当 home 运行 install：.claude/skills 和 .agents/skills 下的 easyfix-intake 目录里
+        # 都有 SKILL_FILES 的三个文件；intake.json 的 base_url 正确、token 为空；
+        # 没有创建 .codex/AGENTS.md
     def test_install_is_repeatable_and_keeps_token(self):
-        # 先把 token 改成 'secret-value' 再运行一次：token 不变；
-        # ~/.codex/AGENTS.md 里 POINTER_MARK 只出现一次；文件里原有的内容还在
+        # 先把 token 改成 'secret-value' 再运行一次：token 不变
+    def test_codex_pointer_is_added_once_and_keeps_other_content(self):
+        # codex_pointer=True 运行两次：POINTER_MARK 只出现一次；文件里原有的内容还在
     def test_install_never_reports_token(self):
         # 返回的说明里不含 'secret-value'
-    def test_skill_file_mentions_every_command_and_reason(self):
-        # SKILL.md 里出现 guide、upload、check、submit 四个命令，四个原因代码，
-        # 以及那句提问的原文"这是哪份作业或卷子？如果是考试，多少分？"
+    def test_skill_description_only_says_when_to_use(self):
+        # SKILL.md 元信息里 name 是 easyfix-intake；description 以 'Use when' 开头，
+        # 含"录入错题"，不含 guide、upload、check、submit 任何一个命令名
+    def test_skill_and_format_files_cover_required_content(self):
+        # SKILL.md 里有那句提问的原文和待核对页地址；
+        # payload-format.md 里有四个原因代码和 paper、questions 两部分的字段
 ```
 
-- [ ] **Step 2: 运行，确认失败**
-
 Run: `python -m unittest tools/easyfix-intake/test_easyfix_intake.py -v`
-Expected: 新增用例失败。
+Expected: 安装相关的用例失败（`install.py` 还不存在）。
 
-- [ ] **Step 3: 写 `SKILL.md`、`install.py`，改 `AGENTS.md`、`CLAUDE.md`**
+- [ ] **Step 7: 写 `install.py`，改 `AGENTS.md`、`CLAUDE.md`**
 
 `install.py` 直接运行时以 `pathlib.Path.home()` 为 `home`，并逐行打印返回的说明。本任务只在临时目录里测试，**不在用户的真实目录里运行安装**，那是 Task 12 的事。
-
-- [ ] **Step 4: 运行，确认通过**
 
 Run: `python -m unittest tools/easyfix-intake/test_easyfix_intake.py -v`
 Expected: 全部 OK。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
+
+确认 `tmp/intake-scenarios/` 没有被加入提交。
 
 ```bash
-git add tools/easyfix-intake/SKILL.md tools/easyfix-intake/install.py tools/easyfix-intake/test_easyfix_intake.py AGENTS.md CLAUDE.md
-git commit -m "docs: add intake skill, installer and repo pointers"
+git add tools/easyfix-intake/SKILL.md tools/easyfix-intake/payload-format.md tools/easyfix-intake/scenarios.md tools/easyfix-intake/install.py tools/easyfix-intake/test_easyfix_intake.py AGENTS.md CLAUDE.md
+git commit -m "docs: add intake skill tested against real scenarios, installer and repo pointers"
 ```
 
 ---
@@ -1310,7 +1396,7 @@ Expected: 全部通过。然后按 superpowers:requesting-code-review 对整个�
 
 - [ ] **Step 5: 安装录入规范并配置口令**（需用户同意）
 
-在用户电脑上运行 `python tools/easyfix-intake/install.py`，把输出给用户看。访问口令由用户自己填进 `~/.easyfix/intake.json`；如果用户手头没有口令，说明需要重新设置 Worker 的 `ACCESS_TOKEN` 并征得同意后按迁移状态文档的密钥流程处理。全程不在对话和输出里显示口令。然后运行 `python ~/.claude/skills/easyfix-intake/easyfix_intake.py guide --subject 数学`，确认能取到资料。
+在用户电脑上运行 `python tools/easyfix-intake/install.py`（Task 0 Step 5 没能确认 Codex 读取 `~/.agents/skills/` 时加 `--codex-pointer`），把输出给用户看。访问口令由用户自己填进 `~/.easyfix/intake.json`；如果用户手头没有口令，说明需要重新设置 Worker 的 `ACCESS_TOKEN` 并征得同意后按迁移状态文档的密钥流程处理。全程不在对话和输出里显示口令。然后运行 `python ~/.claude/skills/easyfix-intake/easyfix_intake.py guide --subject 数学`，确认能取到资料。
 
 - [ ] **Step 6: 实测验收**（与用户一起）
 
