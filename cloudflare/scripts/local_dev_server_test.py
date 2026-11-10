@@ -49,13 +49,13 @@ def upload_two_photos(client):
     return response.json()
 
 
-def build_payload(client, evidence='老师打叉'):
+def build_payload(client, evidence='老师打叉', empty_pages=()):
     """用 guide 的第一个考点和第一个错因拼一份带两张照片、两道题的卷子。"""
     guide = client.get('/api/intake/guide', params={'subject': '数学'}).json()
     point_id = guide['knowledge_modules'][0]['points'][0]['id']
     images = [item['path'] for item in upload_two_photos(client)['images']]
     questions = [{'page': page, 'question_no': str(page), 'parsed_question': '题目%d' % page, 'answer': '答案',
-                  'analysis': '解析', 'wrong_answer': '错解', 'wrong_evidence': evidence, 'difficulty': 3,
+                  'analysis': '解析', 'wrong_answer': '错解', 'wrong_evidence': '' if page in empty_pages else evidence, 'difficulty': 3,
                   'error_type': guide['error_types'][0], 'knowledge_point_ids': [point_id],
                   'primary_knowledge_point_id': point_id} for page in (1, 2)]
     return {'spec_version': guide['spec_version'], 'request_id': uuid.uuid4().hex[:20],
@@ -124,8 +124,40 @@ def test_upload_single_file():
     assert (uploads_dir / body['path']).exists()
 
 
+def raw_get(client, raw_path):
+    """绕过 httpx 的路径规整，直接用 ASGI 请求原始路径，返回 (状态码, 内容)。"""
+    import asyncio
+    sent = []
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {'type': 'http', 'asgi': {'version': '3.0'}, 'http_version': '1.1', 'method': 'GET',
+             'scheme': 'http', 'path': raw_path, 'raw_path': raw_path.encode(), 'query_string': b'',
+             'headers': [], 'client': ('127.0.0.1', 1), 'server': ('127.0.0.1', 80), 'root_path': ''}
+    asyncio.run(client.app(scope, receive, send))
+    status = next(m['status'] for m in sent if m['type'] == 'http.response.start')
+    return status, b''.join(m.get('body', b'') for m in sent if m['type'] == 'http.response.body')
+
+
+def test_safe_child_guard():
+    """safe_child 直接断言：越界、反斜杠、绝对路径都返回 None，正常文件返回路径。"""
+    base = pathlib.Path(tempfile.mkdtemp(prefix='easyfix_safe_'))
+    uploads = base / 'uploads'
+    uploads.mkdir()
+    (base / 'x').write_text('secret', encoding='utf-8')
+    (uploads / 'ok.txt').write_text('fine', encoding='utf-8')
+    (uploads / 'sub').mkdir()
+    for bad in ('../x', 'a\\b', 'a/../../x', 'sub/../../x', str(base / 'x'), '/x', 'sub', 'missing', '', '.'):
+        assert local_dev_server.safe_child(uploads, bad) is None, bad
+    assert local_dev_server.safe_child(uploads, 'ok.txt') == (uploads / 'ok.txt').resolve()
+
+
 def test_uploads_cannot_escape():
-    """路径穿越和反斜杠都不能读到上传目录之外的内容。"""
+    """目录之外放一个真实文件：普通请求和未规整的原始路径都读不到它的内容。"""
     client, uploads_dir = make_client()
     (uploads_dir.parent / 'secret_x.txt').write_text('secret', encoding='utf-8')
     for path in ('/uploads/../secret_x.txt', '/uploads/%2e%2e/secret_x.txt', '/uploads/..%5csecret_x.txt',
@@ -133,6 +165,11 @@ def test_uploads_cannot_escape():
         response = client.get(path)
         assert response.status_code in (400, 404), (path, response.status_code)
         assert b'secret' not in response.content
+    # 原始路径不经 httpx 规整，真正到达路由
+    for path in ('/uploads/../secret_x.txt', '/uploads/a/../../secret_x.txt', '/uploads/..\\secret_x.txt'):
+        status, body = raw_get(client, path)
+        assert status in (400, 404), (path, status)
+        assert b'secret' not in body
 
 
 def test_submit_paper_end_to_end():
@@ -155,19 +192,18 @@ def test_submit_paper_end_to_end():
 
 
 def test_review_flow():
-    """证据为空的题进入待核对，通过后数字回到原值。"""
+    """只有一道题证据为空：提交后待核对加 1，通过后回到原值。"""
     client, _ = make_client()
     before = client.get('/api/questions/review/count').json()['pending']
-    submitted = client.post('/api/intake/papers', json=build_payload(client, evidence=''))
+    submitted = client.post('/api/intake/papers', json=build_payload(client, empty_pages=(2,)))
     assert submitted.status_code == 201, submitted.text
-    assert client.get('/api/questions/review/count').json()['pending'] > before
+    assert client.get('/api/questions/review/count').json()['pending'] == before + 1
     pending = [item for item in question_items(client, submitted.json()['paper']['id'])
                if item['review_status'] == 'pending']
-    assert pending, '应当有待核对的题'
-    after_submit = client.get('/api/questions/review/count').json()['pending']
+    assert len(pending) == 1, pending
     response = client.post('/api/questions/%d/review' % pending[0]['id'], json={'action': 'approve'})
     assert response.status_code == 200, response.text
-    assert client.get('/api/questions/review/count').json()['pending'] == after_submit - 1
+    assert client.get('/api/questions/review/count').json()['pending'] == before
 
 
 def test_subjects():
@@ -195,6 +231,9 @@ def test_frontend_fallback():
     (frontend_dir.parent / 'secret_y.txt').write_text('secret', encoding='utf-8')
     assert b'secret' not in client.get('/..%2fsecret_y.txt').content
     assert b'secret' not in client.get('/assets/..%2f..%2fsecret_y.txt').content
+    for path in ('/../secret_y.txt', '/assets/../../secret_y.txt'):
+        status, body = raw_get(client, path)
+        assert b'secret' not in body, (path, status)
 
 
 def test_no_auth_needed():
