@@ -292,6 +292,8 @@ class IntakeToolTest(unittest.TestCase):
         self.assertIn('semester=1', req['url'])
         self.assertIn('subject=%E6%95%B0%E5%AD%A6', req['url'])
         self.assertEqual(req['headers']['Authorization'], 'Bearer ' + TOKEN)
+        # Cloudflare 会拦截 Python 默认的客户端名称，必须带自己的
+        self.assertEqual(req['headers']['User-Agent'], 'easyfix-intake/1')
         self.assertEqual(json.loads(out), {'guide': '规则'})
 
     def test_malformed_base_url_or_token_is_exit_4_not_traceback(self):

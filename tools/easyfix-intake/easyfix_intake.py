@@ -29,6 +29,8 @@ UPLOAD_BATCH = 10
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 IMAGE_SUFFIXES = ('.jpg', '.jpeg', '.png', '.webp')
 REQUEST_TIMEOUT = 120
+# 请求头里的客户端名称；不能用 Python 默认值，否则会被 Cloudflare 拦截（403）
+USER_AGENT = 'easyfix-intake/1'
 
 EXIT_OK = 0
 EXIT_CONTENT = 2
@@ -126,7 +128,9 @@ def call(config, method, path, *, params=None, json_body=None, body=None, conten
     url = config['base_url'].rstrip('/') + path
     if params:
         url += '?' + urllib.parse.urlencode(params)
-    headers = {'Authorization': 'Bearer ' + config['token'], 'Accept': 'application/json'}
+    # 必须带自己的 User-Agent：Cloudflare 会把 Python 默认的 "Python-urllib/x.y" 当成机器人直接 403
+    headers = {'Authorization': 'Bearer ' + config['token'], 'Accept': 'application/json',
+               'User-Agent': USER_AGENT}
     if json_body is not None:
         body = json.dumps(json_body, ensure_ascii=False).encode('utf-8')
         content_type = 'application/json; charset=utf-8'
