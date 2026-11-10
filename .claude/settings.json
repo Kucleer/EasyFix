@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//e/Kucleer_code/EasyFix/backend/**)"
-    ]
-  }
-}
