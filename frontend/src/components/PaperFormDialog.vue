@@ -34,7 +34,7 @@
         </el-form-item>
 
         <el-form-item label="日期">
-          <el-date-picker v-model="form.paper_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" :clearable="false" style="width: 100%" />
+          <el-date-picker v-model="form.paper_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" :clearable="isEdit" style="width: 100%" />
         </el-form-item>
 
         <div class="two-cols">
@@ -134,7 +134,8 @@ function resetForm() {
   form.name = p ? (p.name || '') : ''
   form.paper_type = p ? p.paper_type : 'homework'
   form.exam_kind = p?.exam_kind || 'unit'
-  form.paper_date = p ? (p.paper_date || todayText()) : todayText()
+  // 今天作为默认日期只用于新增；编辑时保持原值（可能为空）
+  form.paper_date = p ? (p.paper_date || '') : todayText()
   form.grade = p ? (p.grade ?? null) : null
   form.semester = p ? (p.semester ?? null) : null
   form.score = p ? numberOrNull(p.score) : null
@@ -179,7 +180,8 @@ function buildUpdateBody() {
   const body = {}
   const name = form.name.trim()
   const notes = form.notes.trim() || null
-  if (name !== (p.name || '')) body.name = name
+  // 名称不能被清成空：清空时不提交，保留原名称（保存前已提示）
+  if (name && name !== (p.name || '')) body.name = name
   if (notes !== (p.notes || null)) body.notes = notes
   if (isHistory.value) return body // 旧题记录只能改名称和备注
 
@@ -189,7 +191,8 @@ function buildUpdateBody() {
   const kindUntouched = form.paper_type === p.paper_type && form.exam_kind === (p.exam_kind || 'unit')
   const newKind = form.paper_type === 'exam' ? form.exam_kind : null
   if (!kindUntouched && newKind !== (p.exam_kind || null)) body.exam_kind = newKind
-  if (form.paper_date && form.paper_date !== p.paper_date) body.paper_date = form.paper_date
+  // 日期只在用户改过时提交（清空则提交 null）
+  if ((form.paper_date || null) !== (p.paper_date || null)) body.paper_date = form.paper_date || null
   if (form.grade !== (p.grade ?? null)) body.grade = form.grade
   if (form.semester !== (p.semester ?? null)) body.semester = form.semester
   // 得分和满分必须一起提交；两格都清空就一起清成 null
@@ -211,6 +214,10 @@ async function save() {
     }
     if (!checkScores()) return
   }
+  if (isEdit.value && !form.name.trim()) {
+    ElMessage.warning('名称不能为空')
+    return
+  }
   saving.value = true
   try {
     if (isEdit.value) {
@@ -229,7 +236,9 @@ async function save() {
     emit('saved')
   } catch (error) {
     const detail = error.response?.data?.detail
-    ElMessage.error(typeof detail === 'string' ? detail : '保存失败，请检查填写的内容')
+    // 422 校验错误的 detail 是列表，把每条的说明拼起来
+    const text = Array.isArray(detail) ? detail.map(d => d?.msg).filter(Boolean).join('；') : detail
+    ElMessage.error(typeof text === 'string' && text ? text : '保存失败，请检查填写的内容')
   } finally {
     saving.value = false
   }
