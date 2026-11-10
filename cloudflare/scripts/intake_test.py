@@ -210,7 +210,11 @@ def test_paper_score_rules():
     """得分和满分要么都填要么都不填，且为不超过满分的非负整数。"""
     ok = normalize_paper({'score': 85, 'full_score': 100}, '数学', '2026-11-10')
     assert (ok['score'], ok['full_score']) == (85, 100)
-    for bad in [{'score': 85}, {'full_score': 100}, {'score': 101, 'full_score': 100},
+    half = normalize_paper({'score': 85.5, 'full_score': 100}, '数学', '2026-11-10')
+    assert (half['score'], half['full_score']) == (85.5, 100)
+    for bad in [{'score': float('nan'), 'full_score': 100}, {'score': 1, 'full_score': float('inf')}]:
+        expect_intake_error('分', lambda bad=bad: normalize_paper(bad, '数学', '2026-11-10'))
+    for bad in [{'score': 85},{'full_score': 100}, {'score': 101, 'full_score': 100},
                 {'score': -1, 'full_score': 100}, {'score': '85', 'full_score': 100},
                 {'score': True, 'full_score': 100}]:
         expect_intake_error('分', lambda bad=bad: normalize_paper(bad, '数学', '2026-11-10'))

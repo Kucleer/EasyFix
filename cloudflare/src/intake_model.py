@@ -5,6 +5,7 @@
 """
 
 import datetime
+import math
 import re
 
 SPEC_VERSION = 1
@@ -41,6 +42,13 @@ class IntakeError(ValueError):
 def is_plain_int(value):
     """判断是不是整数；bool 是 int 的子类，必须排除。"""
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_finite_number(value):
+    """判断是不是有限的整数或小数；排除 bool、字符串、NaN 和无穷大。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value)
 
 
 def default_paper_name(subject_name, paper_date):
@@ -82,8 +90,8 @@ def normalize_paper_scores(raw):
         return None, None
     if score is None or full_score is None:
         raise IntakeError('得分和满分要么都填，要么都不填')
-    if not is_plain_int(score) or not is_plain_int(full_score):
-        raise IntakeError('得分和满分必须是数字')
+    if not is_finite_number(score) or not is_finite_number(full_score):
+        raise IntakeError('得分和满分必须是有限的数字')
     if score < 0 or full_score < 0:
         raise IntakeError('得分和满分都不能小于 0')
     if score > full_score:
