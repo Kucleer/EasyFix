@@ -148,3 +148,14 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
   - `python cloudflare/scripts/knowledge_invariants_test.py`
 - 发布顺序仍按方案第 12 节：先维护开关小版本（发布 A），停写排空并记录 Time Travel 书签，应用 0009 与回填，运行一致性校验，再发布新 Worker 与 Pages（发布 B）。本次未执行生产迁移、未开启维护开关、未修改 `MIGRATION_READY`。
 - 已停用会覆盖云端源码的生成脚本：`prepare_cloudflare_prompts.py`、`refine_cloudflare_queries.py`、`prepare_cloudflare_analytics.py`。`annotate_english_knowledge.py`、`import_math_formula_photos.py` 已增加只读提示，不能作为生产写入通道。
+
+## 变更记录：词组默写优化（2026-11-10，已发布）
+
+- 分支：`claude/project-optimization-plan-b28c5c`，发布提交 `310f70d9`。设计见 `docs/superpowers/specs/2026-11-10-phrase-dictation-design.md`，计划见 `docs/superpowers/plans/2026-11-10-phrase-dictation.md`。
+- 迁移 `cloudflare/migrations/0010_phrase_focus.sql` 已在正式 D1 执行：`word` 增加 `entry_type/focus_spec/focus_status/focus_updated_at/dictation_level`，`word_review_log` 增加 `token_results/dictation_level`，并回填词条类型与档位初值。只加列，不改已有计数、间隔、阶段和日志。
+- 执行前备份：`D:/code/easyfix/backups/phrase_focus_release_20261110T083549Z/`（D1 完整导出 `remote.sql`，SHA-256 `b7d10e0b6732b6251e259cfb501359ba909480a1ab2cf23e8a89d8858579450c`；同目录有 Time Travel 信息、迁移输出、迁移前后核对结果、部署输出）。未开启维护开关；迁移先在备份副本上演练通过。
+- 核对：迁移前后词条 1280 条、复习次数合计 2188、正确次数合计 1657、复习日志 2225 条均一致；抽查 5 条词条的计数、间隔与备份相同。有效词条中词组 222 条、单词 580 条；`focus_status` 全部为 `none`，即上线后在父母点击"标注词组重点"之前行为不变。
+- Worker：新版本 `d0df1517-fad2-4ff7-b4ff-89eda4204a29`，上一版本 `c8639a41-e616-4b63-93db-ca3e1d25b7b8`（回滚用）。Pages：新部署 `d061cbde`，上一部署 `6bd68197`。
+- 发布后只做了无需登录的核对：`/health` 200、未登录访问接口 401、登录页 200、新前端资源可访问。登录后的功能（默写各档位、标注、重点编辑、打印）和手机真机输入尚未在正式环境验证。
+- 本机情况：`tmp/cloudflare-config`、`cloudflare/python_modules`、`cloudflare/node_modules` 在本次使用的工作树里都不存在。本次用系统默认位置的 Wrangler 登录（未经 `cloudflare/tools/cli.cjs` 包装器），Wrangler 4.158.0 取自 `D:/code/easyfix-cloudflare-inspect/cloudflare/node_modules`；Python 依赖用 `uv run pywrangler sync` 按 `pylock.toml` 重新打包（依赖版本未变）。`pywrangler` 1.17.9 要求 uv ≥ 0.13.4，本次在 `tmp/uv-new` 单独安装了 uv 0.13.7，未改动系统 uv。本机代理访问 Cloudflare API 不稳定，命令需去掉代理环境变量直连。
+- 该分支尚未合并到 `main`，也未推送远端。

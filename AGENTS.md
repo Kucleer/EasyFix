@@ -89,3 +89,11 @@ npm run build                   # 生产构建，输出到 dist/
 - 保持 Workers 免费计划；统计优先代码和 SQL 聚合，避免逐记录查询、重复 AI 调用与重复生成 PDF。
 - 新数据库变更追加 `cloudflare/migrations/`，不得重放旧快照覆盖云端新数据；继续遵守软删除和公式校验规范。
 - 部署、验证证据、密钥位置与恢复限制见 `docs/cloudflare-migration-status.md`。`tmp/`、`backups/` 含敏感数据，不得发布或提交。
+
+## 词组默写与重点标注
+
+- `word.entry_type` 区分 `word` / `phrase`（英文含空白即词组，可在编辑时手动改）。词组的重点存在 `word.focus_spec`（JSON），状态 `focus_status` 为 `none` / `draft`（LLM 起草）/ `confirmed`（父母确认或手动修改）。
+- `focus_spec` 写入格式：`{"tokens":[{"text":"be","role":"plain"},{"text":"proud","role":"content","lemma":"proud","gloss":"自豪的"},{"text":"of","role":"collocation"},{"text":"sb.","role":"placeholder"}]}`。`tokens` 的 `text` 必须与英文按空白切分的结果逐个相同；`role` 只能是 `collocation`（搭配词）、`content`（可能的生词，必须带原形 `lemma`）、`plain`（基础词）、`placeholder`（sb./sth./doing 等占位符）。
+- Agent 录入词组时可在 `POST /api/words/batch` 或 `PUT /api/words/{id}` 里直接附带 `focus_spec`，校验通过即为 `confirmed`；校验不通过时词条照常入库但不带标注。LLM 起草走 `POST /api/words/focus/annotate`，不会覆盖 `confirmed`。
+- 规则全部在 `cloudflare/src/phrase_focus.py`（纯函数），测试：`python cloudflare/scripts/phrase_focus_test.py`、`node --test frontend/src/composables/dictation.test.mjs`。
+- 已标注的词组只有在完整默写（档位 3）答对时才会被授予"牢记"。
