@@ -213,6 +213,25 @@ class IntakeToolTest(unittest.TestCase):
         self.assertEqual(req['headers']['Authorization'], 'Bearer ' + TOKEN)
         self.assertEqual(json.loads(out), {'guide': '规则'})
 
+    def test_malformed_base_url_or_token_is_exit_4_not_traceback(self):
+        # 地址缺少 http://：用真实 default_opener，请求在连接前就失败，不会联网
+        with mock.patch.dict(os.environ, {'EASYFIX_URL': 'example.test', 'EASYFIX_TOKEN': TOKEN}):
+            code, out = self.run_main(['guide', '--subject', '数学'], tool.default_opener)
+        self.assertEqual(code, 4)
+        self.assertIn('接口地址格式不对', out)
+        self.assertNotIn(TOKEN, out)
+        # 口令含非 latin-1 字符：请求头编码失败，同样退出码 4，且不泄露口令
+        bad_token = '口令-' + TOKEN
+        with mock.patch.dict(os.environ, {'EASYFIX_URL': BASE_URL, 'EASYFIX_TOKEN': bad_token}):
+            def encoding_opener(method, url, headers, body):
+                """模拟 http 库发送请求头时按 latin-1 编码（不联网）。"""
+                headers['Authorization'].encode('latin-1')
+                return 200, b'{}'
+            code, out = self.run_main(['guide', '--subject', '数学'], encoding_opener)
+        self.assertEqual(code, 4)
+        self.assertNotIn(bad_token, out)
+        self.assertNotIn(TOKEN, out)
+
     def test_token_never_printed(self):
         paper = self.make_paper()
         images = self.make_images(2)

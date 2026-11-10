@@ -135,6 +135,11 @@ def call(config, method, path, *, params=None, json_body=None, body=None, conten
         # 异常文字里万一带了口令，先抹掉再给人看
         reason = str(exc).replace(config['token'], '***')
         raise ToolError('连不上服务器，请检查网络和接口地址后重试（%s）' % reason, EXIT_ENV)
+    except ValueError:
+        # 地址缺少 http:// 或口令含无法编码的字符时，请求发出前就会失败；
+        # 异常文字可能带出口令里的字符，所以不展示原因
+        raise ToolError('接口地址格式不对（需要以 http:// 或 https:// 开头），或访问口令含有无法识别的字符，'
+                        '请检查 ~/.easyfix/intake.json', EXIT_ENV)
     try:
         data = json.loads(raw.decode('utf-8')) if raw else {}
     except ValueError:
