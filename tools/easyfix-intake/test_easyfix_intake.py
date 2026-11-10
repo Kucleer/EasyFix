@@ -19,6 +19,30 @@ TOKEN = 'secret-token-XYZ-987'
 BASE_URL = 'http://example.test'
 ENV = {'EASYFIX_URL': BASE_URL, 'EASYFIX_TOKEN': TOKEN}
 
+# 技能文件（SKILL.md、payload-format.md、easyfix_intake.py）所在的目录
+SOURCE_DIR = pathlib.Path(__file__).parent
+
+
+def load_install():
+    """按路径加载 install.py（目录名带连字符，不能当包导入）。"""
+    path = SOURCE_DIR / 'install.py'
+    spec = importlib.util.spec_from_file_location('easyfix_install', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def read_frontmatter(text):
+    """取出 SKILL.md 开头两条 --- 之间的元信息，解析成 {键: 值}。"""
+    lines = text.splitlines()
+    end = lines.index('---', 1)  # 第二条 --- 的行号
+    meta = {}
+    for line in lines[1:end]:
+        if ':' in line:
+            key, _, value = line.partition(':')
+            meta[key.strip()] = value.strip()
+    return meta
+
 
 class FakeOpener:
     """记录每次请求，并按路径调用处理函数返回 (状态码, 响应字典)。"""
@@ -258,6 +282,92 @@ class IntakeToolTest(unittest.TestCase):
             tool.call({'base_url': BASE_URL, 'token': TOKEN}, 'GET', '/x', opener=FakeOpener(lambda m, u, h, b: leaky))
         self.assertNotIn(TOKEN, str(ctx.exception))
         self.assertEqual(ctx.exception.code, 4)
+
+
+class InstallTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = pathlib.Path(self.tmp.name)
+
+    def test_install_copies_files_and_creates_config(self):
+        installer = load_install()
+        installer.install(self.home, SOURCE_DIR)
+        # 两个用户级技能目录里都要有三个技能文件
+        for base in ('.claude/skills', '.agents/skills'):
+            target = self.home / base / 'easyfix-intake'
+            for name in installer.SKILL_FILES:
+                self.assertTrue((target / name).is_file(), '%s/%s 没有复制过去' % (base, name))
+        # intake.json：base_url 正确、token 为空
+        config = json.loads((self.home / '.easyfix' / 'intake.json').read_text(encoding='utf-8'))
+        self.assertEqual(config['base_url'], 'https://easyfix-bl2.pages.dev')
+        self.assertEqual(config['token'], '')
+        # 没有 --codex-pointer 时不创建 .codex/AGENTS.md
+        self.assertFalse((self.home / '.codex' / 'AGENTS.md').exists())
+
+    def test_install_is_repeatable_and_keeps_token(self):
+        installer = load_install()
+        installer.install(self.home, SOURCE_DIR)
+        config_path = self.home / '.easyfix' / 'intake.json'
+        # 先把 token 改成真实值，再运行一次
+        data = json.loads(config_path.read_text(encoding='utf-8'))
+        data['token'] = 'secret-value'
+        config_path.write_text(json.dumps(data), encoding='utf-8')
+        installer.install(self.home, SOURCE_DIR)
+        again = json.loads(config_path.read_text(encoding='utf-8'))
+        self.assertEqual(again['token'], 'secret-value')  # token 不被覆盖
+        # 重复运行后技能文件仍然齐全（覆盖，不报错）
+        for name in installer.SKILL_FILES:
+            self.assertTrue((self.home / '.claude/skills/easyfix-intake' / name).is_file())
+
+    def test_codex_pointer_is_added_once_and_keeps_other_content(self):
+        installer = load_install()
+        codex = self.home / '.codex'
+        codex.mkdir(parents=True)
+        original = '# 我的 Codex 说明\n这一行要保留。\n'
+        (codex / 'AGENTS.md').write_text(original, encoding='utf-8')
+        # codex_pointer=True 运行两次
+        installer.install(self.home, SOURCE_DIR, codex_pointer=True)
+        installer.install(self.home, SOURCE_DIR, codex_pointer=True)
+        text = (codex / 'AGENTS.md').read_text(encoding='utf-8')
+        self.assertEqual(text.count(installer.POINTER_MARK), 1)  # 标记只出现一次
+        self.assertIn('这一行要保留。', text)                     # 原有内容还在
+
+    def test_install_never_reports_token(self):
+        installer = load_install()
+        installer.install(self.home, SOURCE_DIR)
+        config_path = self.home / '.easyfix' / 'intake.json'
+        data = json.loads(config_path.read_text(encoding='utf-8'))
+        data['token'] = 'secret-value'
+        config_path.write_text(json.dumps(data), encoding='utf-8')
+        notes = installer.install(self.home, SOURCE_DIR)
+        for line in notes:
+            self.assertNotIn('secret-value', line)  # 返回的说明里不含口令
+
+    def test_skill_description_only_says_when_to_use(self):
+        meta = read_frontmatter((SOURCE_DIR / 'SKILL.md').read_text(encoding='utf-8'))
+        self.assertEqual(meta['name'], 'easyfix-intake')
+        self.assertTrue(meta['description'].startswith('Use when'))
+        self.assertIn('录入错题', meta['description'])
+        # description 只写什么时候用，不出现任何命令名
+        for command in ('guide', 'upload', 'check', 'submit'):
+            self.assertNotIn(command, meta['description'])
+
+    def test_skill_and_format_files_cover_required_content(self):
+        skill = (SOURCE_DIR / 'SKILL.md').read_text(encoding='utf-8')
+        # 那句提问的原文和待核对页地址
+        self.assertIn("这是哪份作业或卷子？如果是考试，多少分？可以回'跳过'。", skill)
+        self.assertIn('https://easyfix-bl2.pages.dev/review', skill)
+        fmt = (SOURCE_DIR / 'payload-format.md').read_text(encoding='utf-8')
+        # 四个待核对原因代码
+        for code in ('wrong_unclear', 'text_unclear', 'kp_unsure', 'other'):
+            self.assertIn(code, fmt)
+        # paper 部分的字段
+        for field in ('subject_id', 'images'):
+            self.assertIn(field, fmt)
+        # questions 部分的字段
+        for field in ('parsed_question', 'wrong_evidence', 'knowledge_point_ids'):
+            self.assertIn(field, fmt)
 
 
 if __name__ == '__main__':

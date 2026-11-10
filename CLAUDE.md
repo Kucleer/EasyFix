@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 EasyFix 是一款面向学生的本地错题整理应用，主要功能包括：错题图片上传与OCR识别、错题归档整理、多维度统计分析、以及基于LLM的相似题目智能推荐。
 
+## 录入错题
+
+- 把孩子的作业或卷子照片录入错题，只通过 `tools/easyfix-intake/` 的技能和小工具提交，规范见该目录的 `SKILL.md`；不直接写数据库、不写一次性导入脚本。
+- 安装后技能位于用户级目录 `~/.claude/skills/easyfix-intake/`（Claude）和 `~/.agents/skills/easyfix-intake/`（Codex 等），接口地址与访问口令在 `~/.easyfix/intake.json`。
+- 本文件其余内容描述的是旧版本地系统，正式环境（Cloudflare）见 `AGENTS.md` 的"Cloudflare 正式环境"一节。
+
 ## 开发命令
 
 ### 后端 (Python FastAPI)
