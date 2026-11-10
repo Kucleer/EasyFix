@@ -6,8 +6,10 @@
     python cloudflare/scripts/phrase_focus_test.py
 """
 
+import asyncio
 import json
 import pathlib
+import sqlite3
 import sys
 import traceback
 
@@ -26,6 +28,7 @@ from phrase_focus import (  # noqa: E402
     split_tokens,
     validate_focus_spec,
 )
+from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 
 
 def configure_output():
@@ -74,6 +77,90 @@ SPEC_A_LOT_OF = make_spec('a lot of', ['plain', 'plain', 'collocation'])
 SPEC_ALL_CONTENT = make_spec(
     'make friends', [('content', 'make'), ('content', 'friend')]
 )
+
+# ---------------------------------------------------------------- 数据库助手
+
+# 迁移 0010 之前的旧表结构（不含任何新列，新列只能由迁移文件带来）。
+# word / practice_set / write_guard / request_record / subject / tag 取自
+# knowledge_invariants_test.py 的 SCHEMA；word_review_log、word_review、
+# word_review_session 取自 backend/app/models/word.py 与 practice_set.py，
+# word_tag 取自 backend 的关联表定义加 0003 迁移追加的 deleted 列。
+LEGACY_SCHEMA = """
+CREATE TABLE subject (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, deleted BOOLEAN NOT NULL DEFAULT 0);
+CREATE TABLE tag (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, color VARCHAR(50), deleted BOOLEAN NOT NULL DEFAULT 0);
+CREATE TABLE practice_set (
+  id INTEGER NOT NULL, name VARCHAR(200) NOT NULL, notes TEXT, subject_id INTEGER NOT NULL,
+  source_type VARCHAR(20), question_type VARCHAR(20), pdf_path VARCHAR(500), total_questions INTEGER,
+  reviewed BOOLEAN, review_count INTEGER, accuracy DOUBLE PRECISION, last_reviewed_at TIMESTAMP,
+  review_images TEXT, passage_id INTEGER, deleted BOOLEAN NOT NULL, created_at TIMESTAMP,
+  CONSTRAINT practice_set_pkey PRIMARY KEY (id));
+CREATE TABLE request_record (name TEXT PRIMARY KEY, value TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+CREATE TABLE write_guard (id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE word (
+  id INTEGER PRIMARY KEY, english VARCHAR(200) NOT NULL, chinese VARCHAR(500), phonetic VARCHAR(200),
+  grade INTEGER, semester INTEGER, review_count INTEGER NOT NULL DEFAULT 0,
+  correct_count INTEGER NOT NULL DEFAULT 0, ease_factor DOUBLE PRECISION, interval INTEGER,
+  learning_phase VARCHAR(20), next_review_at TIMESTAMP, last_reviewed_at TIMESTAMP,
+  deleted BOOLEAN NOT NULL DEFAULT 0, created_at TIMESTAMP, updated_at TIMESTAMP);
+CREATE TABLE word_tag (
+  word_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (word_id, tag_id));
+CREATE TABLE word_review_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, word_id INTEGER NOT NULL, is_correct BOOLEAN NOT NULL,
+  user_answer TEXT, review_type INTEGER NOT NULL, reviewed_at TIMESTAMP NOT NULL,
+  deleted BOOLEAN NOT NULL DEFAULT 0);
+CREATE TABLE word_review (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, total_count INTEGER DEFAULT 0, correct_count INTEGER DEFAULT 0,
+  error_count INTEGER DEFAULT 0, duration INTEGER DEFAULT 0, reviewed_at TIMESTAMP NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE word_review_session (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, practice_set_id INTEGER, session_id INTEGER NOT NULL,
+  total_count INTEGER DEFAULT 0, correct_count INTEGER DEFAULT 0, accuracy INTEGER DEFAULT 0,
+  duration INTEGER DEFAULT 0, reviewed_at TIMESTAMP, word_results TEXT,
+  deleted INTEGER NOT NULL DEFAULT 0);
+"""
+
+MIGRATION_PATH = ROOT / 'migrations' / '0010_phrase_focus.sql'
+
+
+def new_connection(check_same_thread=True):
+    """创建带 Row 工厂的内存 sqlite 连接。"""
+    connection = sqlite3.connect(':memory:', check_same_thread=check_same_thread)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def build_legacy_database(check_same_thread=True):
+    """建立只有旧表结构的内存库，并放入写入保护行。"""
+    connection = new_connection(check_same_thread)
+    connection.executescript(LEGACY_SCHEMA)
+    connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')
+    connection.execute("INSERT INTO subject(id,name,deleted) VALUES(1,'英语',0)")
+    connection.commit()
+    return connection
+
+
+def apply_migration(connection):
+    """执行 0010 迁移文件。"""
+    connection.executescript(MIGRATION_PATH.read_text(encoding='utf-8'))
+    connection.commit()
+
+
+def build_database(check_same_thread=True):
+    """旧表结构加 0010 迁移，后续任务的数据库测试都从这里开始。"""
+    connection = build_legacy_database(check_same_thread)
+    apply_migration(connection)
+    return connection
+
+
+def adapter(connection):
+    """把连接包装成生产代码使用的异步数据库接口。"""
+    return SQLiteDB(connection)
+
+
+def run(coroutine):
+    """同步运行一个协程。"""
+    return asyncio.run(coroutine)
 
 
 # ---------------------------------------------------------------- 任务 1
@@ -219,6 +306,32 @@ def test_next_phase():
     assert next_phase('牢记', False, annotated=True, review_type=1, level=3, **args) == '在途'
 
 
+# ---------------------------------------------------------------- 任务 3
+
+
+def test_migration_backfill():
+    """迁移回填：词组类型与默认档位，原有字段不变。"""
+    connection = build_legacy_database()  # 仅旧表结构
+    connection.executescript("""
+      INSERT INTO word(id,english,chinese,learning_phase,review_count,correct_count,interval,deleted) VALUES
+        (1,'apple','苹果','在途',4,3,4,0),
+        (2,'be good at','擅长','在途',2,1,2,0),
+        (3,'look forward to','期待','牢记',6,6,16,0),
+        (4,' ice-cream ','冰淇淋',NULL,0,0,1,0),
+        (5,'take part in','参加','新学',0,0,1,1);
+    """)
+    before = connection.execute('SELECT id,english,chinese,learning_phase,review_count,correct_count,interval,deleted FROM word ORDER BY id').fetchall()
+    apply_migration(connection)
+    rows = {r['id']: r for r in connection.execute('SELECT * FROM word')}
+    assert [rows[i]['entry_type'] for i in (1, 2, 3, 4, 5)] == ['word', 'phrase', 'phrase', 'word', 'phrase']
+    assert [rows[i]['dictation_level'] for i in (1, 2, 3, 4, 5)] == [3, 1, 3, 3, 1]
+    assert all(rows[i]['focus_status'] == 'none' and rows[i]['focus_spec'] is None for i in rows)
+    after = connection.execute('SELECT id,english,chinese,learning_phase,review_count,correct_count,interval,deleted FROM word ORDER BY id').fetchall()
+    assert [tuple(r) for r in before] == [tuple(r) for r in after]  # 原有字段不变
+    log_columns = {r['name'] for r in connection.execute('PRAGMA table_info(word_review_log)')}
+    assert {'token_results', 'dictation_level'} <= log_columns
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -229,6 +342,7 @@ TESTS = [
     test_error_driven_focus,
     test_next_level,
     test_next_phase,
+    test_migration_backfill,
 ]
 
 
