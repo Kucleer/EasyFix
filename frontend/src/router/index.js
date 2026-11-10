@@ -17,6 +17,16 @@ const routes = [
     component: () => import('@/views/ReviewQueue.vue'),
   },
   {
+    path: '/papers',
+    name: 'Papers',
+    component: () => import('@/views/Papers.vue'),
+  },
+  {
+    path: '/papers/:id',
+    name: 'PaperDetail',
+    component: () => import('@/views/PaperDetail.vue'),
+  },
+  {
     path: '/upload',
     name: 'Upload',
     component: () => import('@/views/Upload.vue'),

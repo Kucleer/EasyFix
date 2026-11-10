@@ -91,7 +91,7 @@
 
       <!-- 错题列表 -->
       <el-table class="question-table" v-model:selection="selectedQuestions" :data="questions.items" stripe style="width: 100%; margin-top: 20px" @selection-change="handleSelectionChange">
-        <el-table-column type="selection" width="42" />
+        <el-table-column type="selection" width="42" :selectable="isRowSelectable" />
 
         <el-table-column label="题目" min-width="620">
           <template #default="{ row }">
@@ -103,6 +103,7 @@
                 style="width: 50px; height: 50px; margin-right: 8px; cursor: pointer"
                 @click="previewImage('/uploads/' + (row.original_image || row.original_images[0]))"
               />
+              <el-tag v-if="row.review_status === 'pending'" type="warning" size="small" style="margin-right: 6px; flex-shrink: 0">待核对</el-tag>
               <div class="text-preview"><MathText :text="row.parsed_question || row.original_text || '无文本'" /></div>
             </div>
           </template>
@@ -192,6 +193,32 @@
             <div class="card-header-green">答案</div>
             <div class="card-content">
               <div class="question-text"><MathText :text="currentQuestion.answer || '暂无'" /></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 卷子、题号、孩子的答案和判错依据 -->
+        <div class="detail-card">
+          <div class="card-header-gray">卷子与作答</div>
+          <div class="card-content">
+            <div class="meta-row">
+              <div class="meta-item">
+                <label>所属卷子：</label>
+                <router-link v-if="currentQuestion.paper" :to="'/papers/' + currentQuestion.paper.id">{{ currentQuestion.paper.name }}</router-link>
+                <span v-else>无</span>
+              </div>
+              <div class="meta-item">
+                <label>题号：</label>
+                <span>{{ currentQuestion.question_no || '未填' }}</span>
+              </div>
+            </div>
+            <div class="meta-item">
+              <label>孩子的答案：</label>
+              <div class="question-text"><MathText :text="currentQuestion.wrong_answer || '暂无'" /></div>
+            </div>
+            <div class="meta-item">
+              <label>判错依据：</label>
+              <span>{{ currentQuestion.wrong_evidence || '暂无' }}</span>
             </div>
           </div>
         </div>
@@ -317,6 +344,12 @@
         </el-form-item>
         <el-form-item label="题目">
           <MathEditor v-model="editForm.parsed_question" :rows="6" />
+        </el-form-item>
+        <el-form-item label="题号">
+          <el-input v-model="editForm.question_no" placeholder="如 二、5" />
+        </el-form-item>
+        <el-form-item label="孩子的答案">
+          <MathEditor v-model="editForm.wrong_answer" :rows="3" />
         </el-form-item>
         <el-form-item label="答案">
           <MathEditor v-model="editForm.answer" :rows="4" />
@@ -627,6 +660,8 @@ const editForm = reactive({
   subject_id: null,
   original_image: '',
   parsed_question: '',
+  question_no: '',
+  wrong_answer: '',
   answer: '',
   analysis: '',
   analysis_image: '',
@@ -829,6 +864,8 @@ const editQuestion = (row) => {
   editForm.subject_id = row.subject_id || null
   editForm.original_image = row.original_image || ''
   editForm.parsed_question = row.parsed_question || ''
+  editForm.question_no = row.question_no || ''
+  editForm.wrong_answer = row.wrong_answer || ''
   editForm.answer = row.answer || ''
   editForm.analysis = row.analysis || ''
   editForm.analysis_image = row.analysis_image || ''
@@ -1061,6 +1098,9 @@ const formatDate = (dateStr) => {
 }
 
 // 多选相关方法
+// 待核对的题不能勾选（不能拿去建练习卷）
+const isRowSelectable = (row) => row.review_status !== 'pending'
+
 const handleSelectionChange = (selection) => {
   selectedQuestions.value = selection
 }
