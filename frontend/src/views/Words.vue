@@ -920,8 +920,8 @@ const startReviewGame = async () => {
     if (reviewConfig.grade) params.grade = reviewConfig.grade
     // 范围：非默认时传 entry_type（只练单词/词组）
     if (reviewConfig.entry_type) params.entry_type = reviewConfig.entry_type
-    // 词组档位：非自动（0）时传 dictation_level
-    if (reviewConfig.dictation_level) params.dictation_level = reviewConfig.dictation_level
+    // 词组档位：仅默写（type 1）且手动选档（非0）时传 dictation_level，选择/听力题型忽略残留的档位
+    if (reviewConfig.type === 1 && reviewConfig.dictation_level) params.dictation_level = reviewConfig.dictation_level
     // 如果有选中单词，传递单词ID列表
     if (selectedWords.value.length > 0) {
       params.word_ids = selectedWords.value.map(w => w.id).join(',')
@@ -933,6 +933,8 @@ const startReviewGame = async () => {
       correct: undefined,
     }))
     currentSessionId.value = data.session_id
+    // 进入第一题前先作废可能残留的重播，避免静音题期间播放旧音频
+    autoPlayToken.value++
     currentIndex.value = 0
     userAnswer.value = ''
     selectedOption.value = ''
@@ -1064,6 +1066,8 @@ const submitAnswer = () => {
 }
 
 const nextQuestion = () => {
+  // 进入任意题目都先作废上一题待执行的重播，静音题不会调用 autoPlayWithReplay，否则无法取消
+  autoPlayToken.value++
   currentIndex.value++
   currentQuestion.value = reviewQuestions.value[currentIndex.value]
   userAnswer.value = ''
@@ -1128,7 +1132,8 @@ const finishReview = async () => {
       is_correct: q.correct,
       user_answer: q.userAnswer || '',
       review_type: reviewConfig.type,
-      dictation_auto: reviewConfig.dictation_level === 0,
+      // 仅默写题型且手动选档时才算非自动，选择/听力忽略残留的档位
+      dictation_auto: !(reviewConfig.type === 1 && reviewConfig.dictation_level !== 0),
     }
     // 题目带档位时回传档位
     if (q.dictation_level != null) r.dictation_level = q.dictation_level
