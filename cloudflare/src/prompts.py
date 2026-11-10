@@ -75,6 +75,48 @@ class PromptLibrary:
             '    }\n'
             '}\n')
 
+    def _build_phrase_focus_prompt(self, items: list, default_grade: Optional[int]) -> str:
+        """构建词组默写标注提示词：模型只给每个已切好的 token 指定角色，不得改动词本身。"""
+        import json
+        from phrase_focus import split_tokens
+        entries = []
+        for item in items:
+            # 条目没有年级时使用默认年级
+            grade = item.get('grade') or default_grade
+            grade_text = self._get_grade_name(grade) if grade else '未知年级'
+            # 预先切好 token，避免模型自己切分
+            tokens = split_tokens(item['english'])
+            entries.append(
+                f'- "id": {item["id"]}，词组：{item["english"]}，中文：{item.get("chinese") or ""}，'
+                f'年级：{grade_text}\n'
+                f'  tokens（已按空格切好）：{json.dumps(tokens, ensure_ascii=False)}')
+        entries_text = '\n'.join(entries)
+        return (
+            '你是小学和初中英语老师。下面是学生要默写的英语词组，请判断每个词组里哪些词是默写时需要重点记忆的。\n'
+            '每个词组都已经按空格切成 tokens，你只需要给每个 token 指定一个角色。\n\n'
+            '## 角色（role）只能是以下四种\n'
+            '1. collocation：搭配词。介词、副词小品词（如 up、out、off）、不定式 to，'
+            '以及固定搭配中容易和近义词混淆的词（如 take part in 中的 in，look forward to 中的 forward 和 to）。\n'
+            '2. content：实义词。该年级学生可能还不熟悉的名词、动词、形容词、副词等。'
+            '这类词必须额外给出 lemma（原形，小写）和 gloss（中文释义）。\n'
+            '3. plain：基础词。该年级学生早已熟悉的基础词，如 be、a、the、take、good、part 等。\n'
+            "4. placeholder：占位符。sb.、sth.、sp.、doing、do、one's、oneself 及其变体"
+            "（如 sb.'s、sth.'s、somebody、something、yourself、myself、themselves）。\n\n"
+            '## 判断原则\n'
+            '- 是否是基础词要结合词组所属年级来判断；拿不准时标 content，不要标 plain。\n'
+            '- 每个 token 只能有一个角色，只有 content 才有 lemma 和 gloss。\n\n'
+            '## 硬性要求\n'
+            '- 不得增、删、改写 token，也不得重新切分或合并 token；返回的 tokens 必须与给出的 tokens '
+            '数量相同、顺序相同、text 完全一致（包括标点和大小写）。\n'
+            '- 每个词组都必须返回，id 必须与给出的 id 一致。\n'
+            '- 只返回合法 JSON，不要 markdown 代码块，不要任何解释文字。\n\n'
+            f'## 待标注的词组\n{entries_text}\n\n'
+            '## 输出格式\n'
+            '{"items": [{"id": 1, "tokens": ['
+            '{"text": "be", "role": "plain"}, '
+            '{"text": "proud", "role": "content", "lemma": "proud", "gloss": "自豪的"}, '
+            '{"text": "of", "role": "collocation"}]}]}\n')
+
     def _get_grade_name(self, grade: int) -> str:
         """转换年级数字为名称"""
         grade_map = {1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级', 5: '五年级', 6: '六年级',

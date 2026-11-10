@@ -179,3 +179,55 @@ def next_phase(old_phase, ok, consecutive, interval, was_due, annotated, review_
     if ok and was_due:
         return '遗忘点'
     return '在途'
+
+
+def apply_annotation(rows, llm_output, known_words):
+    """把模型返回的标注逐条校验后整理成写库内容。
+
+    rows 是本次送去标注的词组（含 id、english、grade、semester）；
+    known_words 是单词本中已有单词的小写英文集合。返回：
+    - updates：通过校验、可以写库的 {'id', 'focus_spec'}；
+    - failures：校验失败或被模型漏掉的 {'id', 'english', 'reason'}；
+    - missing_lemmas：通过校验的实义词里，单词本还没有的 lemma（同一 lemma 只出现一次）。
+    """
+    # 先把模型返回的条目按 id 建索引；形状不对的整体当作没有返回
+    returned = {}
+    items = llm_output.get('items') if isinstance(llm_output, dict) else None
+    if isinstance(items, list):
+        for item in items:
+            item_id = item.get('id') if isinstance(item, dict) else None
+            # 布尔不算整数 id；同一个 id 只取第一条
+            if type(item_id) is int and item_id not in returned:
+                returned[item_id] = item
+
+    updates = []
+    failures = []
+    missing_lemmas = []
+    seen_lemmas = set()
+    for row in rows:
+        item = returned.get(row['id'])
+        if item is None:
+            failures.append({'id': row['id'], 'english': row['english'], 'reason': '模型未返回该词组'})
+            continue
+        try:
+            spec = validate_focus_spec({'tokens': item.get('tokens')}, row['english'])
+        except ValueError as error:
+            failures.append({'id': row['id'], 'english': row['english'], 'reason': str(error)})
+            continue
+        updates.append({'id': row['id'], 'focus_spec': spec})
+        # 收集单词本里还没有的实义词原形，留给前端提示补充
+        for token in spec['tokens']:
+            if token['role'] != 'content':
+                continue
+            lemma = token['lemma']
+            if lemma in known_words or lemma in seen_lemmas:
+                continue
+            seen_lemmas.add(lemma)
+            missing_lemmas.append({
+                'lemma': lemma,
+                'gloss': token['gloss'],
+                'grade': row.get('grade'),
+                'semester': row.get('semester'),
+                'source_word_id': row['id'],
+            })
+    return {'updates': updates, 'failures': failures, 'missing_lemmas': missing_lemmas}

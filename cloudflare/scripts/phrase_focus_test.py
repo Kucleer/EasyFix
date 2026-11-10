@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 from phrase_focus import (  # noqa: E402
+    apply_annotation,
     build_cells,
     entry_type_of,
     focus_indices,
@@ -34,7 +35,8 @@ from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步
 import review  # noqa: E402
 from analytics import now  # noqa: E402
 from review import start_session, submit_session  # noqa: E402
-from word_focus import load_focus_context  # noqa: E402
+from prompts import PromptLibrary  # noqa: E402
+from word_focus import annotate_words, load_focus_context  # noqa: E402
 from words import import_words, list_words, save, word_stats  # noqa: E402
 
 
@@ -353,7 +355,7 @@ def test_migration_backfill():
 
 PROUD_OF_TOKENS = [
     {'text': 'be', 'role': 'plain'},
-    {'text': 'proud', 'role': 'content', 'lemma': 'proud'},
+    {'text': 'proud', 'role': 'content', 'lemma': 'proud', 'gloss': '自豪的'},
     {'text': 'of', 'role': 'collocation'},
 ]
 GOOD_AT_TOKENS = [
@@ -865,6 +867,182 @@ def test_error_driven_uses_only_current_annotation():
     assert counted_queries(db, lambda: load_focus_context(db, [r for r in rows if r['english'] == 'apple'])) == 0
 
 
+# ---------------------------------------------------------------- 任务 6
+
+
+TAKE_PART_IN_TOKENS = [
+    {'text': 'take', 'role': 'plain'},
+    {'text': 'part', 'role': 'plain'},
+    {'text': 'in', 'role': 'collocation'},
+]
+
+
+def word_ids(db):
+    """返回 {英文: id}（未删除的词条）。"""
+    return {row['english']: row['id'] for row in run(db.all('SELECT id,english FROM word WHERE deleted=0'))}
+
+
+def test_apply_annotation_mixed_batch():
+    """一批混合结果：合格的入更新，改写、漏掉的进失败，未知 id 忽略，缺失 lemma 收集。"""
+    rows = [{'id': 1, 'english': 'be good at', 'grade': 6, 'semester': 1},
+            {'id': 2, 'english': 'be proud of', 'grade': 6, 'semester': 1},
+            {'id': 3, 'english': 'take part in', 'grade': 6, 'semester': 1},
+            {'id': 4, 'english': 'look after', 'grade': 6, 'semester': 1}]
+    output = {'items': [
+        {'id': 1, 'tokens': GOOD_AT_TOKENS},
+        {'id': 2, 'tokens': PROUD_OF_TOKENS},
+        {'id': 3, 'tokens': GOOD_AT_TOKENS},                     # 改写了词
+        {'id': 99, 'tokens': GOOD_AT_TOKENS},                    # 不认识的 id
+        # id 4 被漏掉
+    ]}
+    result = apply_annotation(rows, output, known_words={'good'})
+    assert [u['id'] for u in result['updates']] == [1, 2]
+    assert result['updates'][1]['focus_spec']['source_english'] == 'be proud of'
+    assert {f['id'] for f in result['failures']} == {3, 4}
+    assert [f['reason'] for f in result['failures'] if f['id'] == 4] == ['模型未返回该词组']
+    assert result['missing_lemmas'] == [{'lemma': 'proud', 'gloss': '自豪的', 'grade': 6, 'semester': 1, 'source_word_id': 2}]
+    for broken in (None, [], {'items': 'x'}, {'items': [None, 5]}):
+        assert len(apply_annotation(rows, broken, set())['failures']) == 4
+
+
+def test_missing_lemmas_dedupe():
+    """同一 lemma 只收集一次（大小写不敏感）；已有单词不收集。"""
+    rows = [{'id': 1, 'english': 'be proud of', 'grade': 6, 'semester': 1},
+            {'id': 2, 'english': 'be proud of', 'grade': 5, 'semester': 2}]
+    tokens = [{'text': 'be', 'role': 'plain'},
+              {'text': 'proud', 'role': 'content', 'lemma': 'Proud', 'gloss': '自豪的'},
+              {'text': 'of', 'role': 'collocation'}]
+    output = {'items': [{'id': 1, 'tokens': tokens}, {'id': 2, 'tokens': tokens}]}
+    result = apply_annotation(rows, output, set())
+    assert result['missing_lemmas'] == [
+        {'lemma': 'proud', 'gloss': '自豪的', 'grade': 6, 'semester': 1, 'source_word_id': 1}]
+    assert apply_annotation(rows, output, {'proud'})['missing_lemmas'] == []
+
+
+def test_annotate_words_respects_confirmed():
+    """已确认的标注与单词不进入模型；草稿与未标注的写成 draft，复习数据不动。"""
+    db = seeded()
+    ids = word_ids(db)
+    run(db.run("UPDATE word SET review_count=7,correct_count=4 WHERE english='take part in'"))
+    calls = []
+
+    async def fake(prompt):
+        calls.append(prompt)
+        return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS},
+                          {'id': ids['take part in'], 'tokens': TAKE_PART_IN_TOKENS}]}
+
+    before_rows = by_english(db)
+    before = before_rows['be good at']
+    before_counts = {name: row['review_count'] for name, row in before_rows.items()}
+    result = run(annotate_words(db, [ids['be good at'], ids['be proud of'], ids['take part in'], ids['apple']], fake, 6))
+    assert len(calls) == 1 and 'be good at' not in calls[0] and 'apple' not in calls[0]
+    assert result['annotated'] == 2 and {s['id'] for s in result['skipped']} == {ids['be good at'], ids['apple']}
+    assert result['failures'] == []
+    after = by_english(db)
+    assert after['be good at']['focus_spec'] == before['focus_spec'] and after['be good at']['focus_status'] == 'confirmed'
+    assert after['be good at']['focus_updated_at'] == before['focus_updated_at']
+    assert after['take part in']['focus_status'] == 'draft' and after['take part in']['focus_updated_at']
+    assert json.loads(after['take part in']['focus_spec'])['source_english'] == 'take part in'
+    assert after['be proud of']['focus_status'] == 'draft'
+    assert after['take part in']['review_count'] == before_counts['take part in'] == 7        # 复习数据不动
+    for name in after:
+        for column in ('review_count', 'correct_count', 'interval', 'learning_phase',
+                       'dictation_level', 'next_review_at', 'last_reviewed_at'):
+            assert after[name][column] == before_rows[name][column], (name, column)
+    assert after['apple']['focus_status'] == 'none' and after['apple']['focus_spec'] is None
+    assert run(db.first('SELECT COUNT(*) AS n FROM word_review_log'))['n'] == 0
+    assert result['missing_lemmas'] == []  # 单词本里已有「proud」
+
+
+def test_annotate_words_reports_failures_and_missing():
+    """模型改写的词组计入失败不写库；缺失的实义词在响应中列出；不存在的 id 记为跳过。"""
+    db = seeded()
+    ids = word_ids(db)
+    run(db.run("UPDATE word SET deleted=1 WHERE english='proud'"))  # 软删除后不算已有单词
+
+    async def fake(prompt):
+        return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS},
+                          {'id': ids['take part in'], 'tokens': GOOD_AT_TOKENS}]}
+
+    result = run(annotate_words(db, [ids['be proud of'], ids['take part in'], 9999], fake, None))
+    assert result['annotated'] == 1
+    assert [f['id'] for f in result['failures']] == [ids['take part in']]
+    assert {s['id'] for s in result['skipped']} == {9999}
+    assert result['missing_lemmas'] == [{'lemma': 'proud', 'gloss': '自豪的', 'grade': None, 'semester': None,
+                                         'source_word_id': ids['be proud of']}]
+    assert by_english(db)['take part in']['focus_status'] == 'none'
+
+
+def test_annotate_never_overwrites_concurrent_confirm():
+    """模型调用期间词条被确认：UPDATE 的状态保护使其不被覆盖。"""
+    db = seeded()
+    ids = word_ids(db)
+    old_spec = by_english(db)['be proud of']['focus_spec']
+
+    async def fake(prompt):
+        await db.run("UPDATE word SET focus_status='confirmed' WHERE english='be proud of'")
+        return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS}]}
+
+    run(annotate_words(db, [ids['be proud of']], fake, 6))
+    row = by_english(db)['be proud of']
+    assert row['focus_status'] == 'confirmed' and row['focus_spec'] == old_spec
+
+
+def test_annotate_query_budget():
+    """一次标注：取词 1 次、取已有单词 1 次、批量写入 1 次，且只调用一次模型。"""
+    db = seeded()
+    ids = word_ids(db)
+    calls = []
+
+    async def fake(prompt):
+        calls.append(prompt)
+        return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS},
+                          {'id': ids['take part in'], 'tokens': TAKE_PART_IN_TOKENS}]}
+
+    total = counted_queries(db, lambda: annotate_words(db, [ids['be proud of'], ids['take part in']], fake, 6))
+    assert total == 3 and len(calls) == 1
+
+
+def test_annotate_all_skipped_makes_no_llm_call():
+    """全部是已确认或单词：不调用模型，也不写库，annotated 为 0。"""
+    db = seeded()
+    ids = word_ids(db)
+    calls = []
+
+    async def fake(prompt):
+        calls.append(prompt)
+        return {'items': []}
+
+    result = run(annotate_words(db, [ids['be good at'], ids['apple']], fake, 6))
+    assert calls == []
+    assert result['annotated'] == 0 and result['failures'] == [] and result['missing_lemmas'] == []
+    assert {s['id'] for s in result['skipped']} == {ids['be good at'], ids['apple']}
+    assert counted_queries(db, lambda: annotate_words(db, [ids['be good at'], ids['apple']], fake, 6)) == 1
+    assert by_english(db)['be good at']['focus_status'] == 'confirmed'
+
+
+def test_annotate_endpoint_validation():
+    """路由校验：word_ids 必须是 1 到 20 个互不相同的整数。"""
+    import word_focus
+    bad_payloads = [{}, {'word_ids': []}, {'word_ids': 'x'}, {'word_ids': [1, 1]}, {'word_ids': [True]},
+                    {'word_ids': ['1']}, {'word_ids': list(range(1, 22))}, [1, 2], None]
+    for payload in bad_payloads:
+        expect_http(422, lambda payload=payload: run(word_focus.annotate_route(FakeRequest(payload))))
+
+
+def test_prompt_contents():
+    """提示词包含词组、id、四种角色、lemma/gloss、占位符、年级与不得改写的要求。"""
+    prompt = PromptLibrary()._build_phrase_focus_prompt([{'id': 7, 'english': 'be good at', 'chinese': '擅长', 'grade': None}], 6)
+    for needle in ('be good at', '"id": 7', 'collocation', 'content', 'plain', 'placeholder', 'lemma', 'gloss', 'sb.', 'sth.', '六年级'):
+        assert needle in prompt
+    for needle in ('不得增', '重新切分', 'oneself', "one's", 'doing', '拿不准', 'JSON'):
+        assert needle in prompt
+    assert '["be", "good", "at"]' in prompt
+    # 条目自带年级时优先用自己的年级
+    mixed = PromptLibrary()._build_phrase_focus_prompt([{'id': 1, 'english': 'a b', 'chinese': 'x', 'grade': 3}], 6)
+    assert '三年级' in mixed
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
@@ -889,6 +1067,15 @@ TESTS = [
     test_listening_accepted_and_grant_rules,
     test_submit_validation,
     test_error_driven_uses_only_current_annotation,
+    test_apply_annotation_mixed_batch,
+    test_missing_lemmas_dedupe,
+    test_annotate_words_respects_confirmed,
+    test_annotate_words_reports_failures_and_missing,
+    test_annotate_never_overwrites_concurrent_confirm,
+    test_annotate_query_budget,
+    test_annotate_all_skipped_makes_no_llm_call,
+    test_annotate_endpoint_validation,
+    test_prompt_contents,
 ]
 
 
