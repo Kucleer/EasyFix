@@ -266,6 +266,10 @@
     <!-- 复习弹窗 -->
     <el-dialog v-model="reviewVisible" title="单词复习" width="1200px" :close-on-click-modal="false" class="review-dialog">
       <div v-if="reviewStep === 'config'" class="review-config">
+        <!-- 来自“重练错词”的预置复习：提示本次固定练这些错词 -->
+        <div v-if="presetWordIds && presetWordIds.length" class="preset-review-tip">
+          本次复习 {{ presetWordIds.length }} 个错词
+        </div>
         <el-form-item label="复习数量">
           <el-input-number v-model="reviewConfig.count" :min="10" :max="50" />
         </el-form-item>
@@ -308,8 +312,37 @@
         </div>
 
         <div class="question-content">
+          <!-- 订正卡片：默写(1)/听力(3)答错时，停留本题照抄一遍 -->
+          <div v-if="correctionActive" class="dictation correction">
+            <div class="chinese" :style="{ fontSize: chineseFontSize }">
+              {{ currentQuestion.chinese }}
+            </div>
+            <div class="correction-card">
+              <!-- 完整正确答案，写错或漏掉的部分标红 -->
+              <div class="correction-answer">
+                <span
+                  v-for="(seg, i) in correctionSegs"
+                  :key="i"
+                  :class="{ wrong: seg.wrong }"
+                >{{ seg.text }}</span>
+              </div>
+              <!-- 孩子刚才写的内容 -->
+              <div class="correction-yours">你写的是 {{ currentQuestion.userAnswer || '没有作答' }}</div>
+              <!-- 照着抄一遍 -->
+              <div class="correction-tip">照着抄一遍再继续</div>
+              <DictationInput
+                ref="copyInputRef"
+                :question="copyQuestion"
+                :result="copyResult"
+                v-model="copyAnswers"
+                @submit="checkCopy"
+              />
+              <el-button link class="correction-skip" @click="skipCorrection">跳过</el-button>
+            </div>
+          </div>
+
           <!-- 默写模式：显示中文 + 喇叭按钮 + 字母格输入 -->
-          <div v-if="reviewConfig.type === 1" class="dictation">
+          <div v-else-if="reviewConfig.type === 1" class="dictation">
             <div class="chinese" :style="{ fontSize: chineseFontSize }">
               {{ currentQuestion.chinese }}
             </div>
@@ -400,23 +433,9 @@
           </div>
         </div>
 
-        <!-- 错误单词列表 -->
-        <div v-if="reviewResult.error > 0" class="error-word-list">
-          <div class="error-words-scroll">
-            <div v-for="(q, idx) in reviewQuestions.filter(q => !q.correct)" :key="idx" class="error-word-item">
-              <div class="correct-side">
-                <span class="correct-en">
-                  {{ q.english }}
-                  <el-button class="audio-btn" @click="playWordAudio(q.word_id)" :loading="audioLoading" size="small">🔊</el-button>
-                </span>
-                <span class="correct-cn">{{ q.chinese }}</span>
-              </div>
-              <div class="wrong-side">
-                <span class="wrong-tag">错误</span>
-                <span class="wrong-answer">{{ q.userAnswer || '(未作答)' }}</span>
-              </div>
-            </div>
-          </div>
+        <!-- 错题优先的结果明细（复用练习结果列表组件） -->
+        <div class="review-result-list">
+          <WordResultList :items="reviewResultItems" />
         </div>
 
         <el-button type="primary" @click="reviewVisible = false" class="finish-btn">完成</el-button>
@@ -546,19 +565,21 @@ orange 橙子"
 <script setup>
 import PageHeading from '@/components/PageHeading.vue'
 import DictationInput from '@/components/DictationInput.vue'
+import WordResultList from '@/components/WordResultList.vue'
 import PhraseFocusEditor from '@/components/PhraseFocusEditor.vue'
 import PhraseAnnotateDialog from '@/components/PhraseAnnotateDialog.vue'
-import { ref, reactive, onMounted, computed, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Printer, Upload } from '@element-plus/icons-vue'
-import { buildCells, blankTokenCount, judge, shouldPlayBeforeAnswer } from '@/composables/dictation'
+import { buildCells, blankTokenCount, judge, shouldPlayBeforeAnswer, answerSegments } from '@/composables/dictation'
 import { wordApi } from '@/api/word'
 import { questionApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
 
 const route = useRoute()
+const router = useRouter()
 const appConfigStore = useAppConfigStore()
 const words = ref({ total: 0, items: [] })
 const allTags = ref([])
@@ -661,6 +682,23 @@ const userAnswer = ref('')
 const answers = ref([])              // 默写各格内容，供 judge 使用
 const dictationInputRef = ref(null)  // 默写组件引用
 const autoPlayToken = ref(0)
+
+// 订正卡片相关：默写/听力答错时停留本题，照抄一遍再继续
+const correctionActive = ref(false)  // 是否正在显示订正卡片
+const copyAnswers = ref([])          // 抄写输入的各格内容
+const copyResult = ref(null)         // 抄写判定结果（用于标红/标绿），null 表示未判定
+const copyInputRef = ref(null)       // 抄写输入组件引用
+// 抄写用的题目：只给 english、不带 tokens，这样每个字母都是一个格子
+const copyQuestion = computed(() => ({ english: currentQuestion.value?.english || '' }))
+// 订正卡片里正确答案的高亮片段：优先用逐词结果
+const correctionSegs = computed(() => {
+  const q = currentQuestion.value
+  if (!q) return []
+  return answerSegments({ english: q.english, userAnswer: q.userAnswer, tokenResults: q.tokenResults }).expected
+})
+
+// 预置复习词 id（来自“重练错词”），与勾选选择相互独立
+const presetWordIds = ref(null)
 const selectedOption = ref('')
 const currentSessionId = ref(null)
 const audioLoading = ref(false)
@@ -694,6 +732,15 @@ const dictationSpeakerDisabled = computed(() => {
   if (!q || reviewConfig.type !== 1) return false
   return !shouldPlayBeforeAnswer(q, reviewConfig.type) && q.correct === undefined
 })
+
+// 结果页的明细：直接复用答题过程中记录的每题对错与作答
+const reviewResultItems = computed(() => reviewQuestions.value.map(q => ({
+  english: q.english,
+  chinese: q.chinese,
+  userAnswer: q.userAnswer || '',
+  isCorrect: !!q.correct,
+  tokenResults: q.tokenResults,
+})))
 
 // 长中文自适应字号，避免溢出
 const chineseFontSize = computed(() => {
@@ -990,11 +1037,30 @@ const deleteWord = async (row) => {
 // 复习
 const startReview = () => {
   reviewStep.value = 'config'
+  // 正常“开始复习”入口：清掉“重练错词”的预置，恢复按勾选/筛选抽题
+  presetWordIds.value = null
   // 如果有选中单词，默认数量为选中数量
   if (selectedWords.value.length > 0) {
     reviewConfig.count = selectedWords.value.length
   }
   reviewVisible.value = true
+}
+
+/**
+ * 打开“重练错词”复习：按给定的错词 id 固定本次复习内容。
+ * @param {string} idsStr 逗号分隔的单词 id
+ */
+const openPresetReview = (idsStr) => {
+  const ids = String(idsStr).split(',').map(s => parseInt(s, 10)).filter(n => Number.isInteger(n) && n > 0)
+  if (!ids.length) return
+  presetWordIds.value = ids
+  reviewStep.value = 'config'
+  // 复习数量受接口约束（10~100），后端只会返回给定的 id
+  reviewConfig.count = Math.max(10, Math.min(100, ids.length))
+  reviewVisible.value = true
+  // 从地址栏去掉 review_ids，避免刷新后重复打开
+  const { review_ids, ...rest } = route.query
+  router.replace({ path: '/words', query: rest })
 }
 
 const handleSelectionChange = (selection) => {
@@ -1013,8 +1079,10 @@ const startReviewGame = async () => {
     if (reviewConfig.entry_type) params.entry_type = reviewConfig.entry_type
     // 词组档位：仅默写（type 1）且手动选档（非0）时传 dictation_level，选择/听力题型忽略残留的档位
     if (reviewConfig.type === 1 && reviewConfig.dictation_level) params.dictation_level = reviewConfig.dictation_level
-    // 如果有选中单词，传递单词ID列表
-    if (selectedWords.value.length > 0) {
+    // 优先用“重练错词”的预置 id；否则用勾选的单词
+    if (presetWordIds.value && presetWordIds.value.length > 0) {
+      params.word_ids = presetWordIds.value.join(',')
+    } else if (selectedWords.value.length > 0) {
       params.word_ids = selectedWords.value.map(w => w.id).join(',')
     }
 
@@ -1026,6 +1094,9 @@ const startReviewGame = async () => {
     currentSessionId.value = data.session_id
     // 进入第一题前先作废可能残留的重播，避免静音题期间播放旧音频
     autoPlayToken.value++
+    // 重置订正卡片状态
+    correctionActive.value = false
+    copyResult.value = null
     currentIndex.value = 0
     userAnswer.value = ''
     selectedOption.value = ''
@@ -1123,10 +1194,6 @@ const submitAnswer = () => {
     q.userAnswer = res.userAnswer
     q.tokenResults = res.tokenResults
     userAnswer.value = res.userAnswer
-    // 重点/提示档词组作答前不发音，提交后补播一次
-    if (!shouldPlayBeforeAnswer(q, reviewConfig.type)) {
-      playWordAudio(q.word_id)
-    }
   } else if (reviewConfig.type === 3) {
     // 听力：比较英文输入
     q.correct = userAnswer.value.toLowerCase().trim() === q.english.toLowerCase().trim()
@@ -1136,10 +1203,25 @@ const submitAnswer = () => {
     q.correct = selectedOption.value === q.chinese
     q.userAnswer = selectedOption.value
   }
-  // 显示toast提示
+
+  // 默写(1)/听力(3)属于“书写题型”，答错时走订正卡片
+  const typingType = reviewConfig.type === 1 || reviewConfig.type === 3
+
   if (q.correct) {
+    // 答对：维持原行为（成功提示 + 自动跳题）
+    // 重点/提示档词组作答前不发音，答对后补播一次读音
+    if (reviewConfig.type === 1 && !shouldPlayBeforeAnswer(q, reviewConfig.type)) {
+      playWordAudio(q.word_id)
+    }
     ElMessage({ message: '✓ 正确', type: 'success', duration: 3000, showClose: false, customClass: 'toast-large' })
+    if (currentIndex.value < reviewQuestions.value.length - 1) {
+      setTimeout(() => nextQuestion(), 1500)
+    }
+  } else if (typingType) {
+    // 默写/听力答错：不弹错误提示、不自动跳题，显示订正卡片让孩子照抄一遍
+    startCorrection(q)
   } else {
+    // 选择题答错：沿用旧的错误提示 + 自动跳题
     ElMessage({
       message: `✗ 错误 - 正确答案: ${q.english}`,
       type: 'error',
@@ -1147,18 +1229,77 @@ const submitAnswer = () => {
       showClose: false,
       customClass: 'toast-large',
     })
-  }
-  // 显示答案后自动进入下一题
-  if (currentIndex.value < reviewQuestions.value.length - 1) {
-    setTimeout(() => {
-      nextQuestion()
-    }, 1500)
+    if (currentIndex.value < reviewQuestions.value.length - 1) {
+      setTimeout(() => nextQuestion(), 1500)
+    }
   }
 }
+
+/**
+ * 进入订正状态：播放一次正确读音，聚焦抄写输入。
+ * 抄写只用于强化，不改动 q.correct / userAnswer / tokenResults，也不影响提交内容。
+ * @param {object} q 当前题目
+ */
+function startCorrection(q) {
+  correctionActive.value = true
+  copyResult.value = null
+  // 作废可能存在的待播重播，避免与这次读音重叠
+  autoPlayToken.value++
+  playWordAudio(q.word_id)
+  nextTick(() => {
+    copyInputRef.value?.reset()
+    setTimeout(() => copyInputRef.value?.focus(), 150)
+  })
+}
+
+/**
+ * 判断抄写是否与正确答案一致（不区分大小写），一致则稍作停顿后继续，不一致则标红重来。
+ */
+function checkCopy() {
+  if (!correctionActive.value || copyResult.value) return
+  const res = judge(copyQuestion.value, copyAnswers.value)
+  if (res.correct) {
+    copyResult.value = { tokenResults: null, correct: true }
+    // 抄对后停约 600ms 再继续：非最后一题进入下一题，最后一题由“完成”按钮收尾
+    setTimeout(() => {
+      correctionActive.value = false
+      copyResult.value = null
+      if (currentIndex.value < reviewQuestions.value.length - 1) nextQuestion()
+    }, 600)
+  } else {
+    // 抄错：标红提示，短暂停顿后清空重试，绝不卡死
+    copyResult.value = { tokenResults: null, correct: false }
+    setTimeout(() => {
+      copyResult.value = null
+      copyInputRef.value?.reset()
+      copyInputRef.value?.focus()
+    }, 500)
+  }
+}
+
+/**
+ * 跳过抄写：直接继续，不影响已记录的答题结果。
+ */
+function skipCorrection() {
+  correctionActive.value = false
+  copyResult.value = null
+  if (currentIndex.value < reviewQuestions.value.length - 1) nextQuestion()
+}
+
+// 抄写填满后自动判定，省去孩子再按回车
+watch(copyAnswers, (vals) => {
+  if (!correctionActive.value || copyResult.value) return
+  const cells = buildCells(copyQuestion.value)
+  const allFilled = cells.every((c, i) => c.fixed || !!vals[i])
+  if (allFilled && cells.some(c => !c.fixed)) checkCopy()
+}, { deep: true })
 
 const nextQuestion = () => {
   // 进入任意题目都先作废上一题待执行的重播，静音题不会调用 autoPlayWithReplay，否则无法取消
   autoPlayToken.value++
+  // 切题时收起订正卡片并清空抄写状态
+  correctionActive.value = false
+  copyResult.value = null
   currentIndex.value++
   currentQuestion.value = reviewQuestions.value[currentIndex.value]
   userAnswer.value = ''
@@ -1552,6 +1693,15 @@ onMounted(async () => {
   fetchWords()
   fetchTags()
   fetchTypeStats()
+  // 来自“重练错词”的跳转：带 review_ids 时直接打开对应错词的复习
+  if (route.query.review_ids) {
+    openPresetReview(route.query.review_ids)
+  }
+})
+
+// 路由上的 review_ids 变化时（例如在本页内再次跳转）也打开预置复习
+watch(() => route.query.review_ids, (val) => {
+  if (val) openPresetReview(val)
 })
 </script>
 
@@ -1647,6 +1797,80 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-secondary, #64748b);
+}
+
+/* 重练错词的提示条 */
+.preset-review-tip {
+  margin-bottom: 16px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 订正卡片：答错后停留本题，照抄一遍 */
+.correction-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 100%;
+}
+
+.correction-answer {
+  font-size: 40px;
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+  letter-spacing: 2px;
+  line-height: 1.25;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+/* 写错或漏掉的部分标红 */
+.correction-answer .wrong {
+  color: var(--danger);
+}
+
+.correction-yours {
+  font-size: 18px;
+  color: var(--text-muted);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.correction-tip {
+  font-size: 18px;
+  color: var(--text-secondary);
+  background: #f5f7fa;
+  padding: 6px 18px;
+  border-radius: 8px;
+}
+
+.correction-skip {
+  font-size: 16px;
+  color: var(--text-muted);
+}
+
+/* 结果页的明细列表：限制高度可滚动 */
+.review-result-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+@media (max-width: 768px) {
+  .correction-answer {
+    font-size: 30px;
+  }
+  .correction-yours,
+  .correction-tip {
+    font-size: 16px;
+  }
 }
 
 .review-config  {

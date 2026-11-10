@@ -461,54 +461,34 @@
           </div>
         </el-tab-pane>
 
-        <!-- 单词练习页（仅单词复习类型显示） -->
+        <!-- 单词练习页（仅单词复习类型显示）：错题优先的紧凑结果 -->
         <el-tab-pane v-if="detailData.source_type === 'word'" label="单词练习" name="words">
-          <div class="word-practice">
-            <div class="detail-card">
-              <div class="card-header-green">复习统计</div>
-              <div class="card-content">
-                <div class="word-stats-summary">
-                  <el-descriptions :column="4" border size="small">
-                    <el-descriptions-item label="复习类型">{{ getReviewTypeLabel(detailData.word_review_stats?.review_type) }}</el-descriptions-item>
-                    <el-descriptions-item label="总单词数">{{ detailData.word_review_stats?.total_count || 0 }}</el-descriptions-item>
-                    <el-descriptions-item label="正确">{{ detailData.word_review_stats?.correct_count || 0 }}</el-descriptions-item>
-                    <el-descriptions-item label="用时">{{ formatDuration(detailData.word_review_stats?.duration || 0) }}</el-descriptions-item>
-                  </el-descriptions>
-                </div>
-              </div>
-            </div>
-
-            <div class="detail-card">
-              <div class="card-header-purple">单词列表</div>
-              <div class="card-content">
-                <div class="word-cards-grid">
-                  <div
-                    v-for="(q, idx) in detailData.questions"
-                    :key="q.id"
-                    :class="['word-card', q.is_correct ? 'card-correct' : 'card-wrong']"
-                  >
-                    <div class="word-card-header">
-                      <span class="word-index">{{ idx + 1 }}</span>
-                      <el-tag :type="q.is_correct ? 'success' : 'danger'" size="small">
-                        {{ q.is_correct ? '正确' : '错误' }}
-                      </el-tag>
-                    </div>
-                    <div class="word-card-body">
-                      <div class="word-main">
-                        <div class="word-english">{{ q.question_text }}</div>
-                        <div class="word-chinese">{{ q.answer }}</div>
-                      </div>
-                      <div class="word-result">
-                        <div class="result-label">实际默写</div>
-                        <div :class="['result-value', q.is_correct ? 'text-success' : 'text-danger']">
-                          {{ q.user_answer || '-' }}
-                        </div>
-                      </div>
-                    </div>
+          <div class="word-practice-v2">
+            <WordResultList :items="detailData.questions || []">
+              <template #header>
+                <!-- 摘要行：大号正确率 + 概况 + 操作按钮 -->
+                <div class="wr-summary">
+                  <div class="wr-summary-main">
+                    <span class="wr-accuracy">{{ wordAccuracy }}%</span>
+                    <span class="wr-meta">
+                      {{ wordCorrectCount }} / {{ wordTotalCount }} 正确 ·
+                      {{ getReviewTypeLabel(detailData.word_review_stats?.review_type) }} ·
+                      用时 {{ formatDuration(detailData.word_review_stats?.duration || 0) }}
+                    </span>
+                  </div>
+                  <div v-if="wordWrongIds.length" class="wr-actions">
+                    <el-button @click="printWrongWords">打印错词</el-button>
+                    <el-button type="primary" @click="retrainWrongWords">
+                      重练 {{ wordWrongIds.length }} 个错词
+                    </el-button>
                   </div>
                 </div>
-              </div>
-            </div>
+                <!-- 细比例条：正确占比 -->
+                <div class="wr-bar">
+                  <div class="wr-bar-fill" :style="{ width: wordAccuracy + '%' }"></div>
+                </div>
+              </template>
+            </WordResultList>
           </div>
         </el-tab-pane>
 
@@ -536,10 +516,15 @@ import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
 import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
+import WordResultList from '@/components/WordResultList.vue'
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
+import { wordApi } from '@/api/word'
+
+const router = useRouter()
 
 const hasMathFormula = (text = '') => ['\\(', '\\[', '$$'].some(boundary => (text || '').includes(boundary))
 
@@ -951,6 +936,36 @@ const formatDuration = (seconds) => {
 const getReviewTypeLabel = (type) => {
   const labels = { 1: '默写英文', 2: '选择中文', 3: '听力' }
   return labels[type] || '默写英文'
+}
+
+// 单词练习结果的汇总（基于逐词明细，保证与下方错题列表一致）
+const wordItems = computed(() => detailData.value?.questions || [])
+const wordTotalCount = computed(() => wordItems.value.length)
+const wordCorrectCount = computed(() => wordItems.value.filter(q => q.is_correct).length)
+const wordAccuracy = computed(() =>
+  wordTotalCount.value ? Math.round(wordCorrectCount.value / wordTotalCount.value * 100) : 0
+)
+// 写错单词的 id（用于重练与打印错词）
+const wordWrongIds = computed(() =>
+  wordItems.value.filter(q => !q.is_correct).map(q => q.question_id).filter(id => id != null)
+)
+
+// 重练错词：带着错词 id 跳到单词本的复习
+const retrainWrongWords = () => {
+  if (!wordWrongIds.value.length) return
+  router.push({ path: '/words', query: { review_ids: wordWrongIds.value.join(',') } })
+}
+
+// 打印错词：调用打印接口生成只含错词的默写试卷并打开
+const printWrongWords = async () => {
+  if (!wordWrongIds.value.length) return
+  try {
+    const { data } = await wordApi.printPdf({ word_ids: wordWrongIds.value.join(',') })
+    window.open(data.pdf_url, '_blank')
+    ElMessage.success('错词默写 PDF 已生成')
+  } catch (error) {
+    ElMessage.error('生成错词 PDF 失败')
+  }
 }
 
 const deletePracticeSet = async (ps) => {
@@ -2102,6 +2117,66 @@ onMounted(() => {
 
 }
 
+
+/* 单词练习结果：错题优先的紧凑布局 */
+.word-practice-v2 {
+  padding: 4px 2px;
+}
+
+.wr-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wr-summary-main {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.wr-accuracy {
+  font-size: 40px;
+  font-weight: var(--font-weight-bold);
+  color: var(--accent-blue);
+  line-height: 1;
+}
+
+.wr-meta {
+  color: var(--text-secondary);
+  font-size: var(--font-body);
+}
+
+.wr-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 正确/错误比例条 */
+.wr-bar {
+  margin-top: 12px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+  overflow: hidden;
+}
+
+.wr-bar-fill {
+  height: 100%;
+  background: var(--success);
+  border-radius: var(--radius-full);
+  transition: width .3s ease;
+}
+
+@media (max-width: 768px) {
+  .wr-accuracy {
+    font-size: 32px;
+  }
+}
 
 /* 单词卡片网格 */
 .word-cards-grid  {
