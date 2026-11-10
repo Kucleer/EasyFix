@@ -402,7 +402,8 @@
         <div class="question-actions">
           <el-button type="danger" @click="terminateReview">终止答题</el-button>
           <el-button v-if="currentQuestion.correct === undefined" type="primary" @click="submitAnswer">提交</el-button>
-          <el-button v-else type="success" @click="finishReview">完成</el-button>
+          <!-- 只有最后一题答完才显示“完成”；中途订正时不显示，避免带着未作答的题目提前提交 -->
+          <el-button v-else-if="currentIndex === reviewQuestions.length - 1" type="success" @click="finishReview">完成</el-button>
         </div>
       </div>
 
