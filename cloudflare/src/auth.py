@@ -77,7 +77,7 @@ async def guard(request, call_next):
         media_type=response.headers.get('content-type','application/json').split(';')[0]
         remember(key,body,media_type)
         response=Response(body,status_code=response.status_code,headers=dict(response.headers))
-    if request.method not in ('GET','HEAD','OPTIONS') and 200<=response.status_code<300 and request.url.path!='/api/stats/analysis/llm':
+    if request.method not in ('GET','HEAD','OPTIONS') and 200<=response.status_code<300 and request.url.path not in ('/api/stats/analysis/llm','/api/intake/papers/check'):
         await invalidate(request)
     response.headers['Cache-Control'] = 'private, no-store'
     return response

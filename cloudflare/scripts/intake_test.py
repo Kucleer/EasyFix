@@ -7,16 +7,19 @@
 """
 
 import asyncio
+import json
 import pathlib
 import sqlite3
 import sys
 import traceback
+import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 from fastapi import HTTPException  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 import analytics  # noqa: E402
 import intake  # noqa: E402
@@ -468,6 +471,296 @@ def test_load_error_type_names_includes_general():
     assert run(intake.load_error_type_names(db, 2)) == {'概念错误'}
 
 
+# ---------------------------------------------------------------- 任务 5：试提交与正式提交
+
+
+async def noop_math_validator(request, texts):
+    """默认的公式校验：什么都不做（真实的要调用 Cloudflare 服务绑定）。"""
+    return None
+
+
+def use_failing_math_validator(message):
+    """让公式校验抛出 422，说明文字为 message。"""
+    async def failing(request, texts):
+        raise HTTPException(422, message)
+    intake.validate_math = failing
+
+
+def with_noop_validator(function):
+    """装饰测试：运行前先把公式校验换回什么都不做的版本，避免上一个测试的设置串过来。"""
+    def wrapper():
+        intake.validate_math = noop_math_validator
+        function()
+    wrapper.__name__ = function.__name__
+    wrapper.__doc__ = function.__doc__
+    return wrapper
+
+
+def sample_payload(**overrides):
+    """返回一份合格的六年级数学卷子请求；spec_version、request_id 改顶层，其余键改 paper。"""
+    payload = {
+        'spec_version': 1,
+        'request_id': uuid.uuid4().hex[:20],
+        'paper': {'subject_id': 1, 'grade': 6, 'semester': 1, 'name': '', 'paper_type': 'homework',
+                  'images': ['2026/11/aaaaaaaa_p1.jpg', '2026/11/bbbbbbbb_p2.jpg']},
+        'questions': [
+            {'page': 1, 'question_no': '1', 'parsed_question': '计算 1/2 乘 2/3', 'answer': '1/3',
+             'analysis': '分子相乘，分母相乘', 'wrong_answer': '1/6', 'wrong_evidence': '老师打叉',
+             'difficulty': 3, 'error_type': '计算错误',
+             'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101},
+            {'page': 2, 'question_no': '2', 'parsed_question': '计算 1/2 除以 2/3', 'answer': '3/4',
+             'analysis': '除以一个数等于乘它的倒数', 'wrong_answer': '1/3', 'wrong_evidence': '老师打叉',
+             'difficulty': 3, 'error_type': '计算错误',
+             'knowledge_point_ids': [102], 'primary_knowledge_point_id': 102},
+        ],
+    }
+    for key, value in overrides.items():
+        if key in ('spec_version', 'request_id'):
+            payload[key] = value
+        else:
+            payload['paper'][key] = value
+    return payload
+
+
+def unpack(result, default_status):
+    """把接口返回值统一成 (状态码, 字典)：JSONResponse 取它的状态码并解析内容。"""
+    if isinstance(result, JSONResponse):
+        return result.status_code, json.loads(result.body)
+    return default_status, result
+
+
+def submit(db, payload):
+    """调用正式提交接口，返回 (状态码, 内容)。"""
+    return unpack(run(intake.submit_paper(fake_request(payload, db, intake))), 201)
+
+
+def check_only(db, payload):
+    """调用试提交接口，返回 (状态码, 内容)。"""
+    return unpack(run(intake.check_paper(fake_request(payload, db, intake))), 200)
+
+
+@with_noop_validator
+def test_submit_writes_paper_and_questions():
+    """正式提交写入卷子、题目和考点关联，图片路径和来源都对。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload())
+    assert status == 201 and body['approved_count'] == 2 and body['pending_count'] == 0 and body['replayed'] is False
+    paper = c.execute("SELECT name,paper_type,source,student_id,images FROM paper WHERE source='agent'").fetchone()
+    assert tuple(paper)[:4] == ('数学习题 ' + body['paper']['paper_date'], 'homework', 'agent', 1)
+    assert paper[4] == '["2026/11/aaaaaaaa_p1.jpg", "2026/11/bbbbbbbb_p2.jpg"]'
+    assert body['paper']['images'] == ['2026/11/aaaaaaaa_p1.jpg', '2026/11/bbbbbbbb_p2.jpg']
+    rows = c.execute('SELECT paper_page,original_image,original_images,review_status,grade,semester FROM question WHERE paper_id=? ORDER BY id', (body['paper']['id'],)).fetchall()
+    assert [tuple(r) for r in rows] == [
+        (1, '2026/11/aaaaaaaa_p1.jpg', '["2026/11/aaaaaaaa_p1.jpg"]', 'approved', 6, 1),
+        (2, '2026/11/bbbbbbbb_p2.jpg', '["2026/11/bbbbbbbb_p2.jpg"]', 'approved', 6, 1)]
+    sources = {r[0] for r in c.execute('SELECT source FROM question_knowledge_point WHERE question_id IN (SELECT id FROM question WHERE paper_id=?)', (body['paper']['id'],))}
+    assert sources == {'agent'}
+    # 返回的题带两级考点；旧文字字段是主考点名称
+    assert [q['knowledge_point'] for q in body['questions']] == ['分数乘法', '分数除法']
+    stored = c.execute('SELECT knowledge_point,knowledge_revision,student_id,subject_id,review_reasons,review_note FROM question WHERE paper_id=? ORDER BY id LIMIT 1', (body['paper']['id'],)).fetchone()
+    assert tuple(stored) == ('分数乘法', 0, 1, 1, '[]', '')
+
+
+@with_noop_validator
+def test_check_writes_nothing():
+    """试提交不写任何东西。"""
+    c = build_database(); db = adapter(c)
+    counts = lambda: (c.execute('SELECT COUNT(*) FROM question').fetchone()[0], c.execute('SELECT COUNT(*) FROM paper').fetchone()[0],
+                      c.execute('SELECT COUNT(*) FROM request_record').fetchone()[0])
+    before = counts()
+    status, body = check_only(db, sample_payload())
+    assert status == 200 and body['ok'] is True and body['approved_count'] == 2 and counts() == before
+    assert body['total_count'] == 2 and body['pending_count'] == 0 and body['errors'] == []
+
+
+@with_noop_validator
+def test_one_bad_question_rejects_whole_paper():
+    """一道题不合格，整份都不写入。"""
+    c = build_database(); db = adapter(c)
+    before = c.execute('SELECT COUNT(*) FROM question').fetchone()[0]
+    payload = sample_payload(); payload['questions'][1]['knowledge_point_ids'] = [999]; payload['questions'][1]['primary_knowledge_point_id'] = 999
+    status, body = submit(db, payload)
+    assert status == 422 and [e['index'] for e in body['errors']] == [1]
+    assert body['detail'] == '有 1 处需要修改'
+    assert c.execute('SELECT COUNT(*) FROM question').fetchone()[0] == before
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
+    assert c.execute('SELECT COUNT(*) FROM request_record').fetchone()[0] == 0
+
+
+@with_noop_validator
+def test_all_errors_are_reported_together():
+    """卷子和各题的错误一起报，卷子级在前，题目按序号。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload(score=120, full_score=100); payload['questions'][0]['parsed_question'] = ''
+    payload['questions'][1]['page'] = 9
+    status, body = check_only(db, payload)
+    assert body['ok'] is False and [e['index'] for e in body['errors']] == [None, 0, 1]
+    assert (body['total_count'], body['approved_count'], body['pending_count']) == (0, 0, 0)
+
+
+@with_noop_validator
+def test_knowledge_point_of_other_subject_is_rejected():
+    """别的学科的考点被拒绝。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload(); payload['questions'][0].update(knowledge_point_ids=[201], primary_knowledge_point_id=201)
+    assert submit(db, payload)[0] == 422
+
+
+@with_noop_validator
+def test_math_error_is_reported_without_index():
+    """公式校验的错误没有题号，说明照搬校验器的话。"""
+    c = build_database(); db = adapter(c)
+    use_failing_math_validator('公式边界不匹配')
+    status, body = submit(db, sample_payload())
+    assert status == 422 and body['errors'] == [{'index': None, 'detail': '公式边界不匹配'}]
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
+
+
+@with_noop_validator
+def test_pending_decisions_are_stored():
+    """待核对的原因和备注按约定格式存下来。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    payload['questions'][0].update(wrong_evidence='')
+    payload['questions'][1].update(needs_review=True, review_reasons=['text_unclear'], review_note='右下角被手挡住')
+    status, body = submit(db, payload)
+    assert status == 201 and (body['approved_count'], body['pending_count']) == (0, 2)
+    rows = c.execute('SELECT review_status,review_reasons,review_note FROM question WHERE paper_id=? ORDER BY id', (body['paper']['id'],)).fetchall()
+    assert [tuple(r) for r in rows] == [('pending', '["wrong_unclear"]', ''), ('pending', '["text_unclear"]', '右下角被手挡住')]
+
+
+@with_noop_validator
+def test_no_catalog_for_grade_keeps_questions_approved():
+    """这个年级没有考点目录时，没考点的题照样直接入库。"""
+    # Review Focus 1
+    c = build_database(); db = adapter(c)
+    payload = sample_payload(grade=7)
+    for q in payload['questions']:
+        q.update(knowledge_point_ids=[], primary_knowledge_point_id=None)
+    status, body = submit(db, payload)
+    assert status == 201 and body['pending_count'] == 0
+
+
+@with_noop_validator
+def test_same_request_id_is_not_written_twice():
+    """同一个 request_id 再交，不重复写入，原样返回第一次的结果。"""
+    # Review Focus 2
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    first = submit(db, payload); second = submit(db, payload)
+    assert first[0] == 201 and second[0] == 200 and second[1]['replayed'] is True
+    assert second[1]['paper']['id'] == first[1]['paper']['id']
+    assert [q['id'] for q in second[1]['questions']] == [q['id'] for q in first[1]['questions']]
+    assert (second[1]['total_count'], second[1]['approved_count']) == (2, 2)
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 1
+    assert c.execute('SELECT COUNT(*) FROM question WHERE paper_id=?', (first[1]['paper']['id'],)).fetchone()[0] == 2
+
+
+@with_noop_validator
+def test_replay_does_not_validate_again():
+    """重放只读不校验：即使公式校验现在会失败，也照样返回第一次的结果。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    assert submit(db, payload)[0] == 201
+    use_failing_math_validator('不应被调用')
+    status, body = submit(db, payload)
+    assert status == 200 and body['replayed'] is True
+
+
+@with_noop_validator
+def test_racing_duplicate_request_record_is_a_replay():
+    """两次相同提交撞车：记录已被别人写入时，本次按重放处理而不是 500。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    first = submit(db, payload)
+    # 模拟"查记录时还没有、写入时已经有了"：隐藏记录一次再恢复，让提交走到写入这一步
+    real_first = db.first
+    state = {'hidden': True}
+
+    async def blind_first(sql, parameters=()):
+        if state['hidden'] and 'FROM request_record' in sql:
+            state['hidden'] = False
+            return None
+        return await real_first(sql, parameters)
+    db.first = blind_first
+    status, body = submit(db, payload)
+    assert status == 200 and body['replayed'] is True and body['paper']['id'] == first[1]['paper']['id']
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 1
+
+
+@with_noop_validator
+def test_spec_version_mismatch_and_request_id_rules():
+    """版本不一致返回 409；request_id 不合规返回 422。"""
+    c = build_database(); db = adapter(c)
+    status, body = submit(db, sample_payload(spec_version=2))
+    assert status == 409 and body['spec_version'] == 1 and '录入规范' in body['detail']
+    assert check_only(db, sample_payload(spec_version=2))[0] == 409
+    for bad_id in ['x', 'a' * 65, 'abcdefgh_1', None]:
+        bad = sample_payload(); bad['request_id'] = bad_id
+        assert submit(db, bad)[0] == 422, bad_id
+    # 试提交不要求 request_id
+    no_id = sample_payload(); del no_id['request_id']
+    assert check_only(db, no_id)[0] == 200
+
+
+@with_noop_validator
+def test_paper_without_images_and_backslashes_survive():
+    """没有照片的卷子题目图片为空；题干里的反斜杠原样保存。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload(images=[])
+    for q in payload['questions']:
+        q['page'] = None
+    payload['questions'][0]['parsed_question'] = r'计算：\(\frac{1}{2}\times\frac{2}{3}\)'
+    status, body = submit(db, payload)
+    assert status == 201
+    row = c.execute('SELECT parsed_question,original_image,original_images FROM question WHERE paper_id=? ORDER BY id LIMIT 1', (body['paper']['id'],)).fetchone()
+    assert tuple(row) == (r'计算：\(\frac{1}{2}\times\frac{2}{3}\)', None, None)
+    assert c.execute('SELECT images FROM paper WHERE id=?', (body['paper']['id'],)).fetchone()[0] == '[]'
+
+
+@with_noop_validator
+def test_question_count_limits():
+    """题目数量必须是 1 到 100。"""
+    c = build_database(); db = adapter(c)
+    empty = sample_payload(); empty['questions'] = []
+    assert submit(db, empty)[0] == 422
+    many = sample_payload(); many['questions'] = [dict(many['questions'][0]) for _ in range(101)]
+    assert submit(db, many)[0] == 422
+
+
+@with_noop_validator
+def test_malformed_paper_and_question_items_are_reported():
+    """paper 不是对象、题目项不是对象、错因不在清单里，都按错误报告而不是崩溃。"""
+    c = build_database(); db = adapter(c)
+    bad_paper = sample_payload(); bad_paper['paper'] = 'x'
+    status, body = check_only(db, bad_paper)
+    assert body['ok'] is False and body['errors'][0]['index'] is None
+    unknown_subject = sample_payload(subject_id=99)
+    assert check_only(db, unknown_subject)[1]['errors'][0]['index'] is None
+    payload = sample_payload(); payload['questions'][0] = 'not a dict'
+    payload['questions'][1]['error_type'] = '粗心'
+    status, body = submit(db, payload)
+    assert status == 422 and [e['index'] for e in body['errors']] == [0, 1]
+    assert '格式不对' in body['errors'][0]['detail'] and '错因' in body['errors'][1]['detail']
+
+
+@with_noop_validator
+def test_math_validator_called_once_and_only_for_math():
+    """整份卷子只调用一次公式校验；非数学学科不调用。"""
+    c = build_database(); db = adapter(c)
+    calls = []
+
+    async def counting(request, texts):
+        calls.append(texts)
+    intake.validate_math = counting
+    assert check_only(db, sample_payload())[1]['ok'] is True
+    assert len(calls) == 1 and '计算 1/2 乘 2/3' in calls[0]
+    english = sample_payload(subject_id=2)
+    for q in english['questions']:
+        q.update(knowledge_point_ids=[201], primary_knowledge_point_id=201, error_type='概念错误')
+    assert check_only(db, english)[1]['ok'] is True and len(calls) == 1
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -496,6 +789,22 @@ TESTS = [
     test_guide_rejects_out_of_range_grade_and_semester,
     test_load_catalog_filters_and_skips_deleted,
     test_load_error_type_names_includes_general,
+    test_submit_writes_paper_and_questions,
+    test_check_writes_nothing,
+    test_one_bad_question_rejects_whole_paper,
+    test_all_errors_are_reported_together,
+    test_knowledge_point_of_other_subject_is_rejected,
+    test_math_error_is_reported_without_index,
+    test_pending_decisions_are_stored,
+    test_no_catalog_for_grade_keeps_questions_approved,
+    test_same_request_id_is_not_written_twice,
+    test_replay_does_not_validate_again,
+    test_racing_duplicate_request_record_is_a_replay,
+    test_spec_version_mismatch_and_request_id_rules,
+    test_paper_without_images_and_backslashes_survive,
+    test_question_count_limits,
+    test_malformed_paper_and_question_items_are_reported,
+    test_math_validator_called_once_and_only_for_math,
 ]
 
 
