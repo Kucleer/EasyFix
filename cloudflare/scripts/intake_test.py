@@ -1119,6 +1119,38 @@ def test_parent_reply_not_checked_on_replay():
     assert status == 200 and body['replayed'] is True
 
 
+def test_lost_matrix_row_break_is_reported():
+    """矩阵、多行公式里只写了一个反斜杠的换行要报错；两个反斜杠和环境之外的不管。"""
+    good = r'\(\begin{vmatrix} a & b \\ c & d \end{vmatrix}\)'
+    assert find_broken_backslash(good) is None
+    bad = r'\(\begin{vmatrix} a & b \ c & d \end{vmatrix}\)'
+    assert '换行' in find_broken_backslash(bad)
+    assert find_broken_backslash(r'\[\begin{cases} x=1 \ y=2 \end{cases}\]') is not None
+    assert find_broken_backslash(r'\[\begin{aligned} a&=b \\ c&=d \end{aligned}\]') is None
+    assert find_broken_backslash(r'这里的反斜杠\ 不在矩阵里') is None          # 环境之外不管
+    # 换行符之前、环境结尾之前的单个反斜杠也算
+    assert find_broken_backslash('\\(\\begin{pmatrix} a \\\n b \\end{pmatrix}\\)') is not None
+    assert find_broken_backslash(r'\(\begin{pmatrix} a \\ b \\\end{pmatrix}\)') is None
+    assert find_broken_backslash(r'\(\begin{pmatrix} a \\ b \end{pmatrix}\)') is None
+    expect_intake_error('换行', lambda: normalize_question({'parsed_question': bad}, 0, None))
+    assert find_broken_backslash(bad) == '矩阵或多行公式里的换行没有写对：换行要写成两个反斜杠 \\\\（手写 JSON 时是四个）。请改好后重新提交。'
+
+
+@with_noop_validator
+def test_submit_rejects_lost_matrix_row_break():
+    """第 1 题的题干丢了矩阵换行：整份不写入，错误在 index 0，说明里有"题干"和"换行"。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    payload['questions'][0]['parsed_question'] = r'\(\begin{vmatrix} a & b \ c & d \end{vmatrix}\)'
+    total = c.execute('SELECT COUNT(*) FROM question').fetchone()[0]
+    status, body = submit(db, payload)
+    assert status == 422 and [e['index'] for e in body['errors']] == [0]
+    assert '题干' in body['errors'][0]['detail'] and '换行' in body['errors'][0]['detail']
+    assert check_only(db, payload)[1]['ok'] is False
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
+    assert c.execute('SELECT COUNT(*) FROM question').fetchone()[0] == total
+
+
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -1185,6 +1217,8 @@ TESTS = [
     test_default_grade_decides_catalog,
     test_parent_reply_is_required,
     test_parent_reply_not_checked_on_replay,
+    test_lost_matrix_row_break_is_reported,
+    test_submit_rejects_lost_matrix_row_break,
 ]
 
 

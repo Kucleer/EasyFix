@@ -34,6 +34,16 @@ BROKEN_BACKSLASH_TEXT = ('公式里的反斜杠没有写对：JSON 里每个反�
 # 公式的三种写法：\( \)、\[ \]、$$ $$；用最短匹配，每个公式单独取出
 MATH_SPAN_PATTERN = re.compile(r'\\\(.*?\\\)|\\\[.*?\\\]|\$\$.*?\$\$', re.DOTALL)
 
+LOST_ROW_BREAK_TEXT = ('矩阵或多行公式里的换行没有写对：换行要写成两个反斜杠 \\\\（手写 JSON 时是四个）。'
+                       '请改好后重新提交。')
+# 矩阵和多行公式环境：环境里的换行必须是两个反斜杠
+MATRIX_ENVIRONMENTS = ('matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vmatrix', 'smallmatrix', 'array',
+                       'cases', 'aligned', 'align', 'align*', 'gathered', 'split')
+MATRIX_PATTERN = re.compile(r'\\begin\{(' + '|'.join(re.escape(name) for name in MATRIX_ENVIRONMENTS)
+                            + r')\}(.*?)\\end\{\1\}', re.DOTALL)
+# 单个反斜杠（前后都不是反斜杠），后面是空白或环境结尾：丢了一个反斜杠的换行
+LOST_ROW_BREAK_PATTERN = re.compile(r'(?<!\\)\\(?!\\)(?=\s|$)')
+
 
 class IntakeError(ValueError):
     """校验失败；detail 是给人看的中文说明。"""
@@ -75,6 +85,10 @@ def find_broken_backslash(text):
     for span in MATH_SPAN_PATTERN.finditer(text):
         if '\n' in span.group():
             return BROKEN_BACKSLASH_TEXT
+    # 矩阵、多行公式里丢了一个反斜杠的换行（两个反斜杠只写成了一个）
+    for environment in MATRIX_PATTERN.finditer(text):
+        if LOST_ROW_BREAK_PATTERN.search(environment.group(2)):
+            return LOST_ROW_BREAK_TEXT
     return None
 
 
