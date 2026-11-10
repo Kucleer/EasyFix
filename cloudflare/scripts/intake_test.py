@@ -1127,7 +1127,8 @@ def test_lost_matrix_row_break_is_reported():
     assert '换行' in find_broken_backslash(bad)
     assert find_broken_backslash(r'\[\begin{cases} x=1 \ y=2 \end{cases}\]') is not None
     assert find_broken_backslash(r'\[\begin{aligned} a&=b \\ c&=d \end{aligned}\]') is None
-    assert find_broken_backslash(r'这里的反斜杠\ 不在矩阵里') is None          # 环境之外不管
+    # 环境之外不按矩阵规则管；但公式外面的反斜杠现在整体不允许（任务 5d）
+    assert '公式外面' in find_broken_backslash(r'这里的反斜杠\ 不在矩阵里')
     # 换行符之前、环境结尾之前的单个反斜杠也算
     assert find_broken_backslash('\\(\\begin{pmatrix} a \\\n b \\end{pmatrix}\\)') is not None
     assert find_broken_backslash(r'\(\begin{pmatrix} a \\ b \\\end{pmatrix}\)') is None
@@ -1146,6 +1147,40 @@ def test_submit_rejects_lost_matrix_row_break():
     status, body = submit(db, payload)
     assert status == 422 and [e['index'] for e in body['errors']] == [0]
     assert '题干' in body['errors'][0]['detail'] and '换行' in body['errors'][0]['detail']
+    assert check_only(db, payload)[1]['ok'] is False
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
+    assert c.execute('SELECT COUNT(*) FROM question').fetchone()[0] == total
+
+
+def test_compact_lost_row_break_is_reported():
+    """紧挨着字母、负号、数字的单个反斜杠也是丢了的换行；正常命令和转义不报。"""
+    for body in ['a&b\\c&d', '-1&3\\-2&5', 'x&\\frac{1}{2}-x\\1&2', 'a&b\\+c&d']:
+        bad = '\\(\\begin{vmatrix}' + body + '\\end{vmatrix}\\)'
+        assert '换行' in find_broken_backslash(bad), body
+    for body in ['a&b\\\\c&d', 'a&\\frac{1}{2}\\\\c&d', 'a\\,b&c\\\\d&e', 'a\\cdot b&c\\\\d&e', '\\{a\\}&b\\\\c&d']:
+        good = '\\(\\begin{vmatrix}' + body + '\\end{vmatrix}\\)'
+        assert find_broken_backslash(good) is None, body
+
+
+def test_backslash_outside_math_is_reported():
+    """去掉公式后还剩反斜杠就是错的；公式边界里的正常写法不受影响。"""
+    assert '公式外面' in find_broken_backslash('下列结论正确的是（ ）\\N(A) 1；(B) 2')
+    assert '公式外面' in find_broken_backslash('计算 \\frac{1}{2} 的值')            # 忘了写公式边界
+    assert '公式外面' in find_broken_backslash('价格是 $\\frac{1}{2}$ 元')          # 单个美元符号不算公式边界
+    assert find_broken_backslash('计算 \\(\\frac{1}{2}\\) 的值\n第二行') is None
+    assert find_broken_backslash('\\[x^{2}\\] 和 $$y$$ 都可以') is None
+    expect_intake_error('公式外面', lambda: normalize_question({'parsed_question': '结论是（ ）\\N(A) 1'}, 0, None))
+    assert find_broken_backslash('结论\\N') == '公式要写在 \\( \\) 或 \\[ \\] 里面，公式外面不能出现反斜杠（文字换行就直接换行，不要写成 \\n 两个字符）。请改好后重新提交。'
+
+
+@with_noop_validator
+def test_submit_rejects_backslash_outside_math():
+    """题干在公式外面有反斜杠：试提交和正式提交都拒绝，什么都不写入。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload(); payload['questions'][0]['parsed_question'] = '结论是（ ）\\N(A) 1'
+    total = c.execute('SELECT COUNT(*) FROM question').fetchone()[0]
+    status, body = submit(db, payload)
+    assert status == 422 and [e['index'] for e in body['errors']] == [0] and '公式外面' in body['errors'][0]['detail']
     assert check_only(db, payload)[1]['ok'] is False
     assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 0
     assert c.execute('SELECT COUNT(*) FROM question').fetchone()[0] == total
@@ -1219,6 +1254,9 @@ TESTS = [
     test_parent_reply_not_checked_on_replay,
     test_lost_matrix_row_break_is_reported,
     test_submit_rejects_lost_matrix_row_break,
+    test_compact_lost_row_break_is_reported,
+    test_backslash_outside_math_is_reported,
+    test_submit_rejects_backslash_outside_math,
 ]
 
 

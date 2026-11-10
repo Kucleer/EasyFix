@@ -41,8 +41,11 @@ MATRIX_ENVIRONMENTS = ('matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vm
                        'cases', 'aligned', 'align', 'align*', 'gathered', 'split')
 MATRIX_PATTERN = re.compile(r'\\begin\{(' + '|'.join(re.escape(name) for name in MATRIX_ENVIRONMENTS)
                             + r')\}(.*?)\\end\{\1\}', re.DOTALL)
-# 单个反斜杠（前后都不是反斜杠），后面是空白或环境结尾：丢了一个反斜杠的换行
-LOST_ROW_BREAK_PATTERN = re.compile(r'(?<!\\)\\(?!\\)(?=\s|$)')
+# 单个反斜杠（前后都不是反斜杠），后面是空白、环境结尾、数字、正负号，或恰好一个字母：丢了一个反斜杠的换行。
+# 后面是两个以上字母的是正常命令（\frac、\cdot），是 , ; { } 等符号的是正常转义，都不算
+LOST_ROW_BREAK_PATTERN = re.compile(r'(?<!\\)\\(?!\\)(?=\s|$|[0-9+\-]|[A-Za-z](?![A-Za-z]))')
+OUTSIDE_BACKSLASH_TEXT = ('公式要写在 \\( \\) 或 \\[ \\] 里面，公式外面不能出现反斜杠'
+                          '（文字换行就直接换行，不要写成 \\n 两个字符）。请改好后重新提交。')
 
 
 class IntakeError(ValueError):
@@ -89,6 +92,9 @@ def find_broken_backslash(text):
     for environment in MATRIX_PATTERN.finditer(text):
         if LOST_ROW_BREAK_PATTERN.search(environment.group(2)):
             return LOST_ROW_BREAK_TEXT
+    # 去掉所有公式后还剩反斜杠：公式没写边界，或把换行写成了 \n 两个字符
+    if '\\' in MATH_SPAN_PATTERN.sub('', text):
+        return OUTSIDE_BACKSLASH_TEXT
     return None
 
 
