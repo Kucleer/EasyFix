@@ -173,6 +173,57 @@ def test_migration_builds_history_papers():
     assert row[3] == c.execute('SELECT MIN(date(created_at)) FROM question WHERE subject_id=1 AND grade=6 AND semester=1').fetchone()[0]
 
 
+def insert_legacy_question(connection, question_id, subject_id, grade, semester, deleted):
+    """在迁移前的旧库里补一道旧题（测试回填用）。"""
+    connection.execute(
+        'INSERT INTO question(id,subject_id,grade,semester,original_text,parsed_question,'
+        'review_count,correct_count,error_count,deleted,created_at,updated_at) VALUES(?,?,?,?,?,?,0,0,0,?,?,?)',
+        (question_id, subject_id, grade, semester, '旧题%d' % question_id, '旧题%d' % question_id, deleted,
+         '2026-01-05 10:00:00', '2026-01-05 10:00:00'))
+
+
+def test_migration_marks_all_deleted_group_paper_as_deleted():
+    """一组旧题全部已软删除时，历史卷子也是已删除的：题目仍指向它，卷子列表里看不到。"""
+    c = build_legacy_database()
+    insert_legacy_question(c, 10, 2, 5, 1, 1)
+    insert_legacy_question(c, 11, 2, 5, 1, 1)
+    apply_migration(c)
+    db = adapter(c)
+    paper = c.execute("SELECT id,deleted FROM paper WHERE source='history' AND subject_id=2 AND grade=5").fetchone()
+    assert paper['deleted'] == 1
+    assert {r[0] for r in c.execute('SELECT paper_id FROM question WHERE id IN (10,11)')} == {paper['id']}
+    # 同组里有未删除的题时，卷子不是已删除的
+    assert c.execute("SELECT deleted FROM paper WHERE name='六年级上 数学 历史作业'").fetchone()[0] == 0
+    listed = run(call_paper_listing(db, limit=100))
+    assert paper['id'] not in [item['id'] for item in listed['items']]
+    assert listed['total'] == len(listed['items']) == 4
+
+
+def test_migration_history_names_differ_by_semester_when_grade_missing():
+    """年级为空、学期不同的两组旧题，历史卷子名字不同。"""
+    c = build_legacy_database()
+    insert_legacy_question(c, 10, 2, None, 1, 0)
+    insert_legacy_question(c, 11, 2, None, None, 0)
+    apply_migration(c)
+    names = [r[0] for r in c.execute("SELECT name FROM paper WHERE source='history' AND subject_id=2 AND grade IS NULL")]
+    assert sorted(names) == ['英语 历史作业（年级未填）', '英语 历史作业（年级未填，上学期）']
+
+
+def test_migration_backfill_can_run_twice():
+    """第 5 步的 INSERT 和 UPDATE 重跑一遍：历史卷子条数不变，题目的 paper_id 不变。"""
+    c = build_legacy_database()
+    insert_legacy_question(c, 10, 2, 5, 1, 1)
+    insert_legacy_question(c, 11, 2, None, 1, 0)
+    apply_migration(c)
+    papers_before = c.execute('SELECT id,name,deleted FROM paper ORDER BY id').fetchall()
+    links_before = c.execute('SELECT id,paper_id FROM question ORDER BY id').fetchall()
+    text = MIGRATION_FILE.read_text(encoding='utf-8')
+    step = text[text.index('-- 5.'):text.index('-- 6.')]
+    c.executescript(step)
+    assert [tuple(r) for r in c.execute('SELECT id,name,deleted FROM paper ORDER BY id')] == [tuple(r) for r in papers_before]
+    assert [tuple(r) for r in c.execute('SELECT id,paper_id FROM question ORDER BY id')] == [tuple(r) for r in links_before]
+
+
 def test_old_insert_without_new_columns_still_works():
     """不写新列的旧式插入仍然成功，并取到默认值。"""
     c = build_database()
@@ -1190,6 +1241,9 @@ TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
     test_migration_builds_history_papers,
+    test_migration_marks_all_deleted_group_paper_as_deleted,
+    test_migration_history_names_differ_by_semester_when_grade_missing,
+    test_migration_backfill_can_run_twice,
     test_old_insert_without_new_columns_still_works,
     test_student_id_added_to_all_listed_tables,
     test_paper_defaults,

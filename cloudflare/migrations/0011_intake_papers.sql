@@ -74,10 +74,14 @@ ALTER TABLE question ADD COLUMN review_note TEXT;
 ALTER TABLE question ADD COLUMN reviewed_at TEXT;
 
 -- 5. 回填旧题（含已软删除的行）：按 学科+年级+学期 各建一条“历史作业”卷子，再把旧题指过去
+--    a) 组内题目全部已软删除时，这条历史卷子也标为已删除（MIN(deleted)=1），列表里不会出现
+--    b) 年级为空的分组，名字里带上学期（上学期/下学期），避免出现两条同名卷子
+--    c) 加了 NOT EXISTS 判断，这一步重复执行不会多建卷子，题目的 paper_id 也不会变
 INSERT INTO paper(student_id,subject_id,name,paper_type,paper_date,grade,semester,images,source,deleted,created_at,updated_at)
 SELECT 1, g.subject_id,
        -- 无年级归“年级未填”；有年级时拼“年级+学期+学科”，学期不是 1/2 时不带学期
-       CASE WHEN g.grade IS NULL THEN g.subject_name || ' 历史作业（年级未填）'
+       CASE WHEN g.grade IS NULL THEN g.subject_name || ' 历史作业（年级未填'
+                 || CASE g.semester WHEN 1 THEN '，上学期' WHEN 2 THEN '，下学期' ELSE '' END || '）'
             ELSE CASE g.grade WHEN 1 THEN '一' WHEN 2 THEN '二' WHEN 3 THEN '三' WHEN 4 THEN '四'
                               WHEN 5 THEN '五' WHEN 6 THEN '六' WHEN 7 THEN '七' WHEN 8 THEN '八'
                               WHEN 9 THEN '九' WHEN 10 THEN '十' WHEN 11 THEN '十一' WHEN 12 THEN '十二'
@@ -88,12 +92,15 @@ SELECT 1, g.subject_id,
        'homework',
        -- 日期取组内最早录入日期，全为空时取执行当天
        COALESCE(g.first_date, date('now')),
-       g.grade, g.semester, '[]', 'history', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+       g.grade, g.semester, '[]', 'history', g.all_deleted, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
   FROM (SELECT q.subject_id AS subject_id, q.grade AS grade, q.semester AS semester,
                MIN(date(q.created_at)) AS first_date,
+               MIN(q.deleted) AS all_deleted,
                COALESCE((SELECT s.name FROM subject s WHERE s.id=q.subject_id), '未知学科') AS subject_name
           FROM question q
-         GROUP BY q.subject_id, q.grade, q.semester) g;
+         GROUP BY q.subject_id, q.grade, q.semester) g
+ WHERE NOT EXISTS (SELECT 1 FROM paper p WHERE p.source='history' AND p.subject_id=g.subject_id
+                      AND p.grade IS g.grade AND p.semester IS g.semester);
 -- 年级、学期可能为空，比较用 IS 才能让空值对得上
 UPDATE question SET paper_id=(
   SELECT p.id FROM paper p
