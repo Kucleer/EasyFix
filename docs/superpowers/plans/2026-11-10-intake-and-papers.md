@@ -1396,15 +1396,26 @@ Expected: 全部通过。然后按 superpowers:requesting-code-review 对整个�
 
 - [ ] **Step 2: 备份并演练迁移**（需用户同意）
 
-重新导出一份正式库完整备份（Task 0 的那份可能已经过时），记下 SHA-256。在备份的本地副本上执行 `0011`，核对：`question` 总行数、未删除行数与执行前一致；`review_status` 全部为 `approved`；每道题都有 `paper_id`；`source='history'` 的卷子记录数等于旧题里不同的"学科 + 年级 + 学期"组合数；5.2 列出的 17 张表都有 `student_id` 且全为 1；其余各表行数不变。把核对结果给用户看。
+重新导出一份正式库完整备份（Task 0 的那份可能已经过时），记下 SHA-256。在备份的本地副本上按下面的顺序演练（整体审阅 2026-11-11 给出的清单），把核对结果给用户看：
+
+1. 副本的表结构（`sqlite_master`）与 `cloudflare/scripts/d1_schema_before_0011.sql` 逐项比对。有任何差别就停下来，不发布。
+2. 记下执行前的数字：`question` 总行数和未删除行数、每张表的行数、`question` 旧有列的校验值（至少 `id`、`updated_at`、`knowledge_revision`）。
+3. 按"学科 + 年级 + 学期"分组看旧题：有没有全部已删除的组、年级为空且学期不止一种的组、年级不在 1–12 或学期不在 1–2 的组、学科已被删除的题。
+4. 在一份副本上整份执行 `0011`，在另一份副本上逐条执行，两份结果必须一致。
+5. 执行后核对：题目总数、未删除数和旧有列的校验值都没变；`review_status` 全部为 `approved`；没有 `paper_id` 为空的题；`source='history'` 的卷子数等于第 3 步的组数，其中全是已删除题的组对应的卷子 `deleted=1`；题目和它的历史卷子在学科、年级、学期上完全一致（不一致的条数为 0）；5.2 列出的 17 张表都有 `student_id` 且全为 1；其余各表行数不变；`PRAGMA foreign_key_check` 和 `integrity_check` 干净；三个索引都在。
+6. 把 `0011` 再整份执行一次，确认它在第一条语句就停下（表已存在），数据没有任何变化。
+7. 记下题目最多的那份历史卷子有多少道题。
+8. 记下迁移前 `/api/stats/summary` 和 `/api/stats/analysis/full` 的返回，新后端部署后再取一次，必须完全相同（旧题全部是 approved）。
 
 - [ ] **Step 3: 在正式库执行迁移**（需用户同意）
 
-按 `docs/cloudflare-migration-status.md` 的迁移命令执行 `0011`。执行后在正式库上重复 Step 2 的核对项，与演练结果逐项比对。不一致时停下来报告，不继续部署。
+执行前：打开维护开关 `write_maintenance`（做法见 `docs/cloudflare-migration-status.md` 的"备份与恢复"），记下 Time Travel 书签，保留 Step 2 的导出文件。然后按该文档的迁移命令执行 `0011`，在正式库上重复 Step 2 第 5 项的核对，与演练结果逐项比对。核对通过后关闭维护开关，并确认旧版页面还能正常用（打开首页、改一道题、手工加一道题），再进入 Step 4。顺序固定为：迁移 → 后端 → 前端。
+
+**迁移中途失败时**：不要重新执行整个文件（建表和加列的语句不能重复执行，会在第一条就报错）。先查清楚停在哪里：三张新表是否存在、`PRAGMA table_info(question)`、`SELECT COUNT(*) FROM paper WHERE source='history'`、`SELECT COUNT(*) FROM question WHERE paper_id IS NULL`。首选做法是用 Time Travel 恢复到执行前的书签（维护开关开着，不会丢写入），修好问题后整份重跑。只有恢复不可用时，才把"失败的那一条及之后的语句"单独做成一个文件执行；回填旧题的两条语句可以重复执行，不会建出重复的历史卷子。任何不一致都停下来报告，不继续部署。
 
 - [ ] **Step 4: 部署后端，再部署前端**（各需用户同意）
 
-按 `docs/cloudflare-migration-status.md` 的日常部署命令。部署后核对：`/health` 正常；登录后首页、错题页、统计页能打开且数字与部署前一致；`GET /api/intake/guide?subject=数学` 返回六年级的考点清单；待核对页显示"都处理完了"；卷子页能看到历史记录，题目数加起来等于旧题数。
+按 `docs/cloudflare-migration-status.md` 的日常部署命令。部署后核对：`/health` 正常；登录后首页、错题页、统计页能打开且数字与部署前一致；`GET /api/intake/guide?subject=数学` 返回六年级的考点清单；待核对页显示"都处理完了"；卷子页能看到历史记录，题目数加起来等于未删除的旧题数；打开题目最多的那份历史记录，先显示 50 道，"加载更多"能一直加载到底。
 
 - [ ] **Step 5: 安装录入规范并配置口令**（需用户同意）
 
