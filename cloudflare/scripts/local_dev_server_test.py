@@ -70,14 +70,14 @@ def question_items(client, paper_id):
 
 
 def test_guide_math():
-    """数学 guide：9 个模块 38 个考点，四个数学错因，六年级。"""
+    """数学 guide：9 个模块 42 个考点，四个数学错因，六年级。"""
     client, _ = make_client()
     response = client.get('/api/intake/guide', params={'subject': '数学'})
     assert response.status_code == 200, response.text
     body = response.json()
     assert body['catalog_available'] is True
     assert len(body['knowledge_modules']) == 9, len(body['knowledge_modules'])
-    assert count_points(body) == 38, count_points(body)
+    assert count_points(body) == 42, count_points(body)
     assert sorted(body['error_types']) == sorted(['计算错误', '审题不清', '概念错误', '完全不会']), body['error_types']
     assert body['grade'] == 6
 

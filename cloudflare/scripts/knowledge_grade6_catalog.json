@@ -296,6 +296,36 @@
       "definition": "代入给定的正负数，利用幂及和式求值。"
     },
     {
+      "code": "M6-ALG-03",
+      "name": "用字母表示数与列代数式",
+      "subject": "数学",
+      "parent_code": "M6-ALG",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 301,
+      "definition": "用含字母的式子表示路程、单价、折扣、连续数等数量关系。"
+    },
+    {
+      "code": "M6-ALG-04",
+      "name": "代数式的书写规范",
+      "subject": "数学",
+      "parent_code": "M6-ALG",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 302,
+      "definition": "数字写在字母前、省略乘号、除法写成分数、和差加括号后再写单位。"
+    },
+    {
+      "code": "M6-ALG-05",
+      "name": "代数式的意义",
+      "subject": "数学",
+      "parent_code": "M6-ALG",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 303,
+      "definition": "用语言叙述代数式表示的数量关系，或判断叙述与代数式是否相符。"
+    },
+    {
       "code": "M6-EQU-01",
       "name": "解一元一次方程",
       "subject": "数学",
@@ -424,6 +454,16 @@
       "grade": 6,
       "sort_order": 430,
       "definition": "理解重复对折带来的二倍关系及分数份额。"
+    },
+    {
+      "code": "M6-PAT-05",
+      "name": "图形与数字排列规律",
+      "subject": "数学",
+      "parent_code": "M6-PAT",
+      "level": 2,
+      "grade": 6,
+      "sort_order": 431,
+      "definition": "观察图形或数列的变化规律，并用含 n 的式子表示。"
     },
     {
       "code": "M6-LIN-01",
