@@ -12,6 +12,11 @@ const routes = [
     component: () => import('@/views/Questions.vue'),
   },
   {
+    path: '/review',
+    name: 'ReviewQueue',
+    component: () => import('@/views/ReviewQueue.vue'),
+  },
+  {
     path: '/upload',
     name: 'Upload',
     component: () => import('@/views/Upload.vue'),
