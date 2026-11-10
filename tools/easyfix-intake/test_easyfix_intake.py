@@ -359,6 +359,8 @@ class InstallTest(unittest.TestCase):
         self.assertIn("这是哪份作业或卷子？如果是考试，多少分？可以回'跳过'。", skill)
         self.assertIn('https://easyfix-bl2.pages.dev/review', skill)
         fmt = (SOURCE_DIR / 'payload-format.md').read_text(encoding='utf-8')
+        # 必填的顶层字段：家长的回答
+        self.assertIn('parent_reply', fmt)
         # 四个待核对原因代码
         for code in ('wrong_unclear', 'text_unclear', 'kp_unsure', 'other'):
             self.assertIn(code, fmt)
