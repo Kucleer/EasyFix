@@ -16,7 +16,11 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 from phrase_focus import (  # noqa: E402
+    build_cells,
     entry_type_of,
+    focus_indices,
+    next_level,
+    next_phase,
     normalize_english,
     spec_active,
     split_tokens,
@@ -136,10 +140,95 @@ def test_spec_active():
     assert not spec_active({'english': 'be good at', 'focus_status': 'draft', 'focus_spec': None})
 
 
+# ---------------------------------------------------------------- 任务 2
+
+
+def cloze(spec, stored, requested=None, mastered=(), recent=()):
+    """把格子渲染成设计文档第 7 节的显示形式，便于断言。"""
+    focus = focus_indices(spec, set(mastered), list(recent))
+    tokens, level = build_cells(spec, stored, requested, focus)
+    parts = []
+    for token in tokens:
+        if token['blank']:
+            # 空出的词：先显示提示（如有），其余字符用下划线
+            hint = token['hint'] or ''
+            parts.append(hint + '_' * (len(token['text']) - len(hint)))
+        else:
+            parts.append(token['text'])
+    return ' '.join(parts), level
+
+
+def test_spec_examples():
+    """设计文档中的档位 1 示例。"""
+    assert cloze(SPEC_GOOD_AT, 1) == ('be good __', 1)
+    assert cloze(SPEC_PROUD_OF, 1) == ('be _____ __', 1)
+    assert cloze(SPEC_PROUD_OF, 1, mastered={'proud'}) == ('be proud __', 1)
+    assert cloze(SPEC_LOOK_FORWARD, 1) == ('look _______ __ doing sth.', 1)
+    assert cloze(SPEC_TAKE_PART_IN, 1) == ('take part __', 1)
+    assert cloze(SPEC_HELP_WITH, 1) == ('help sb. ____ sth.', 1)
+
+
+def test_levels_two_and_three():
+    """档位 2 给首字母提示，档位 3 全空（占位符除外）。"""
+    assert cloze(SPEC_HELP_WITH, 2) == ('h___ sb. w___ sth.', 2)
+    assert cloze(SPEC_HELP_WITH, 3) == ('____ sb. ____ sth.', 3)
+    assert cloze(SPEC_HELP_WITH, 1, requested=3) == ('____ sb. ____ sth.', 3)  # 手动选档
+    assert cloze(SPEC_A_LOT_OF, 2) == ('a l__ o_', 2)  # 单字母 token 在档位 2 不空
+
+
+def test_empty_focus_falls_back_to_full():
+    """无搭配词且实义词全已掌握时，本次按档位 3。"""
+    assert cloze(SPEC_ALL_CONTENT, 1, mastered={'make', 'friend'}) == ('____ _______', 3)
+
+
+def test_error_driven_focus():
+    """最近错误次数达到阈值的词加入重点，占位符除外。"""
+    wrong_good = [{'i': 1, 'ok': False}, {'i': 2, 'ok': True}]
+    assert focus_indices(SPEC_GOOD_AT, set(), [wrong_good]) == [2]  # 错 1 次不够
+    assert focus_indices(SPEC_GOOD_AT, set(), [wrong_good, wrong_good]) == [1, 2]
+    wrong_sb = [{'i': 1, 'ok': False}]
+    assert focus_indices(SPEC_HELP_WITH, set(), [wrong_sb, wrong_sb]) == [2]  # 占位符不会被加入
+
+
+def test_next_level():
+    """档位只在已标注的默写题中升降。"""
+    assert next_level(1, True, 1, True) == 2
+    assert next_level(3, True, 1, True) == 3
+    assert next_level(2, False, 1, True) == 1
+    assert next_level(1, False, 1, True) == 1
+    assert next_level(2, True, 2, True) == 2  # 选择题不改档位
+    assert next_level(2, True, 3, True) == 2  # 听力不改档位
+    assert next_level(1, True, 1, False) == 1  # 未标注不改
+
+
+def test_next_phase():
+    """“牢记”阶段规则。"""
+    args = dict(consecutive=3, interval=8, was_due=False)
+    # 未标注或单词：与旧公式一致
+    assert next_phase('在途', True, annotated=False, review_type=2, level=3, **args) == '牢记'
+    assert next_phase('牢记', True, consecutive=1, interval=8, was_due=True, annotated=False, review_type=1, level=3) == '遗忘点'
+    assert next_phase('牢记', False, annotated=False, review_type=1, level=3, **args) == '在途'
+    # 已标注：只在档位 3 的默写授予
+    assert next_phase('在途', True, annotated=True, review_type=1, level=3, **args) == '牢记'
+    assert next_phase('在途', True, annotated=True, review_type=1, level=1, **args) == '在途'
+    assert next_phase('在途', True, annotated=True, review_type=2, level=3, **args) == '在途'
+    assert next_phase('在途', True, annotated=True, review_type=3, level=3, **args) == '在途'
+    assert next_phase('在途', True, consecutive=3, interval=8, was_due=True, annotated=True, review_type=1, level=1) == '遗忘点'
+    # 已标注且已是牢记：答对即保持
+    assert next_phase('牢记', True, consecutive=1, interval=2, was_due=True, annotated=True, review_type=2, level=1) == '牢记'
+    assert next_phase('牢记', False, annotated=True, review_type=1, level=3, **args) == '在途'
+
+
 TESTS = [
     test_tokens_and_type,
     test_validate_focus_spec,
     test_spec_active,
+    test_spec_examples,
+    test_levels_two_and_three,
+    test_empty_focus_falls_back_to_full,
+    test_error_driven_focus,
+    test_next_level,
+    test_next_phase,
 ]
 
 

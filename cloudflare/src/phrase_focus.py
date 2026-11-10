@@ -87,3 +87,95 @@ def spec_active(row):
     if not isinstance(spec, dict):
         return False
     return spec.get('source_english') == normalize_english(row.get('english'))
+
+
+# 重点计算：只看最近 5 次默写，同一个词错 2 次及以上就加入重点
+ERROR_WINDOW = 5
+ERROR_THRESHOLD = 2
+
+
+def has_letter(text):
+    """判断 token 中是否含有字母（纯标点 token 永不空出）。"""
+    return any(char.isalpha() for char in text)
+
+
+def focus_indices(spec, mastered_lemmas, recent_token_results):
+    """计算需要重点默写的 token 下标（升序）。
+
+    并集 = 所有搭配词 + 未掌握的实义词 + 最近错误次数达到阈值的词（占位符除外）。
+    """
+    tokens = spec['tokens']
+    focus = set()
+    for index, token in enumerate(tokens):
+        if token['role'] == 'collocation':
+            focus.add(index)
+        elif token['role'] == 'content' and token.get('lemma') not in mastered_lemmas:
+            focus.add(index)
+
+    # 统计每个下标在最近几次默写中答错的次数
+    error_counts = {}
+    for token_results in recent_token_results:
+        for item in token_results:
+            index = item.get('i')
+            if not isinstance(index, int) or not 0 <= index < len(tokens):
+                continue  # 下标越界的记录忽略
+            if not item.get('ok'):
+                error_counts[index] = error_counts.get(index, 0) + 1
+    for index, count in error_counts.items():
+        if count >= ERROR_THRESHOLD and tokens[index]['role'] != 'placeholder':
+            focus.add(index)
+    return sorted(focus)
+
+
+def build_cells(spec, stored_level, requested_level, focus):
+    """生成默写格子，返回 (tokens, 实际档位)。
+
+    每个 token 形如 {'text', 'blank', 'hint'}。
+    """
+    level = requested_level or stored_level
+    # 档位 1 只空重点词；重点为空时无从空起，本次按档位 3 全空
+    if level == 1 and not focus:
+        level = 3
+
+    cells = []
+    for index, token in enumerate(spec['tokens']):
+        text = token['text']
+        if level == 1:
+            blank = index in focus
+        else:
+            blank = token['role'] != 'placeholder'
+        if not has_letter(text):
+            blank = False
+        hint = None
+        if blank and level == 2:
+            letter_count = sum(1 for char in text if char.isalpha())
+            if letter_count == 1:
+                blank = False  # 单字母 token 在档位 2 不空
+            else:
+                hint = text[0]
+        cells.append({'text': text, 'blank': blank, 'hint': hint})
+    return cells, level
+
+
+def next_level(stored_level, ok, review_type, annotated):
+    """计算下一次的档位：仅已标注的默写题（review_type 1）答对升、答错降。"""
+    if not (annotated and review_type == 1):
+        return stored_level
+    if ok:
+        return min(stored_level + 1, 3)
+    return max(stored_level - 1, 1)
+
+
+def next_phase(old_phase, ok, consecutive, interval, was_due, annotated, review_type, level):
+    """计算下一个阶段：在途 / 牢记 / 遗忘点。"""
+    # 授予“牢记”：答对、连对 3 次、间隔 7 天以上；已标注的还必须是档位 3 的默写
+    grant = ok and consecutive >= 3 and interval >= 7 and (
+        not annotated or (review_type == 1 and level == 3)
+    )
+    # 已标注且已是牢记：答对即保持
+    keep = annotated and ok and old_phase == '牢记'
+    if grant or keep:
+        return '牢记'
+    if ok and was_due:
+        return '遗忘点'
+    return '在途'
