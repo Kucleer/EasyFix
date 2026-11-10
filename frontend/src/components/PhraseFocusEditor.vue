@@ -70,14 +70,22 @@ const guessLemma = (text) =>
   text.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '')
 
 // 按当前英文和已保存的重点构造编辑起点
+// 规范化英文：去首尾空白、内部连续空白合并为一个空格（与后端 source_english 一致）
+const normalizeEnglish = (s) => (s || '').trim().replace(/\s+/g, ' ')
+// 规范化后的词列表；空字符串得到空列表而不是 ['']
+const splitTokens = (english) => {
+  const normalized = normalizeEnglish(english)
+  return normalized ? normalized.split(' ') : []
+}
+
 const buildTokens = () => {
   const english = props.word.english || ''
-  const parts = english.split(/\s+/).filter(Boolean)
+  const parts = splitTokens(english)
   const spec = props.word.focus_spec
-  // 已保存的重点必须与当前英文一致才沿用，否则全部按基础词起步
+  // 已保存的重点必须与规范化后的英文一致才沿用，否则全部按基础词起步
   const usable =
     spec && Array.isArray(spec.tokens) &&
-    spec.source_english === english &&
+    spec.source_english === normalizeEnglish(english) &&
     spec.tokens.length === parts.length &&
     spec.tokens.every((t, i) => t.text === parts[i])
   return parts.map((text, i) => {

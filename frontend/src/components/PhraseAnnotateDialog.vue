@@ -103,7 +103,21 @@ const errorReason = (error) => {
 }
 
 // 开始标注：取出全部未标注词组，按 20 个一批顺序调用接口
+// 启动防抖标记：避免快速双击导致两次并发运行
+let starting = false
+
 const start = async () => {
+  // 同步守卫：正在启动或运行时直接返回
+  if (starting || running.value) return
+  starting = true
+  try {
+    await runAnnotate()
+  } finally {
+    starting = false
+  }
+}
+
+const runAnnotate = async () => {
   let items = []
   try {
     const { data } = await wordApi.list({ entry_type: 'phrase', focus_status: 'none', limit: 1000 })

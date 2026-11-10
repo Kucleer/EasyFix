@@ -156,6 +156,13 @@
         <el-form-item label="中文" required>
           <el-input v-model="form.chinese" placeholder="输入中文释义" />
         </el-form-item>
+        <el-form-item label="类型">
+          <el-radio-group v-model="typeChoice">
+            <el-radio-button value="">自动</el-radio-button>
+            <el-radio-button value="word">单词</el-radio-button>
+            <el-radio-button value="phrase">词组</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="音标">
           <el-input v-model="form.phonetic" placeholder="输入音标（可选）" />
         </el-form-item>
@@ -574,6 +581,11 @@ const dialogTitle = ref('新增单词')
 const isEdit = ref(false)
 const currentWordId = ref(null)
 
+// 类型选择：'' 自动 / 'word' 单词 / 'phrase' 词组（不放进 form，避免被原样提交）
+const typeChoice = ref('')
+// 编辑时条目原有的类型，用于判断是否真的改了类型
+const originalEntryType = ref('')
+
 const form = reactive({
   english: '',
   chinese: '',
@@ -911,6 +923,9 @@ const editWord = (row) => {
   form.grade = row.grade
   form.semester = row.semester
   form.tag_ids = row.tags ? row.tags.map(t => t.id) : []
+  // 编辑时预选条目当前类型
+  originalEntryType.value = row.entry_type || ''
+  typeChoice.value = row.entry_type === 'word' || row.entry_type === 'phrase' ? row.entry_type : ''
   dialogVisible.value = true
 }
 
@@ -921,6 +936,9 @@ const resetForm = () => {
   form.grade = appConfigStore.defaultGrade
   form.semester = appConfigStore.defaultSemester
   form.tag_ids = []
+  // 新增时类型默认"自动"
+  typeChoice.value = ''
+  originalEntryType.value = ''
 }
 
 const saveWord = async () => {
@@ -929,12 +947,18 @@ const saveWord = async () => {
     return
   }
 
+  // 只有选了单词/词组才带 entry_type；编辑时仅在与原类型不同才带
+  const payload = { ...form }
+  if (typeChoice.value && (!isEdit.value || typeChoice.value !== originalEntryType.value)) {
+    payload.entry_type = typeChoice.value
+  }
+
   try {
     if (isEdit.value) {
-      await wordApi.update(currentWordId.value, form)
+      await wordApi.update(currentWordId.value, payload)
       ElMessage.success('更新成功')
     } else {
-      await wordApi.create(form)
+      await wordApi.create(payload)
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
@@ -1250,10 +1274,14 @@ const typeStatsRaw = ref(null)
 const typeStats = computed(() => {
   const by = typeStatsRaw.value
   if (!by || !by.word || !by.phrase) return null
-  const fmt = (v) => (v === null || v === undefined ? '--' : `${Math.round(v * 10) / 10}%`)
+  // 该类型没有条目或正确率缺失时显示"--"（后端无复习记录时也返回 0，无法区分）
+  const fmt = (item) =>
+    !item.total || item.accuracy === null || item.accuracy === undefined
+      ? '--'
+      : `${Math.round(item.accuracy * 10) / 10}%`
   return [
-    { key: 'word', label: '单词', total: by.word.total ?? 0, accuracyText: fmt(by.word.accuracy) },
-    { key: 'phrase', label: '词组', total: by.phrase.total ?? 0, accuracyText: fmt(by.phrase.accuracy) },
+    { key: 'word', label: '单词', total: by.word.total ?? 0, accuracyText: fmt(by.word) },
+    { key: 'phrase', label: '词组', total: by.phrase.total ?? 0, accuracyText: fmt(by.phrase) },
   ]
 })
 const fetchTypeStats = async () => {
