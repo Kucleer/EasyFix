@@ -245,7 +245,7 @@ async function saveAndApprove() {
   }
   saving.value = true
   try {
-    await questionApi.update(question.id, {
+    const { data: updated } = await questionApi.update(question.id, {
       question_no: form.question_no,
       parsed_question: form.parsed_question,
       wrong_answer: form.wrong_answer,
@@ -256,6 +256,14 @@ async function saveAndApprove() {
       primary_knowledge_point_id: form.primary_knowledge_point_id,
       knowledge_revision: form.knowledge_revision,
     })
+    // 保存成功：用返回的最新内容替换页面上的这道题，并更新版本号，
+    // 这样后面通过失败重试时不会拿旧版本号去保存，重新打开编辑框也是已保存的内容
+    if (updated && updated.id === question.id) {
+      const index = questions.value.findIndex(q => q.id === question.id)
+      if (index !== -1) questions.value[index] = updated
+      editing.value = updated
+      form.knowledge_revision = updated.knowledge_revision || 0
+    }
   } catch (error) {
     const detail = error.response?.data?.detail
     if (error.response?.status === 409) {
