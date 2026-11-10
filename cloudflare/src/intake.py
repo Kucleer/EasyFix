@@ -1,5 +1,6 @@
 """录入资料接口：给读图录题的程序一次取全提交前需要的资料。"""
 
+import hashlib
 import json
 import re
 
@@ -22,6 +23,10 @@ router = APIRouter()
 REQUEST_ID_PATTERN = re.compile(r'^[A-Za-z0-9-]{8,64}$')
 VERSION_MISMATCH_TEXT = '录入规范版本不一致，请先更新录入规范（重新运行安装脚本）'
 MAX_PARENT_REPLY_LENGTH = 200
+CHANGED_REPLAY_TEXT = ('这个提交文件的内容和第一次提交时不一样，这次没有写入任何内容。'
+                       '改过的卷子要重新生成一个提交文件（不要带旧的 request_id）再提交。')
+DELETED_REPLAY_TEXT = ('这个提交文件对应的记录已经被删除了，这次没有写入任何内容。'
+                       '要重新录入，请重新生成一个提交文件（不要带旧的 request_id）再提交。')
 PARENT_REPLY_TEXT = ('还没有写明家长是怎么回答的。提交前要问家长一次"这是哪份作业或卷子？如果是考试，多少分？"，'
                      '把家长的回答（原话、"跳过"或"家长说不用问"）写进 parent_reply。')
 # 题目表里由本接口写入的列；每一项在传给数据库的 JSON 里同名
@@ -325,10 +330,35 @@ def invalid_response(errors):
 # ---------------------------------------------------------------- 正式提交：写入与重放
 
 
-async def find_replay_paper_id(db, request_id):
-    """这个 request_id 以前提交过就返回当时的卷子编号，没有返回 None。"""
+def payload_fingerprint(payload):
+    """整个请求体的内容指纹：键排序后的紧凑 JSON 的 UTF-8 字节做 SHA-256，返回十六进制文字。"""
+    text = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+async def find_replay_record(db, request_id):
+    """这个 request_id 以前提交过就返回 (卷子编号, 内容指纹)，没有返回 None。
+
+    记录的值是“卷子编号:内容指纹”；没有冒号的（只可能是手工插入的旧格式）指纹为 None，表示不比较。
+    """
     record = await db.first('SELECT value FROM request_record WHERE name=? AND deleted=0', ('intake:' + request_id,))
-    return int(record['value']) if record else None
+    if not record:
+        return None
+    paper_id, _, fingerprint = record['value'].partition(':')
+    return int(paper_id), (fingerprint or None)
+
+
+async def replay_conflict(db, paper_id, stored_fingerprint, fingerprint):
+    """重放时的两种不能照旧返回的情况：内容变了、卷子已被删除；都不是返回 None。
+
+    响应体里故意不带 spec_version，小工具靠它区分“版本不一致”。
+    """
+    if stored_fingerprint is not None and stored_fingerprint != fingerprint:
+        return JSONResponse({'detail': CHANGED_REPLAY_TEXT}, status_code=409)
+    paper = await db.first('SELECT deleted FROM paper WHERE id=?', (paper_id,))
+    if paper is None or paper['deleted']:
+        return JSONResponse({'detail': DELETED_REPLAY_TEXT}, status_code=409)
+    return None
 
 
 async def load_result_body(db, paper_id, replayed):
@@ -373,7 +403,8 @@ def build_question_records(checked, student_id):
     return records
 
 
-def build_write_statements(checked, records, request_id, student_id, stamp, max_question_id, max_paper_id):
+def build_write_statements(checked, records, request_id, fingerprint, student_id, stamp, max_question_id,
+                           max_paper_id):
     """拼出一次提交的全部写入语句：守卫、卷子、题目、考点关联、结构断言、防重复记录。"""
     paper, subject = checked['paper'], checked['subject']
     paper_id = max_paper_id + 1
@@ -408,12 +439,12 @@ def build_write_statements(checked, records, request_id, student_id, stamp, max_
     statements.append(structure_statement([record['id'] for record in records]))
     # 防重复记录放在同一个事务里：同一个编号撞车时这里会因主键冲突整批回滚
     statements.append(('INSERT INTO request_record(name,value,deleted,created_at) VALUES(?,?,0,?)',
-                       ('intake:' + request_id, str(paper_id), stamp)))
+                       ('intake:' + request_id, '%d:%s' % (paper_id, fingerprint), stamp)))
     return paper_id, statements
 
 
-async def write_submission(db, request, checked, request_id):
-    """用一个 db.batch 写入整份卷子；返回 (卷子编号, 是否其实是重放)。
+async def write_submission(db, request, checked, request_id, fingerprint):
+    """用一个 db.batch 写入整份卷子；返回 (卷子编号, 是否其实是重放, 已有记录的指纹)。
 
     编号冲突（守卫失败，409）时重新取编号重试一次，写法同 questions.batch。
     """
@@ -425,15 +456,16 @@ async def write_submission(db, request, checked, request_id):
                                   '(SELECT COALESCE(MAX(id),0) FROM paper) AS paper_id')
         records = build_question_records(checked, student_id)
         paper_id, statements = build_write_statements(
-            checked, records, request_id, student_id, stamp, maximums['question_id'], maximums['paper_id'])
+            checked, records, request_id, fingerprint, student_id, stamp, maximums['question_id'],
+            maximums['paper_id'])
         try:
             await db.batch(statements)
-            return paper_id, False
+            return paper_id, False, None
         except Exception as error:
             # 别的相同提交已经写成功：本次按重放处理，不报 500
-            existing = await find_replay_paper_id(db, request_id)
+            existing = await find_replay_record(db, request_id)
             if existing is not None:
-                return existing, True
+                return existing[0], True, existing[1]
             mapped = map_error(error)
             if mapped and mapped[0] == 409 and attempt == 0:
                 continue
@@ -463,13 +495,20 @@ async def submit_paper(request: Request):
         return JSONResponse({'detail': 'request_id 必填，应是 8 到 64 位的字母、数字和连字符'}, status_code=422)
     db = Database(request.scope['env'].DB)
     # 重放：同一个编号提交过，直接读出第一次的结果，不再检查也不写入
-    previous = await find_replay_paper_id(db, request_id)
+    fingerprint = payload_fingerprint(payload)
+    previous = await find_replay_record(db, request_id)
     if previous is not None:
-        return JSONResponse(await load_result_body(db, previous, True), status_code=200)
+        conflict = await replay_conflict(db, previous[0], previous[1], fingerprint)
+        return conflict or JSONResponse(await load_result_body(db, previous[0], True), status_code=200)
     checked = await validate_submission(request, db, payload)
     if checked['errors']:
         return invalid_response(checked['errors'])
-    paper_id, replayed = await write_submission(db, request, checked, request_id)
+    paper_id, replayed, stored_fingerprint = await write_submission(db, request, checked, request_id, fingerprint)
+    if replayed:
+        # 撞车时别人先写入了：同样要核对内容和卷子状态
+        conflict = await replay_conflict(db, paper_id, stored_fingerprint, fingerprint)
+        if conflict:
+            return conflict
     body = await load_result_body(db, paper_id, replayed)
     return JSONResponse(body, status_code=200) if replayed else body
 
@@ -485,8 +524,8 @@ async def review_count(request: Request):
 @router.post('/api/questions/{question_id}/review')
 async def review_question(question_id: int, request: Request):
     """通过或移除一道待核对的题；条件更新保证两人同时操作时只有一人成功。"""
-    payload = await request.json()
-    action = payload.get('action') if isinstance(payload, dict) else None
+    payload = await read_payload(request)
+    action = payload.get('action')
     db = Database(request.scope['env'].DB)
     row = await db.first('SELECT id,review_status FROM question WHERE id=? AND deleted=0', (question_id,))
     if row is None:

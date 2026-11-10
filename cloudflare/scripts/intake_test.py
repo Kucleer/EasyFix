@@ -1160,12 +1160,55 @@ def test_parent_reply_is_required():
 
 
 @with_noop_validator
-def test_parent_reply_not_checked_on_replay():
-    """同一个 request_id 重交时不再检查 parent_reply：返回 200 和 replayed。"""
+def test_replay_with_changed_content_is_rejected():
+    """同一个 request_id 重交时内容变了（这里是去掉 parent_reply）：409，不写入。"""
     c = build_database(); db = adapter(c)
     payload = sample_payload()
     assert submit(db, payload)[0] == 201
     del payload['parent_reply']
+    status, body = submit(db, payload)
+    assert status == 409 and '不一样' in body['detail'] and 'spec_version' not in body
+
+
+@with_noop_validator
+def test_replay_with_one_changed_character_is_rejected():
+    """同一个 request_id、把某道题的题干改一个字：409，库里没有新增。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    assert submit(db, payload)[0] == 201
+    totals = lambda: (c.execute('SELECT COUNT(*) FROM question').fetchone()[0],
+                      c.execute('SELECT COUNT(*) FROM paper').fetchone()[0],
+                      c.execute('SELECT COUNT(*) FROM request_record').fetchone()[0])
+    before = totals()
+    payload['questions'][0]['parsed_question'] = '计算 1/2 乘 3/3'
+    status, body = submit(db, payload)
+    assert status == 409 and '不一样' in body['detail'] and 'spec_version' not in body
+    assert totals() == before
+
+
+@with_noop_validator
+def test_replay_of_deleted_paper_is_rejected():
+    """提交后那份卷子被删除，原样再交：409，说明里有“已经被删除”，不复活也不新增。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    status, first = submit(db, payload)
+    paper_id = first['paper']['id']
+    run(papers.remove(paper_id, fake_request({}, db, papers), with_questions=1))
+    status, body = submit(db, payload)
+    assert status == 409 and '已经被删除' in body['detail'] and 'spec_version' not in body
+    assert c.execute("SELECT COUNT(*) FROM paper WHERE source='agent'").fetchone()[0] == 1
+    assert c.execute('SELECT deleted FROM paper WHERE id=?', (paper_id,)).fetchone()[0] == 1
+
+
+@with_noop_validator
+def test_replay_record_without_fingerprint_is_not_compared():
+    """手工插入的旧格式记录（值里没有冒号）：不比较指纹，照常重放。"""
+    c = build_database(); db = adapter(c)
+    payload = sample_payload()
+    status, first = submit(db, payload)
+    c.execute('UPDATE request_record SET value=? WHERE name=?',
+              (str(first['paper']['id']), 'intake:' + payload['request_id']))
+    payload['questions'][0]['parsed_question'] = '改过的题干'
     status, body = submit(db, payload)
     assert status == 200 and body['replayed'] is True
 
@@ -1305,7 +1348,10 @@ TESTS = [
     test_default_grade_only_fills_missing_values,
     test_default_grade_decides_catalog,
     test_parent_reply_is_required,
-    test_parent_reply_not_checked_on_replay,
+    test_replay_with_changed_content_is_rejected,
+    test_replay_with_one_changed_character_is_rejected,
+    test_replay_of_deleted_paper_is_rejected,
+    test_replay_record_without_fingerprint_is_not_compared,
     test_lost_matrix_row_break_is_reported,
     test_submit_rejects_lost_matrix_row_break,
     test_compact_lost_row_break_is_reported,
