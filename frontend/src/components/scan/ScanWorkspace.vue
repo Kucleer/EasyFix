@@ -69,7 +69,7 @@
           :loading="accepting_all"
           :disabled="!accept_all_count && !accepting_all"
           @click="accept_all"
-        >{{ accepting_all ? `正在录入（已录 ${accepted_in_run} 道）` : `全部录入（${accept_all_count}）` }}</el-button>
+        >{{ accepting_all ? accept_all_progress : `全部录入（${accept_all_count}）` }}</el-button>
         <el-button size="small" :disabled="accepting_all" @click="request_next">下一张</el-button>
       </span>
     </div>
@@ -86,7 +86,8 @@ import { ElMessage, ElMessageBox, ElNotification, ElButton } from 'element-plus'
 import { questionApi } from '@/api/question'
 import { scanApi } from '@/api/scan'
 import {
-  groupItems, progressCounts, acceptAllSeqs, pageSummary, itemLabel, gradeTermText, acceptAllOutcome,
+  groupItems, progressCounts, acceptAllSeqs, pageSummary, itemLabel, gradeTermText,
+  acceptFailureAction, acceptAllProgressText, runAcceptAll,
 } from '@/composables/scanPage'
 
 const props = defineProps({
@@ -111,7 +112,7 @@ const busy_seqs = ref({})          // 有请求在进行的题
 const server_errors = ref({})      // 录入被拒等提示：seq -> 文字
 const adding = ref(false)
 const accepting_all = ref(false)
-const accepted_in_run = ref(0)     // 这次"全部录入"已录入的道数
+const accept_all_progress = ref('')  // "全部录入"进行中按钮上的进度，如"正在录入 2/5"
 const open_panels = ref([])        // 展开的折叠区
 const editing_seqs = ref({})       // 正在修改（表单打开着）的题
 let undo_notifications = []        // 还开着的"撤销"提示，结束这一页或离开时关掉
@@ -219,22 +220,32 @@ const save_item = async (item, fields, finish) => {
   finish(Boolean(data))
 }
 
-/** 录入一道；被后端拒绝（422）时卡片切到修改状态，顶部显示原因。 */
-const accept_item = async (item) => {
+/** 录入失败后的处理：后端拒绝（422 等）时卡片切到修改状态、顶部显示原因；409 刷新；其余只提示。 */
+const handle_accept_failure = async (seq, error) => {
+  if (acceptFailureAction(error?.response?.status) === 'edit') {
+    const text = read_error_text(error)
+    set_server_error(seq, text)
+    ElMessage.error(text)
+    return
+  }
+  await report_error(error)  // 409 会刷新这一页
+}
+
+/** 调接口录入一道，成功后把新页交给上层；失败时抛出，由调用方处理。 */
+const accept_request = async (seq) => {
   // 先清掉旧提示，这样同样的原因再次出现时卡片也会重新进入修改状态
-  set_server_error(item.seq, '')
+  set_server_error(seq, '')
+  const { data } = await scanApi.accept(props.page.id, seq)
+  emit('update', data)
+}
+
+/** 录入一道；被后端拒绝时卡片切到修改状态，顶部显示原因。 */
+const accept_item = async (item) => {
   set_busy(item.seq, true)
   try {
-    const { data } = await scanApi.accept(props.page.id, item.seq)
-    emit('update', data)
+    await accept_request(item.seq)
   } catch (error) {
-    if (error?.response?.status === 422) {
-      const text = read_error_text(error)
-      set_server_error(item.seq, text)
-      ElMessage.error(text)
-    } else {
-      await report_error(error)
-    }
+    await handle_accept_failure(item.seq, error)
   } finally {
     set_busy(item.seq, false)
   }
@@ -316,8 +327,9 @@ const add_item = async () => {
 // ---------------------------------------------------------------- 底部按钮
 
 /**
- * 全部录入：后端每次最多录 3 道，remaining 大于 0 就再调一次；
- * 某一批有失败就停下（失败的题仍算在 remaining 里，继续调会没完没了），失败的卡片进修改状态。
+ * 全部录入：按卷面顺序逐道调"录入一道"（没有一次录多道的接口，免费计划限制单次请求的数据库操作次数），
+ * 按钮上显示"正在录入 2/5"；某一道失败就停在那道：被拒绝的卡片切到修改状态并显示原因，
+ * 409 刷新这一页；已经录入的不受影响。
  */
 const accept_all = async () => {
   // 正在修改的题也在"全部录入"里时，录入的是草稿里存着的内容，表单里没保存的修改会丢，先问一句
@@ -337,30 +349,20 @@ const accept_all = async () => {
     }
   }
   accepting_all.value = true
-  accepted_in_run.value = 0
-  candidates.forEach(seq => set_server_error(seq, ''))
   try {
-    for (;;) {
-      const { data } = await scanApi.acceptAll(props.page.id)
-      emit('update', data.page)
-      accepted_in_run.value += data.results.filter(result => result.ok).length
-      const outcome = acceptAllOutcome(data)
-      if (outcome.failed.length) {
-        outcome.failed.forEach(result => set_server_error(result.seq, result.detail || '录入失败'))
-        const labels = outcome.failed.map(result => {
-          const failed_item = data.page.items.find(one => one.seq === result.seq)
-          return failed_item ? itemLabel(failed_item) : '第 ' + (result.seq + 1) + ' 道'
-        })
-        ElMessage.error(`已录入 ${accepted_in_run.value} 道，${labels.join('、')} 没录入，请看卡片上的原因`)
-        return
-      }
-      if (!outcome.again) break
+    const result = await runAcceptAll(candidates, accept_request, (index, total) => {
+      accept_all_progress.value = acceptAllProgressText(index, total)
+    })
+    if (result.failedSeq === null) {
+      ElMessage.success(`已录入 ${result.accepted} 道`)
+      return
     }
-    ElMessage.success(`已录入 ${accepted_in_run.value} 道`)
-  } catch (error) {
-    await report_error(error)
+    // 停在失败的那道：先给出已录入几道，再按失败原因处理（卡片进修改状态 / 刷新 / 提示）
+    if (result.accepted > 0) ElMessage.success(`已录入 ${result.accepted} 道，后面的先停下`)
+    await handle_accept_failure(result.failedSeq, result.error)
   } finally {
     accepting_all.value = false
+    accept_all_progress.value = ''
   }
 }
 

@@ -24,12 +24,12 @@ export function stepLabel(status) {
   return ''
 }
 
-/** 带读图异常标记且没被人改过，就算有提示（与后端 has_warning 一致）。 */
+/** 带读图异常标记且没被人改过，就算有提示（录入前要多问一句，也不进"全部录入"）。 */
 export function hasWarning(item) {
   return Boolean(item.flags && item.flags.length) && !item.edited
 }
 
-/** "全部录入"包含的题：未处理、判断为做错、没有提示；手工加的要保存过才算（与后端 accept_all_seqs 一致）。 */
+/** "全部录入"包含的题：未处理、判断为做错、没有提示；手工加的要保存过才算（页面按这个顺序逐道调"录入一道"）。 */
 export function acceptAllSeqs(items) {
   return items
     .filter(item => item.state === 'open' && item.verdict === 'wrong' && !hasWarning(item))
@@ -136,14 +136,40 @@ export function editableFields(item) {
 }
 
 /**
- * "全部录入"一批的结果：哪些失败了、要不要再调一次。
- * 失败的题仍是 open，会算进 remaining，所以只要有失败就必须停下，否则永远录不完。
- * 这一批一道都没处理时也停下，避免空转。
+ * 录入一道失败后怎么办（逐道录入和"全部录入"共用），status 是接口返回的状态码（没收到响应时为空）：
+ * - 409：这一页或这道题已经变了，刷新这一页；"全部录入"就此停下；
+ * - 其他 4xx：后端拒绝了这道题（公式写坏、没选主考点等），卡片切到修改状态，顶部显示原因；
+ * - 其他（网络断开、超时、5xx）：只提示错误。
+ * "全部录入"遇到任何失败都停在这一道，已录入的不受影响。
  */
-export function acceptAllOutcome(data) {
-  const results = data.results || []
-  const failed = results.filter(result => !result.ok)
-  return { failed, again: failed.length === 0 && results.length > 0 && data.remaining > 0 }
+export function acceptFailureAction(status) {
+  if (status === 409) return 'refresh'
+  if (status >= 400 && status < 500) return 'edit'
+  return 'report'
+}
+
+/** "全部录入"按钮上的进度文字：正在录第 index+1 道，共 total 道，如"正在录入 2/5"。 */
+export function acceptAllProgressText(index, total) {
+  return `正在录入 ${index + 1}/${total}`
+}
+
+/**
+ * "全部录入"：按 seqs 的顺序逐道调 acceptOne(seq)（一次录一道，后端没有一次录多道的接口），
+ * 每录一道前调 onProgress(index, total)；某一道失败就停在那里，后面的不再录。
+ * 返回 { accepted: 成功的道数, failedSeq: 失败的那道（全部成功时为 null）, error: 失败时的异常 }。
+ */
+export async function runAcceptAll(seqs, acceptOne, onProgress = () => {}) {
+  let accepted = 0
+  for (let index = 0; index < seqs.length; index += 1) {
+    onProgress(index, seqs.length)
+    try {
+      await acceptOne(seqs[index])
+    } catch (error) {
+      return { accepted, failedSeq: seqs[index], error }
+    }
+    accepted += 1
+  }
+  return { accepted, failedSeq: null, error: null }
 }
 
 /**

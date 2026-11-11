@@ -21,7 +21,8 @@ export const scanApi = {
     return api.get('/scan/pages/unfinished')
   },
   advance(id) {
-    return api.post(`/scan/pages/${id}/advance`, null, { timeout: 180000 })
+    // 一步最慢约 120 秒（后端调主机、调模型的时限），页面多等一点；卡住判定是 180 秒
+    return api.post(`/scan/pages/${id}/advance`, null, { timeout: 150000 })
   },
   close(id) {
     return api.post(`/scan/pages/${id}/close`)
@@ -41,11 +42,9 @@ export const scanApi = {
   promote(id, seq) {
     return api.post(`/scan/pages/${id}/items/${seq}/promote`, null, { timeout: 150000 })
   },
+  // "全部录入"没有单独的接口：页面按顺序逐道调 accept
   accept(id, seq) {
     return api.post(`/scan/pages/${id}/items/${seq}/accept`)
-  },
-  acceptAll(id) {
-    return api.post(`/scan/pages/${id}/accept-all`, null, { timeout: 120000 })
   },
   withdraw(id, seq) {
     return api.post(`/scan/pages/${id}/items/${seq}/withdraw`)

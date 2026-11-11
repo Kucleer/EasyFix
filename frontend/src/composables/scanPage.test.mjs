@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {
   FLAG_TEXTS, warningTexts, stepLabel, hasWarning, acceptAllSeqs, groupItems,
   progressCounts, unsureHint, MAX_UPLOAD_BYTES, needsCompression, scaledSize,
-  pageSummary, itemLabel, gradeTermText, knowledgeText, editableFields, acceptAllOutcome, zoomAt,
+  pageSummary, itemLabel, gradeTermText, knowledgeText, editableFields, zoomAt,
+  acceptFailureAction, acceptAllProgressText, runAcceptAll,
 } from './scanPage.js'
 
 test('分组', () => {
@@ -21,7 +22,7 @@ test('分组', () => {
 })
 
 test('全部录入只含无提示的做错题', () => {
-  // 与后端 test_accept_all_and_warning 的九项一致
+  // 九种情况：未处理 / 已录入 / 已去掉，做错 / 拿不准 / 做对，有无提示、是否改过，手工加的是否保存过
   const items = [
     { seq: 0, state: 'open', verdict: 'wrong', flags: [], edited: false },
     { seq: 1, state: 'open', verdict: 'wrong', flags: ['merged'], edited: false },
@@ -111,16 +112,43 @@ test('修改表单的初值是可编辑字段的副本', () => {
   })
 })
 
-test('全部录入：有失败就停，否则还有剩余就继续', () => {
-  const ok = { results: [{ seq: 0, ok: true }, { seq: 1, ok: true }], remaining: 2 }
-  assert.deepEqual(acceptAllOutcome(ok), { failed: [], again: true })
-  const done = { results: [{ seq: 0, ok: true }], remaining: 0 }
-  assert.deepEqual(acceptAllOutcome(done), { failed: [], again: false })
-  // 失败的题仍计入 remaining，必须停下，否则会无限循环
-  const failed = { results: [{ seq: 0, ok: true }, { seq: 1, ok: false, detail: '公式写坏了' }], remaining: 3 }
-  assert.deepEqual(acceptAllOutcome(failed), { failed: [{ seq: 1, ok: false, detail: '公式写坏了' }], again: false })
-  // 一道都没处理却说还有剩余（不该发生）：也停下，避免空转
-  assert.deepEqual(acceptAllOutcome({ results: [], remaining: 1 }), { failed: [], again: false })
+test('录入失败后的处理：409 刷新，其他 4xx 进修改状态，其余只提示', () => {
+  assert.equal(acceptFailureAction(409), 'refresh')
+  assert.equal(acceptFailureAction(422), 'edit')
+  assert.equal(acceptFailureAction(400), 'edit')
+  assert.equal(acceptFailureAction(502), 'report')
+  assert.equal(acceptFailureAction(undefined), 'report')  // 网络断开、超时：没有状态码
+})
+
+test('全部录入的进度文字', () => {
+  assert.equal(acceptAllProgressText(0, 5), '正在录入 1/5')
+  assert.equal(acceptAllProgressText(1, 5), '正在录入 2/5')
+})
+
+test('全部录入：按顺序逐道录入，全部成功', async () => {
+  const called = []
+  const progress = []
+  const result = await runAcceptAll([0, 2, 8], async (seq) => { called.push(seq) },
+    (index, total) => progress.push(acceptAllProgressText(index, total)))
+  assert.deepEqual(called, [0, 2, 8])
+  assert.deepEqual(progress, ['正在录入 1/3', '正在录入 2/3', '正在录入 3/3'])
+  assert.deepEqual(result, { accepted: 3, failedSeq: null, error: null })
+})
+
+test('全部录入：停在第一道失败的题，后面的不再录，已录的不受影响', async () => {
+  const called = []
+  const rejected = { response: { status: 422, data: { detail: '公式写坏了' } } }
+  const result = await runAcceptAll([0, 2, 8], async (seq) => {
+    called.push(seq)
+    if (seq === 2) throw rejected
+  })
+  assert.deepEqual(called, [0, 2])
+  assert.equal(result.accepted, 1)
+  assert.equal(result.failedSeq, 2)
+  assert.equal(result.error, rejected)
+  // 没有候选时什么都不做
+  assert.deepEqual(await runAcceptAll([], async () => { throw new Error('不该调用') }),
+    { accepted: 0, failedSeq: null, error: null })
 })
 
 test('原图缩放：围绕指针缩放，限制在 1 到 4 倍', () => {
