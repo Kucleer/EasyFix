@@ -29,6 +29,9 @@ NO_VERDICT_REASON = '模型没有给出明确判断，请对照原图'
 # 模型输出里的文字字段、以及用户可编辑的文字字段
 TEXT_FIELDS = ('question_no', 'parsed_question', 'wrong_answer', 'reason', 'answer', 'analysis')
 EDIT_TEXT_FIELDS = ('question_no', 'parsed_question', 'wrong_answer', 'answer', 'analysis')
+# 给用户看的字段中文名
+FIELD_LABELS = {'question_no': '题号', 'parsed_question': '题干', 'wrong_answer': '孩子的答案',
+                'answer': '正确答案', 'analysis': '解析'}
 
 _CHANGES_LIBRARY_PATH = re.compile(r'/api/scan/pages/\d+/(items/\d+/(accept|withdraw)|accept-all)')
 
@@ -158,6 +161,15 @@ def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _number_text(value):
+    """数字（非 bool）转成文字，3 和 3.0 都得 "3"；不是数字返回 None。"""
+    if _is_int(value):
+        return str(value)
+    if isinstance(value, float) and value == value and abs(value) != float('inf'):
+        return str(int(value)) if value == int(value) else str(value)
+    return None
+
+
 def _clean_ids(raw_ids, catalog_ids):
     """考点编号：只留在清单里的整数，去重保序。"""
     result = []
@@ -214,6 +226,8 @@ def _clean_item(raw, seq, catalog_ids, error_type_names):
             continue
         if isinstance(value, str):
             item[field] = value
+        elif field == 'question_no' and _number_text(value) is not None:
+            item[field] = _number_text(value)  # 题号被写成数字时转成文字
         else:
             incomplete = True  # 文字字段不是字符串：置空并标"拿不准"
     verdict = raw.get('verdict')
@@ -282,7 +296,10 @@ def interpret_ocr(status, body):
         return result
     detail = body.get('detail')
     result['detail'] = detail if isinstance(detail, str) else ''
-    if 'contract' in body and body.get('contract') != CONTRACT_VERSION:
+    claims_ok = status == 200 and body.get('ok') is True
+    # 契约版本必须是 1：带了别的版本，或者声称成功却没带版本，都按版本不一致处理
+    if ('contract' in body and body.get('contract') != CONTRACT_VERSION) or (
+            claims_ok and 'contract' not in body):
         result['user_text'] = '识别服务版本不一致'
         return result
     if status == 503 and body.get('code') == 'busy':
@@ -333,7 +350,7 @@ def clean_edit(payload):
     for field in EDIT_TEXT_FIELDS:
         if field in payload:
             if not isinstance(payload[field], str):
-                raise ScanError('%s 必须是文字' % field)
+                raise ScanError('%s必须是文字' % FIELD_LABELS[field])
             edit[field] = payload[field]
     if 'knowledge_point_ids' in payload:
         ids = payload['knowledge_point_ids']

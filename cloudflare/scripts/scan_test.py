@@ -126,6 +126,17 @@ def test_clean_items_bad_types_mark_unsure():
     assert items[0]['parsed_question'] == '' and items[0]['reason']
 
 
+def test_clean_items_numeric_question_no():
+    """题号是数字（非 bool）时转成文字，不降级；bool 仍算类型错误。"""
+    items = scan_model.clean_items({'questions': [
+        {'question_no': 3, 'parsed_question': 'a', 'verdict': 'wrong'},
+        {'question_no': 3.0, 'parsed_question': 'b', 'verdict': 'wrong'},
+        {'question_no': 2.5, 'parsed_question': 'c', 'verdict': 'wrong'},
+        {'question_no': True, 'parsed_question': 'd', 'verdict': 'wrong'}]}, set(), set())
+    assert [i['question_no'] for i in items] == ['3', '3', '2.5', '']
+    assert [i['verdict'] for i in items] == ['wrong', 'wrong', 'wrong', 'unsure']
+
+
 def test_clean_items_garbage_and_limit():
     """整体不是预期结构时返回空；题数不超过上限。"""
     assert scan_model.clean_items(None, set(), set()) == []
@@ -164,6 +175,8 @@ def test_interpret_ocr():
                          (200, None), (200, {'ok': True, 'contract': 1, 'text': '   '}), (530, None)]:
         result = scan_model.interpret_ocr(status, body)
         assert result['kind'] == 'failed' and result['user_text'] == '读图没成功'
+    missing = scan_model.interpret_ocr(200, {'ok': True, 'text': 'x'})
+    assert missing['kind'] == 'failed' and '版本不一致' in missing['user_text']
     assert scan_model.interpret_ocr(502, {'ok': False, 'code': 'ocr_failed', 'detail': 'Ollama 连不上'})['detail'] == 'Ollama 连不上'
 
 
@@ -210,7 +223,7 @@ def test_clean_edit():
         try:
             scan_model.clean_edit(bad)
         except scan_model.ScanError as error:
-            assert error.detail
+            assert error.detail and not any(c.isascii() and c.isalpha() for c in error.detail), error.detail
             continue
         raise AssertionError(bad)
 
@@ -271,6 +284,7 @@ TESTS = [
     test_clean_items_primary_none_when_several_points_left,
     test_clean_items_right_items_drop_answer_fields,
     test_clean_items_bad_types_mark_unsure,
+    test_clean_items_numeric_question_no,
     test_clean_items_garbage_and_limit,
     test_clean_fill,
     test_needs_rescan,
