@@ -59,8 +59,8 @@ def split_statements(text):
     return result
 
 
-def build_database():
-    """建立测试库：旧结构 + 必要的单行记录 + 迁移 0011、0012 + 种子考点。"""
+def build_database(seed_points=True):
+    """建立测试库：旧结构 + 必要的单行记录 + 迁移 0011、0012 + 种子考点（seed_points 为假时不写考点）。"""
     connection = sqlite3.connect(':memory:')
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_FILE.read_text(encoding='utf-8'))
@@ -73,7 +73,7 @@ def build_database():
         connection.execute('INSERT INTO subject(id,name,deleted) VALUES(?,?,0)', (subject_id, name))
     connection.executescript(MIGRATION_0011.read_text(encoding='utf-8'))
     connection.executescript(MIGRATION_0012.read_text(encoding='utf-8'))
-    for point_id, name, subject_id, level, parent_id, learn_grade in SEED_POINTS:
+    for point_id, name, subject_id, level, parent_id, learn_grade in (SEED_POINTS if seed_points else []):
         connection.execute(
             'INSERT INTO knowledge_point(id,name,name_key,subject_id,level,parent_id,sort_order,learn_grade,deleted,'
             'created_at) VALUES(?,?,?,?,?,?,?,?,0,CURRENT_TIMESTAMP)',
@@ -486,6 +486,69 @@ def test_starmap_query_count_is_fixed():
     assert counter_small.calls == counter_big.calls, (counter_small.calls, counter_big.calls)
 
 
+# ---------------------------------------------------------------- 任务 4：种子数据
+
+SEED_0013 = ROOT / 'migrations' / '0013_starmap_seed.sql'
+CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
+
+
+def build_database_with_catalog():
+    """测试库 + 正式考点目录（knowledge_grade6_catalog.json，含旧英语考点），模拟正式库现状。"""
+    import json
+    from knowledge_model import normalize_name_key
+    c = build_database(seed_points=False)
+    subjects = {'数学': 1, '英语': 2}
+    points = json.loads(CATALOG_FILE.read_text(encoding='utf-8'))['points']
+    ids = {}
+    for item in sorted(points, key=lambda p: p['level']):
+        parent = ids.get(item['code'].rsplit('-', 1)[0]) if item['level'] == 2 else None
+        cursor = c.execute(
+            'INSERT INTO knowledge_point(code,name,name_key,subject_id,grade,level,parent_id,sort_order,deleted,'
+            'created_at) VALUES(?,?,?,?,?,?,?,?,0,CURRENT_TIMESTAMP)',
+            (item['code'], item['name'], normalize_name_key(item['name']), subjects[item['subject']], item['grade'],
+             item['level'], parent, item['sort_order']))
+        ids[item['code']] = cursor.lastrowid
+    c.commit()
+    return c
+
+
+def snapshot(c):
+    """种子相关表的内容（不含 runtime_config 里的版本号）。"""
+    return [list(map(tuple, c.execute('SELECT * FROM %s ORDER BY id' % table).fetchall()))
+            for table in ('knowledge_point', 'textbook_section', 'textbook_section_point', 'knowledge_link')]
+
+
+def test_seed_sql_applies_and_is_rerunnable():
+    """0013 能在有正式目录的库上执行，重复执行结果不变；13 节；英语新考点都有学习年级、年级为空。"""
+    c = build_database_with_catalog()
+    sql = SEED_0013.read_text(encoding='utf-8')
+    c.executescript(sql)
+    first = snapshot(c)
+    c.executescript(sql)
+    assert snapshot(c) == first
+    assert c.execute('SELECT COUNT(*) FROM textbook_section WHERE deleted=0').fetchone()[0] == 13
+    assert c.execute("SELECT COUNT(*) FROM knowledge_point WHERE code LIKE 'EG-%' AND level=2 AND deleted=0 "
+                     "AND (learn_grade IS NULL OR grade IS NOT NULL)").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM knowledge_point WHERE code LIKE 'EG-%' AND level=2 AND deleted=0").fetchone()[0] > 0
+    # 4.2 角 对应两个考点；每条连线两端都存在
+    assert c.execute("SELECT COUNT(*) FROM textbook_section s JOIN textbook_section_point sp ON sp.section_id=s.id "
+                     "WHERE s.section_no='4.2'").fetchone()[0] == 2
+    assert c.execute('SELECT COUNT(*) FROM knowledge_link').fetchone()[0] == len(
+        __import__('json').loads((ROOT / 'scripts' / 'starmap_seed' / 'links.json').read_text(encoding='utf-8')))
+
+
+def test_seed_builder_rejects_unknown_code():
+    """连线里引用了不存在的考点编号时，生成脚本报错并指出编号。"""
+    import build_starmap_seed
+    english, sections, links = build_starmap_seed.load_inputs()
+    try:
+        build_starmap_seed.build_sql(english, sections, links + [{'from': 'M6-NOPE-01', 'to': 'M6-RAT-01'}])
+    except ValueError as error:
+        assert 'M6-NOPE-01' in str(error)
+        return
+    raise AssertionError('没有报错')
+
+
 TESTS = [
     test_migration_adds_tables_and_column,
     test_migration_is_rerunnable,
@@ -510,6 +573,8 @@ TESTS = [
     test_adjustment_endpoints,
     test_progress_endpoints,
     test_starmap_query_count_is_fixed,
+    test_seed_sql_applies_and_is_rerunnable,
+    test_seed_builder_rejects_unknown_code,
 ]
 
 
