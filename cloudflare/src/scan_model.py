@@ -22,6 +22,9 @@ BUSY_RETRIES = 3
 BUSY_WAIT_SECONDS = 2
 WRONG_EVIDENCE = '页面识别，家长确认'
 MAX_ITEMS = 60
+# "全部录入"一次请求最多录几道。免费计划一次请求最多 50 次 D1 查询：
+# 实测录一道约 10 次查询加 1 次公式校验，再加读页两次，3 道约 35 次，留出余量
+ACCEPT_ALL_BATCH = 3
 DEFAULT_DIFFICULTY = 3
 INCOMPLETE_REASON = '模型返回的内容不完整，请对照原图'
 NO_VERDICT_REASON = '模型没有给出明确判断，请对照原图'
@@ -117,8 +120,8 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         'figure_needed（题目依赖图形或表格，但文字里没有相应条件）。',
         '- verdict 为 wrong 或 unsure 的题，还要给：answer（正确答案）、analysis（解析）、'
         'knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
-        '- verdict 为 right 的题只给 question_no、parsed_question（只写题干开头，不超过 40 个字）、'
-        'wrong_answer、verdict、reason，不要补答案和解析，以免太长。',
+        '- verdict 为 right 的题只给 question_no、parsed_question（完整题干）、'
+        'wrong_answer、verdict、reason，不用给答案、解析、考点、错因和难度。',
         '',
         '判断对错的规则：先自己把每道题做一遍，再和孩子的作答比对。',
         '1. 孩子的作答读得出、和你算的不一样：wrong。',

@@ -24,10 +24,10 @@ from intake import load_catalog, load_error_type_names, read_payload
 from intake_model import IMAGE_KEY_PATTERN, is_plain_int
 from question_scope import current_student_id
 from questions import save as save_question, stamp_now
-from scan_model import (BUSY_RETRIES, BUSY_WAIT_SECONDS, HEALTH_TIMEOUT_SECONDS, HOST_TIMEOUT_SECONDS,
-                        STALE_SECONDS, ScanError, accept_all_seqs, blank_item, build_fill_prompt,
-                        build_page_prompt, clean_edit, clean_fill, clean_items, interpret_health, interpret_ocr,
-                        needs_rescan, next_step, question_payload)
+from scan_model import (ACCEPT_ALL_BATCH, BUSY_RETRIES, BUSY_WAIT_SECONDS, HEALTH_TIMEOUT_SECONDS,
+                        HOST_TIMEOUT_SECONDS, STALE_SECONDS, ScanError, accept_all_seqs, blank_item,
+                        build_fill_prompt, build_page_prompt, clean_edit, clean_fill, clean_items,
+                        interpret_health, interpret_ocr, needs_rescan, next_step, question_payload)
 from settings import generate_json
 
 router = APIRouter()
@@ -355,6 +355,9 @@ async def accept_one(request, db, page_id, student_id, seq):
         return  # 已录入过：直接返回上次的结果，不重复写
     if item.get('state') != 'open':
         raise HTTPException(409, '这道题已经去掉了，先恢复再录入')
+    if item.get('verdict') == 'right':
+        # 模型认为做对的题没有答案和解析，要先"补成错题"才能录入
+        raise HTTPException(409, '这道题模型认为做对了，请先点"补成错题"再录入')
     question = await save_question(db, copy_payload(question_payload(page, item)), request=request)
     accepted = dict(item, state='accepted', question_id=question['id'])
     if await write_item(db, page_id, seq, 'open', accepted):
@@ -469,36 +472,56 @@ async def accept_item(page_id: int, seq: int, request: Request):
 
 @router.post('/api/scan/pages/{page_id}/accept-all')
 async def accept_all(page_id: int, request: Request):
-    """全部录入：对"做错了、没提示、未处理"的题逐道录入，每道独立成败。"""
+    """全部录入：对"做错了、没提示、未处理"的题逐道录入，每道独立成败。
+
+    一次请求最多录 ACCEPT_ALL_BATCH 道（免费计划限制单次请求的数据库查询次数），
+    remaining 是这批做完后仍符合条件、还没录入的题数，前端大于 0 时再调一次。
+    注意：这一批里失败的题仍是 open，会计入 remaining，前端遇到失败应先停下处理。
+    """
     db = Database(request.scope['env'].DB)
     student_id = current_student_id(request)
     page = await load_page(db, page_id, student_id)
     if page['status'] != 'ready':
         raise HTTPException(409, PAGE_CLOSED_TEXT)
     results = []
-    for seq in accept_all_seqs(json.loads(page['items'] or '[]')):
+    for seq in accept_all_seqs(json.loads(page['items'] or '[]'))[:ACCEPT_ALL_BATCH]:
         try:
             await accept_one(request, db, page_id, student_id, seq)
             results.append({'seq': seq, 'ok': True, 'detail': None})
         except HTTPException as error:
             results.append({'seq': seq, 'ok': False, 'detail': error.detail})
-    return {'results': results, 'page': page_view(await load_page(db, page_id, student_id))}
+    view = page_view(await load_page(db, page_id, student_id))
+    return {'results': results, 'remaining': len(accept_all_seqs(view['items'])), 'page': view}
 
 
 @router.post('/api/scan/pages/{page_id}/items/{seq}/withdraw')
 async def withdraw_item(page_id: int, seq: int, request: Request):
     """撤回录入：这一项回到 open，对应错题软删除。
 
-    先用条件更新（这一项仍是 accepted）把草稿改回 open，成功了才删题，
-    这样同时来的第二次撤回会在条件更新上失败，不会重复动作。
+    两条写入放在同一个 batch（同一事务）里：先删题，条件是草稿这一项仍是 accepted、
+    指向这道题、页面仍是 ready；再用同样的条件把草稿改回 open。
+    同时来的第二次撤回两条条件都不成立，什么都不做。
     """
     db = Database(request.scope['env'].DB)
     student_id = current_student_id(request)
     _, item = await load_ready_item(db, page_id, student_id, seq)
     if item.get('state') != 'accepted':
         raise HTTPException(409, '这道题还没有录入')
-    if not await write_item(db, page_id, seq, 'accepted', dict(item, state='open', question_id=None)):
+    question_id = item.get('question_id')
+    reopened = dict(item, state='open', question_id=None)
+    await db.batch([
+        ('UPDATE question SET deleted=1 WHERE id=? AND deleted=0 AND EXISTS('
+         "SELECT 1 FROM scan_page WHERE id=? AND deleted=0 AND status='ready' "
+         "AND json_extract(items, '$[' || ? || '].state')='accepted' "
+         "AND json_extract(items, '$[' || ? || '].question_id')=?)",
+         (question_id, page_id, seq, seq, question_id)),
+        ("UPDATE scan_page SET items=json_set(items, '$[' || ? || ']', json(?)), updated_at=? "
+         "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, '$[' || ? || '].state')='accepted'",
+         (seq, json.dumps(reopened, ensure_ascii=False), stamp_now(), page_id, seq)),
+    ])
+    page = await load_page(db, page_id, student_id)
+    current = json.loads(page['items'] or '[]')[seq]
+    if current.get('state') == 'accepted' and current.get('question_id') == question_id:
+        # 两条都没生效且这一项没被别人撤回：只可能是页面已经不是 ready
         await raise_write_conflict(db, page_id, student_id)
-    if item.get('question_id') is not None:
-        await db.run('UPDATE question SET deleted=1 WHERE id=? AND deleted=0', (item['question_id'],))
-    return page_view(await load_page(db, page_id, student_id))
+    return page_view(page)

@@ -271,6 +271,8 @@ def test_build_page_prompt():
     for rule in ['不许猜孩子写了什么', '0.5 和 1/2 不算错', '没有作答', '按做错', 'questions']:
         assert rule in prompt, rule
     assert '分段重新读取' not in prompt
+    # 做对的题也要完整题干（补成错题时要用），只是不给答案、解析等
+    assert '完整题干' in prompt and '不超过 40' not in prompt and '题干开头' not in prompt
     both = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', '重扫文字XYZ', catalog, ['计算错误'])
     assert '重扫文字XYZ' in both and '分段重新读取' in both and '对照着用' in both
 
@@ -947,6 +949,7 @@ def test_accept_all_skips_warning_and_unsure():
     assert [(entry['seq'], entry['ok']) for entry in result['results']] == [(0, True), (2, True)]
     states = [item['state'] for item in result['page']['items']]
     assert states == ['accepted', 'open', 'accepted', 'open', 'open', 'dismissed']
+    assert result['remaining'] == 0
 
 
 def test_accept_all_partial_failure():
@@ -963,6 +966,107 @@ def test_accept_all_partial_failure():
     assert second['seq'] == 1 and second['ok'] is False and second['detail']
     assert live_questions(connection) == before + 1
     assert [item['state'] for item in result['page']['items']] == ['accepted', 'open']
+    # 失败的那道仍是 open、仍符合条件，计入 remaining
+    assert result['remaining'] == 1
+
+
+class CountingDB(SQLiteDB):
+    """数每次请求用了几次数据库（all / first / run / batch 各算一次）；batch 前让出一次以便并发交错。"""
+
+    def __init__(self, connection):
+        super().__init__(connection)
+        self.calls = 0
+
+    async def all(self, sql, parameters=()):
+        """计数后查询。"""
+        self.calls += 1
+        return await super().all(sql, parameters)
+
+    async def first(self, sql, parameters=()):
+        """计数并让出一次后查询。"""
+        self.calls += 1
+        await asyncio.sleep(0)
+        return await super().first(sql, parameters)
+
+    async def run(self, sql, parameters=()):
+        """计数后写入。"""
+        self.calls += 1
+        return await super().run(sql, parameters)
+
+    async def batch(self, statements):
+        """计数并让出一次后批量写入。"""
+        self.calls += 1
+        await asyncio.sleep(0)
+        return await super().batch(statements)
+
+
+def test_accept_all_batches_within_query_budget():
+    """全部录入一次最多录 ACCEPT_ALL_BATCH 道，一次请求的数据库调用（含公式校验）不超过 40；再调一次录完剩下的。"""
+    connection = build_scan_database()
+    db = CountingDB(connection)
+    math_calls = []
+
+    async def counting_math(request, texts):
+        """公式校验替身：只计数（生产环境里它是一次子请求）。"""
+        math_calls.append(1)
+
+    total = scan_model.ACCEPT_ALL_BATCH + 2
+    with items_patched(math=counting_math):
+        page_id = ready_page(connection, db, [draft_item(seq) for seq in range(total)])
+        db.calls, math_calls[:] = 0, []
+        first = run(scan.accept_all(page_id, PageRequest(db)))
+        first_cost = db.calls + len(math_calls)
+        db.calls, math_calls[:] = 0, []
+        second = run(scan.accept_all(page_id, PageRequest(db)))
+        second_cost = db.calls + len(math_calls)
+    assert [entry['seq'] for entry in first['results']] == list(range(scan_model.ACCEPT_ALL_BATCH))
+    assert all(entry['ok'] for entry in first['results'] + second['results'])
+    assert first['remaining'] == 2 and first_cost <= 40, first_cost
+    assert [entry['seq'] for entry in second['results']] == [total - 2, total - 1]
+    assert second['remaining'] == 0 and second_cost <= 40, second_cost
+    assert all(item['state'] == 'accepted' for item in second['page']['items'])
+
+
+def test_concurrent_withdraw_acts_once():
+    """两个撤回同时到：都不报错，错题只删一次，草稿回到 open。"""
+    connection = build_scan_database()
+    db = CountingDB(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0)])
+        question_id = item_call(scan.accept_item, page_id, 0, db)['items'][0]['question_id']
+
+        async def both():
+            """同时撤回同一道两次。"""
+            return await asyncio.gather(scan.withdraw_item(page_id, 0, PageRequest(db)),
+                                        scan.withdraw_item(page_id, 0, PageRequest(db)))
+
+        results = run(both())
+    assert all(result['items'][0]['state'] == 'open' for result in results)
+    assert connection.execute('SELECT deleted FROM question WHERE id=?', (question_id,)).fetchone()[0] == 1
+    item = stored_items(connection, page_id)[0]
+    assert item['state'] == 'open' and item['question_id'] is None
+
+
+def test_withdraw_on_page_closed_midway_is_409():
+    """撤回时页刚被结束：错题不删，草稿不变，返回 409。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0)])
+        question_id = item_call(scan.accept_item, page_id, 0, db)['items'][0]['question_id']
+    original_batch = db.batch
+
+    async def closing_batch(statements):
+        """批量写入前先把这一页结束掉。"""
+        connection.execute("UPDATE scan_page SET status='closed' WHERE id=?", (page_id,))
+        connection.commit()
+        return await original_batch(statements)
+
+    db.batch = closing_batch
+    with items_patched():
+        expect_http(409, lambda: item_call(scan.withdraw_item, page_id, 0, db))
+    assert connection.execute('SELECT deleted FROM question WHERE id=?', (question_id,)).fetchone()[0] == 0
+    assert stored_items(connection, page_id)[0]['state'] == 'accepted'
 
 
 def test_withdraw_soft_deletes():
@@ -1027,6 +1131,8 @@ def test_promote_fills_from_model_and_survives_model_failure():
     model = FakeModel(fill)
     with items_patched(model=model):
         page_id = ready_page(connection, db, [right, draft_item(1)])
+        # 没补成错题之前不能录入
+        expect_http(409, lambda: item_call(scan.accept_item, page_id, 0, db))
         result = item_call(scan.promote_item, page_id, 0, db)
         expect_http(409, lambda: item_call(scan.promote_item, page_id, 1, db))
         expect_http(409, lambda: item_call(scan.promote_item, page_id, 0, db))
@@ -1154,6 +1260,9 @@ TESTS = [
     test_closed_page_rejects_item_operations,
     test_page_closed_during_accept_drops_question,
     test_close_leaves_open_items_out_of_library,
+    test_accept_all_batches_within_query_budget,
+    test_concurrent_withdraw_acts_once,
+    test_withdraw_on_page_closed_midway_is_409,
 ]
 
 
