@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>知识星空 demo</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+body{background:#f4f6fb;color:#1f2a44}
+.home{max-width:1080px;margin:0 auto;padding:28px 32px}
+.home h1{font-size:22px;margin:0 0 18px}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:18px}
+.card{background:#fff;border:1px solid #e6e9f2;border-radius:14px;padding:16px 18px}
+.card h3{margin:0 0 10px;font-size:15px}
+.mini{position:relative;height:280px;border-radius:12px;overflow:hidden;cursor:zoom-in;background:#030306}
+.mini canvas{position:absolute;inset:0;width:100%;height:100%}
+.mini .count{position:absolute;left:16px;bottom:12px;color:#f3d79a;font-size:13px;letter-spacing:1px;text-shadow:0 0 8px rgba(0,0,0,.8)}
+.mini .count b{font-size:24px;margin-right:4px}
+.stub{height:60px;border-radius:10px;background:#f4f6fb;margin-top:10px}
+.sky{position:fixed;inset:0;display:none;background:#030306;color:#f3e6c4}
+.sky.show{display:block;animation:fade .6s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sky canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.top{position:absolute;left:26px;top:20px;display:flex;align-items:center;gap:16px}
+.tabs{display:flex;gap:4px}
+.tabs button{border:0;background:none;color:rgba(243,230,196,.45);font-size:15px;padding:4px 10px;cursor:pointer;letter-spacing:2px}
+.tabs button.on{color:#f6d68c;text-shadow:0 0 12px rgba(246,214,140,.6)}
+.count2{color:rgba(243,230,196,.6);font-size:13px;letter-spacing:1px}
+.count2 b{color:#f6d68c;font-size:18px}
+.pal{margin-left:18px;padding-left:14px;border-left:1px solid rgba(243,230,196,.18)}
+.pal button{font-size:13px}
+.legend{position:absolute;left:28px;bottom:22px;display:none;gap:16px;font-size:12px;color:rgba(230,232,240,.7)}
+.legend.show{display:flex}.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.right{position:absolute;right:24px;top:18px;display:flex;gap:10px}
+.icon{width:36px;height:36px;border-radius:50%;border:1px solid rgba(246,214,140,.25);background:rgba(246,214,140,.04);
+  color:#f6d68c;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center}
+.icon:hover{background:rgba(246,214,140,.12)}
+.tip{position:absolute;pointer-events:none;color:#fbe9bd;font-size:13px;letter-spacing:1px;white-space:nowrap;
+  text-shadow:0 0 10px rgba(0,0,0,.9);opacity:0;transition:opacity .15s}
+.card2{position:absolute;right:24px;bottom:24px;width:250px;padding:14px 16px;border-radius:12px;
+  background:rgba(14,11,4,.78);border:1px solid rgba(246,214,140,.18);display:none;backdrop-filter:blur(6px)}
+.card2.show{display:block;animation:fade .25s ease}
+.card2 .n{font-size:15px;color:#f6d68c;margin-bottom:8px}
+.card2 .bar{height:4px;border-radius:2px;background:rgba(246,214,140,.12);overflow:hidden}
+.card2 .bar i{display:block;height:100%;background:linear-gradient(90deg,#8a6a2a,#f6d68c)}
+.card2 .s{font-size:12px;color:rgba(243,230,196,.6);margin-top:8px}
+.toast{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0}
+.toast.show{animation:toast 3.4s ease forwards}
+.toast .b{font-size:34px;color:#f6d68c;letter-spacing:6px;text-shadow:0 0 24px rgba(246,214,140,.7)}
+@keyframes toast{0%{opacity:0;transform:translate(-50%,-40%) scale(.96)}15%{opacity:1;transform:translate(-50%,-50%) scale(1)}75%{opacity:1}100%{opacity:0}}
+</style></head><body>
+
+<div class="home">
+  <h1>今日学习</h1>
+  <div class="grid">
+    <div class="card"><h3>我的知识星空</h3>
+      <div class="mini" id="mini"><canvas id="miniCanvas"></canvas><div class="count"><b id="miniCount">0</b>颗星已点亮</div></div>
+    </div>
+    <div class="card"><h3>错题复习</h3><div class="stub"></div><div class="stub"></div><div class="stub"></div></div>
+  </div>
+</div>
+
+<div class="sky" id="sky">
+  <canvas id="skyCanvas"></canvas>
+  <div class="top">
+    <div class="tabs"><button data-s="math" class="on">数学</button><button data-s="english">英语</button></div>
+    <div class="count2" id="count2"></div>
+    <div class="tabs pal"><button data-p="gold" class="on">金色</button><button data-p="rgy">红黄绿</button></div>
+  </div>
+  <div class="right"><button class="icon" id="moment" title="演示点亮时刻">✦</button><button class="icon" id="close" title="收起">✕</button></div>
+  <div class="legend" id="legend"><span><i style="background:rgb(235,87,87)"></i>薄弱</span><span><i style="background:rgb(242,201,76)"></i>一般</span><span><i style="background:rgb(88,214,141)"></i>掌握</span><span><i style="background:rgb(110,112,124)"></i>没学</span></div>
+  <div class="tip" id="tip"></div>
+  <div class="card2" id="card2"></div>
+  <div class="toast" id="toast"><div class="b" id="toastB"></div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+const DATA = {"math": {"nodes": [{"id": "整除与因倍数", "kind": "module", "chapter": "课外 / 五年级"}, {"id": "质因数分解", "kind": "point", "module": "整除与因倍数", "value": 1, "chapter": "课外 / 五年级"}, {"id": "最大公因数与最小公倍数", "kind": "point", "module": "整除与因倍数", "value": 1, "chapter": "课外 / 五年级"}, {"id": "因数、整除与素合数", "kind": "point", "module": "整除与因倍数", "value": 0.72, "chapter": "课外 / 五年级"}, {"id": "分数基础与应用", "kind": "module", "chapter": "课外 / 五年级"}, {"id": "分数意义与单位一", "kind": "point", "module": "分数基础与应用", "value": 1, "chapter": "课外 / 五年级"}, {"id": "真分数、假分数与基本性质", "kind": "point", "module": "分数基础与应用", "value": 0.9, "chapter": "课外 / 五年级"}, {"id": "分数与小数互化", "kind": "point", "module": "分数基础与应用", "value": 0.7, "chapter": "课外 / 五年级"}, {"id": "分数大小比较", "kind": "point", "module": "分数基础与应用", "value": 1, "chapter": "课外 / 五年级"}, {"id": "分数四则混合运算", "kind": "point", "module": "分数基础与应用", "value": 0.32, "chapter": "课外 / 五年级"}, {"id": "分数数量关系应用", "kind": "point", "module": "分数基础与应用", "value": 0.66, "chapter": "课外 / 五年级"}, {"id": "有理数", "kind": "module", "chapter": "第 1 章"}, {"id": "正负数意义与有理数分类", "kind": "point", "module": "有理数", "value": 1, "chapter": "第 1 章"}, {"id": "数轴表示与大小比较", "kind": "point", "module": "有理数", "value": 0.74, "chapter": "第 1 章"}, {"id": "数轴距离、中点与动点", "kind": "point", "module": "有理数", "value": 0.3, "chapter": "第 1 章"}, {"id": "相反数与倒数", "kind": "point", "module": "有理数", "value": 1, "chapter": "第 1 章"}, {"id": "绝对值意义与非负性", "kind": "point", "module": "有理数", "value": 0.62, "chapter": "第 1 章"}, {"id": "绝对值化简与分类讨论", "kind": "point", "module": "有理数", "value": 0.22, "chapter": "第 1 章"}, {"id": "有理数加减", "kind": "point", "module": "有理数", "value": 0.7, "chapter": "第 1 章"}, {"id": "有理数乘除与符号判断", "kind": "point", "module": "有理数", "value": 0.9, "chapter": "第 1 章"}, {"id": "有理数乘方", "kind": "point", "module": "有理数", "value": 0.28, "chapter": "第 1 章"}, {"id": "有理数混合运算与顺序", "kind": "point", "module": "有理数", "value": 0.2, "chapter": "第 1 章"}, {"id": "运算律与简便计算", "kind": "point", "module": "有理数", "value": 0.64, "chapter": "第 1 章"}, {"id": "简单的代数式", "kind": "module", "chapter": "第 2 章"}, {"id": "去括号与代数式化简", "kind": "point", "module": "简单的代数式", "value": 0.5, "chapter": "第 2 章"}, {"id": "代数式求值", "kind": "point", "module": "简单的代数式", "value": 0.34, "chapter": "第 2 章"}, {"id": "用字母表示数与列代数式", "kind": "point", "module": "简单的代数式", "value": 0.24, "chapter": "第 2 章"}, {"id": "代数式的书写规范", "kind": "point", "module": "简单的代数式", "value": 0.58, "chapter": "第 2 章"}, {"id": "代数式的意义", "kind": "point", "module": "简单的代数式", "value": 0.46, "chapter": "第 2 章"}, {"id": "一元一次方程", "kind": "module", "chapter": "第 3 章"}, {"id": "解一元一次方程", "kind": "point", "module": "一元一次方程", "value": 0.06, "chapter": "第 3 章"}, {"id": "列方程解决数量关系", "kind": "point", "module": "一元一次方程", "value": 0.06, "chapter": "第 3 章"}, {"id": "图形与几何", "kind": "module", "chapter": "课外 / 五年级"}, {"id": "平面图形周长与面积", "kind": "point", "module": "图形与几何", "value": 0.7, "chapter": "课外 / 五年级"}, {"id": "正方体展开图与相对面", "kind": "point", "module": "图形与几何", "value": 0.5, "chapter": "课外 / 五年级"}, {"id": "数量关系与应用", "kind": "module", "chapter": "课外 / 五年级"}, {"id": "有理数收支与行程应用", "kind": "point", "module": "数量关系与应用", "value": 0.66, "chapter": "课外 / 五年级"}, {"id": "行程与相遇追及", "kind": "point", "module": "数量关系与应用", "value": 0.3, "chapter": "课外 / 五年级"}, {"id": "工作效率与合作", "kind": "point", "module": "数量关系与应用", "value": 0.5, "chapter": "课外 / 五年级"}, {"id": "成本、盈利与亏损", "kind": "point", "module": "数量关系与应用", "value": 0.5, "chapter": "课外 / 五年级"}, {"id": "时间单位换算", "kind": "point", "module": "数量关系与应用", "value": 1, "chapter": "课外 / 五年级"}, {"id": "规律探索与综合应用", "kind": "module", "chapter": "课外 / 五年级"}, {"id": "裂项与数列求和", "kind": "point", "module": "规律探索与综合应用", "value": 0.5, "chapter": "课外 / 五年级"}, {"id": "新定义运算与规则应用", "kind": "point", "module": "规律探索与综合应用", "value": 0.26, "chapter": "课外 / 五年级"}, {"id": "构造与幻方", "kind": "point", "module": "规律探索与综合应用", "value": 0.5, "chapter": "课外 / 五年级"}, {"id": "对折与倍增规律", "kind": "point", "module": "规律探索与综合应用", "value": 0.5, "chapter": "课外 / 五年级"}, {"id": "图形与数字排列规律", "kind": "point", "module": "规律探索与综合应用", "value": 0.68, "chapter": "课外 / 五年级"}, {"id": "线段与角", "kind": "module", "chapter": "第 4 章"}, {"id": "线段和差与中点", "kind": "point", "module": "线段与角", "value": 0.5, "chapter": "第 4 章"}, {"id": "角的度量与和差", "kind": "point", "module": "线段与角", "value": 0.18, "chapter": "第 4 章"}, {"id": "角平分线", "kind": "point", "module": "线段与角", "value": 0.06, "chapter": "第 4 章"}], "links": [{"source": "整除与因倍数", "target": "质因数分解", "kind": "belongs"}, {"source": "整除与因倍数", "target": "最大公因数与最小公倍数", "kind": "belongs"}, {"source": "整除与因倍数", "target": "因数、整除与素合数", "kind": "belongs"}, {"source": "分数基础与应用", "target": "分数意义与单位一", "kind": "belongs"}, {"source": "分数基础与应用", "target": "真分数、假分数与基本性质", "kind": "belongs"}, {"source": "分数基础与应用", "target": "分数与小数互化", "kind": "belongs"}, {"source": "分数基础与应用", "target": "分数大小比较", "kind": "belongs"}, {"source": "分数基础与应用", "target": "分数四则混合运算", "kind": "belongs"}, {"source": "分数基础与应用", "target": "分数数量关系应用", "kind": "belongs"}, {"source": "有理数", "target": "正负数意义与有理数分类", "kind": "belongs"}, {"source": "有理数", "target": "数轴表示与大小比较", "kind": "belongs"}, {"source": "有理数", "target": "数轴距离、中点与动点", "kind": "belongs"}, {"source": "有理数", "target": "相反数与倒数", "kind": "belongs"}, {"source": "有理数", "target": "绝对值意义与非负性", "kind": "belongs"}, {"source": "有理数", "target": "绝对值化简与分类讨论", "kind": "belongs"}, {"source": "有理数", "target": "有理数加减", "kind": "belongs"}, {"source": "有理数", "target": "有理数乘除与符号判断", "kind": "belongs"}, {"source": "有理数", "target": "有理数乘方", "kind": "belongs"}, {"source": "有理数", "target": "有理数混合运算与顺序", "kind": "belongs"}, {"source": "有理数", "target": "运算律与简便计算", "kind": "belongs"}, {"source": "简单的代数式", "target": "去括号与代数式化简", "kind": "belongs"}, {"source": "简单的代数式", "target": "代数式求值", "kind": "belongs"}, {"source": "简单的代数式", "target": "用字母表示数与列代数式", "kind": "belongs"}, {"source": "简单的代数式", "target": "代数式的书写规范", "kind": "belongs"}, {"source": "简单的代数式", "target": "代数式的意义", "kind": "belongs"}, {"source": "一元一次方程", "target": "解一元一次方程", "kind": "belongs"}, {"source": "一元一次方程", "target": "列方程解决数量关系", "kind": "belongs"}, {"source": "图形与几何", "target": "平面图形周长与面积", "kind": "belongs"}, {"source": "图形与几何", "target": "正方体展开图与相对面", "kind": "belongs"}, {"source": "数量关系与应用", "target": "有理数收支与行程应用", "kind": "belongs"}, {"source": "数量关系与应用", "target": "行程与相遇追及", "kind": "belongs"}, {"source": "数量关系与应用", "target": "工作效率与合作", "kind": "belongs"}, {"source": "数量关系与应用", "target": "成本、盈利与亏损", "kind": "belongs"}, {"source": "数量关系与应用", "target": "时间单位换算", "kind": "belongs"}, {"source": "规律探索与综合应用", "target": "裂项与数列求和", "kind": "belongs"}, {"source": "规律探索与综合应用", "target": "新定义运算与规则应用", "kind": "belongs"}, {"source": "规律探索与综合应用", "target": "构造与幻方", "kind": "belongs"}, {"source": "规律探索与综合应用", "target": "对折与倍增规律", "kind": "belongs"}, {"source": "规律探索与综合应用", "target": "图形与数字排列规律", "kind": "belongs"}, {"source": "线段与角", "target": "线段和差与中点", "kind": "belongs"}, {"source": "线段与角", "target": "角的度量与和差", "kind": "belongs"}, {"source": "线段与角", "target": "角平分线", "kind": "belongs"}, {"source": "因数、整除与素合数", "target": "质因数分解", "kind": "prereq"}, {"source": "质因数分解", "target": "最大公因数与最小公倍数", "kind": "prereq"}, {"source": "最大公因数与最小公倍数", "target": "真分数、假分数与基本性质", "kind": "prereq"}, {"source": "分数意义与单位一", "target": "真分数、假分数与基本性质", "kind": "prereq"}, {"source": "真分数、假分数与基本性质", "target": "分数四则混合运算", "kind": "prereq"}, {"source": "分数四则混合运算", "target": "分数数量关系应用", "kind": "prereq"}, {"source": "正负数意义与有理数分类", "target": "数轴表示与大小比较", "kind": "prereq"}, {"source": "数轴表示与大小比较", "target": "相反数与倒数", "kind": "prereq"}, {"source": "相反数与倒数", "target": "绝对值意义与非负性", "kind": "prereq"}, {"source": "绝对值意义与非负性", "target": "有理数加减", "kind": "prereq"}, {"source": "分数四则混合运算", "target": "有理数乘除与符号判断", "kind": "prereq"}, {"source": "有理数加减", "target": "有理数乘除与符号判断", "kind": "prereq"}, {"source": "有理数乘除与符号判断", "target": "有理数乘方", "kind": "prereq"}, {"source": "有理数乘方", "target": "有理数混合运算与顺序", "kind": "prereq"}, {"source": "有理数混合运算与顺序", "target": "运算律与简便计算", "kind": "prereq"}, {"source": "数轴表示与大小比较", "target": "数轴距离、中点与动点", "kind": "prereq"}, {"source": "用字母表示数与列代数式", "target": "代数式的书写规范", "kind": "prereq"}, {"source": "用字母表示数与列代数式", "target": "代数式的意义", "kind": "prereq"}, {"source": "用字母表示数与列代数式", "target": "代数式求值", "kind": "prereq"}, {"source": "有理数混合运算与顺序", "target": "代数式求值", "kind": "prereq"}, {"source": "代数式求值", "target": "去括号与代数式化简", "kind": "prereq"}, {"source": "去括号与代数式化简", "target": "解一元一次方程", "kind": "prereq"}, {"source": "解一元一次方程", "target": "列方程解决数量关系", "kind": "prereq"}, {"source": "列方程解决数量关系", "target": "行程与相遇追及", "kind": "prereq"}, {"source": "分数数量关系应用", "target": "成本、盈利与亏损", "kind": "prereq"}, {"source": "用字母表示数与列代数式", "target": "图形与数字排列规律", "kind": "prereq"}, {"source": "线段和差与中点", "target": "角的度量与和差", "kind": "prereq"}, {"source": "角的度量与和差", "target": "角平分线", "kind": "prereq"}, {"source": "数轴距离、中点与动点", "target": "线段和差与中点", "kind": "prereq"}, {"source": "有理数加减", "target": "有理数收支与行程应用", "kind": "prereq"}]}, "english": {"nodes": [{"id": "名词", "kind": "module", "chapter": "语法"}, {"id": "可数与不可数名词", "kind": "point", "module": "名词", "value": 0.7, "chapter": "语法"}, {"id": "名词复数", "kind": "point", "module": "名词", "value": 1, "chapter": "语法"}, {"id": "名词所有格", "kind": "point", "module": "名词", "value": 0.5, "chapter": "语法"}, {"id": "代词", "kind": "module", "chapter": "语法"}, {"id": "人称代词主宾格", "kind": "point", "module": "代词", "value": 1, "chapter": "语法"}, {"id": "物主代词", "kind": "point", "module": "代词", "value": 0.62, "chapter": "语法"}, {"id": "指示代词", "kind": "point", "module": "代词", "value": 1, "chapter": "语法"}, {"id": "不定代词", "kind": "point", "module": "代词", "value": 0.26, "chapter": "语法"}, {"id": "冠词与数词", "kind": "module", "chapter": "语法"}, {"id": "不定冠词 a/an", "kind": "point", "module": "冠词与数词", "value": 0.9, "chapter": "语法"}, {"id": "定冠词 the", "kind": "point", "module": "冠词与数词", "value": 0.4, "chapter": "语法"}, {"id": "基数词与序数词", "kind": "point", "module": "冠词与数词", "value": 1, "chapter": "语法"}, {"id": "介词", "kind": "module", "chapter": "语法"}, {"id": "时间介词", "kind": "point", "module": "介词", "value": 0.3, "chapter": "语法"}, {"id": "地点介词", "kind": "point", "module": "介词", "value": 0.66, "chapter": "语法"}, {"id": "常用介词搭配", "kind": "point", "module": "介词", "value": 0.2, "chapter": "语法"}, {"id": "形容词与副词", "kind": "module", "chapter": "语法"}, {"id": "形容词作定语与表语", "kind": "point", "module": "形容词与副词", "value": 0.7, "chapter": "语法"}, {"id": "比较级", "kind": "point", "module": "形容词与副词", "value": 0.5, "chapter": "语法"}, {"id": "最高级", "kind": "point", "module": "形容词与副词", "value": 0.06, "chapter": "语法"}, {"id": "频度副词", "kind": "point", "module": "形容词与副词", "value": 0.58, "chapter": "语法"}, {"id": "动词时态", "kind": "module", "chapter": "语法"}, {"id": "一般现在时", "kind": "point", "module": "动词时态", "value": 0.7, "chapter": "语法"}, {"id": "现在进行时", "kind": "point", "module": "动词时态", "value": 0.9, "chapter": "语法"}, {"id": "一般过去时", "kind": "point", "module": "动词时态", "value": 0.34, "chapter": "语法"}, {"id": "一般将来时", "kind": "point", "module": "动词时态", "value": 0.5, "chapter": "语法"}, {"id": "现在完成时", "kind": "point", "module": "动词时态", "value": 0.06, "chapter": "语法"}, {"id": "情态动词", "kind": "module", "chapter": "语法"}, {"id": "can / could", "kind": "point", "module": "情态动词", "value": 1, "chapter": "语法"}, {"id": "must / have to", "kind": "point", "module": "情态动词", "value": 0.5, "chapter": "语法"}, {"id": "should", "kind": "point", "module": "情态动词", "value": 0.06, "chapter": "语法"}, {"id": "句型", "kind": "module", "chapter": "语法"}, {"id": "there be 句型", "kind": "point", "module": "句型", "value": 0.74, "chapter": "语法"}, {"id": "祈使句", "kind": "point", "module": "句型", "value": 1, "chapter": "语法"}, {"id": "一般疑问句", "kind": "point", "module": "句型", "value": 0.9, "chapter": "语法"}, {"id": "特殊疑问句", "kind": "point", "module": "句型", "value": 0.28, "chapter": "语法"}, {"id": "感叹句", "kind": "point", "module": "句型", "value": 0.06, "chapter": "语法"}, {"id": "连词与复合句", "kind": "module", "chapter": "语法"}, {"id": "并列连词 and/but/or", "kind": "point", "module": "连词与复合句", "value": 0.66, "chapter": "语法"}, {"id": "宾语从句", "kind": "point", "module": "连词与复合句", "value": 0.06, "chapter": "语法"}, {"id": "状语从句", "kind": "point", "module": "连词与复合句", "value": 0.06, "chapter": "语法"}, {"id": "词汇", "kind": "vocab", "value": 0.3443298969072165, "mastered": 334, "total": 970}], "links": [{"source": "名词", "target": "可数与不可数名词", "kind": "belongs"}, {"source": "名词", "target": "名词复数", "kind": "belongs"}, {"source": "名词", "target": "名词所有格", "kind": "belongs"}, {"source": "代词", "target": "人称代词主宾格", "kind": "belongs"}, {"source": "代词", "target": "物主代词", "kind": "belongs"}, {"source": "代词", "target": "指示代词", "kind": "belongs"}, {"source": "代词", "target": "不定代词", "kind": "belongs"}, {"source": "冠词与数词", "target": "不定冠词 a/an", "kind": "belongs"}, {"source": "冠词与数词", "target": "定冠词 the", "kind": "belongs"}, {"source": "冠词与数词", "target": "基数词与序数词", "kind": "belongs"}, {"source": "介词", "target": "时间介词", "kind": "belongs"}, {"source": "介词", "target": "地点介词", "kind": "belongs"}, {"source": "介词", "target": "常用介词搭配", "kind": "belongs"}, {"source": "形容词与副词", "target": "形容词作定语与表语", "kind": "belongs"}, {"source": "形容词与副词", "target": "比较级", "kind": "belongs"}, {"source": "形容词与副词", "target": "最高级", "kind": "belongs"}, {"source": "形容词与副词", "target": "频度副词", "kind": "belongs"}, {"source": "动词时态", "target": "一般现在时", "kind": "belongs"}, {"source": "动词时态", "target": "现在进行时", "kind": "belongs"}, {"source": "动词时态", "target": "一般过去时", "kind": "belongs"}, {"source": "动词时态", "target": "一般将来时", "kind": "belongs"}, {"source": "动词时态", "target": "现在完成时", "kind": "belongs"}, {"source": "情态动词", "target": "can / could", "kind": "belongs"}, {"source": "情态动词", "target": "must / have to", "kind": "belongs"}, {"source": "情态动词", "target": "should", "kind": "belongs"}, {"source": "句型", "target": "there be 句型", "kind": "belongs"}, {"source": "句型", "target": "祈使句", "kind": "belongs"}, {"source": "句型", "target": "一般疑问句", "kind": "belongs"}, {"source": "句型", "target": "特殊疑问句", "kind": "belongs"}, {"source": "句型", "target": "感叹句", "kind": "belongs"}, {"source": "连词与复合句", "target": "并列连词 and/but/or", "kind": "belongs"}, {"source": "连词与复合句", "target": "宾语从句", "kind": "belongs"}, {"source": "连词与复合句", "target": "状语从句", "kind": "belongs"}, {"source": "人称代词主宾格", "target": "物主代词", "kind": "prereq"}, {"source": "一般现在时", "target": "现在进行时", "kind": "prereq"}, {"source": "一般现在时", "target": "一般过去时", "kind": "prereq"}, {"source": "一般过去时", "target": "现在完成时", "kind": "prereq"}, {"source": "一般现在时", "target": "一般将来时", "kind": "prereq"}, {"source": "一般疑问句", "target": "特殊疑问句", "kind": "prereq"}, {"source": "形容词作定语与表语", "target": "比较级", "kind": "prereq"}, {"source": "比较级", "target": "最高级", "kind": "prereq"}, {"source": "可数与不可数名词", "target": "there be 句型", "kind": "prereq"}, {"source": "名词复数", "target": "可数与不可数名词", "kind": "prereq"}, {"source": "不定冠词 a/an", "target": "定冠词 the", "kind": "prereq"}, {"source": "一般现在时", "target": "频度副词", "kind": "prereq"}, {"source": "并列连词 and/but/or", "target": "宾语从句", "kind": "prereq"}, {"source": "特殊疑问句", "target": "宾语从句", "kind": "prereq"}, {"source": "can / could", "target": "must / have to", "kind": "prereq"}, {"source": "must / have to", "target": "should", "kind": "prereq"}]}};
+const MASTERED = .95;
+const FORMULAS = {
+  math: ['a²−b²=(a+b)(a−b)', '|a| ≥ 0', '(−1)ⁿ', '3x+5=20', 'S=πr²', '1/(n(n+2))', 'ab+ac=a(b+c)', '−2²=−4',
+         '∠AOB+∠BOC', 'x=−b/a', '0.9x−a=b', 'a/b ÷ c/d', '2n+1', '(5−x)²≥0', '|x−1|', 'm³+n²>0', 'LCM(a,b)', '40x−5(x−1)'],
+  english: ['be + doing', 'There is / There are', 'did', 'will + do', 'has done', 'a / an / the', 'more … than',
+            'the most …', 'can · must · should', 'What / Where / When', 'How beautiful!', 'and · but · or', '-s / -es', "Tom's"],
+};
+for (const k of ['math', 'english']) {
+  for (const n of DATA[k].nodes.filter(n => n.kind === 'module')) {
+    const pts = DATA[k].nodes.filter(p => p.module === n.id);
+    n.value = pts.reduce((s, p) => s + p.value, 0) / pts.length; n.count = pts.length;
+  }
+}
+let PALETTE = 'gold';   // 'gold' 金色，'rgy' 红黄绿
+const RED = [235, 87, 87], YELLOW = [242, 201, 76], GREEN = [88, 214, 141];
+function mix(a, b, k) { return a.map((x, i) => Math.round(x + (b[i] - x) * k)); }
+// 红黄绿：亮度 0.15→0.55 由红到黄，0.55→1 由黄到绿；没学的是灰色
+function rgyColor(v) { if (v < .1) return '110,112,124';
+  const c = v < .55 ? mix(RED, YELLOW, (v - .15) / .4) : mix(YELLOW, GREEN, (v - .55) / .45); return c.join(','); }
+function lighten(c, k) { return c.split(',').map(x => Math.round(+x + (255 - x) * k)).join(','); }
+const isGold = n => n.kind === 'point' ? n.value >= MASTERED : n.value >= .8;
+const lit = set => set.nodes.filter(n => n.kind === 'point' && n.value >= MASTERED).length;
+
+// 一张会动的星空：layout 用 d3-force，画面全部在 canvas 上逐帧绘制
+function Sky(canvas, set, subject, mini) {
+  const ctx = canvas.getContext('2d'), dpr = Math.min(devicePixelRatio || 1, 2);
+  let W = 0, H = 0;
+  const S = mini ? .62 : 1;
+  const nodes = set.nodes.map(d => ({...d})), links = set.links.map(l => ({...l}));
+  const size = n => (n.kind === 'vocab' ? 7 + Math.floor(n.value * 4) * 2.2 : n.kind === 'module' ? 3.4 + n.count * .25 : 1.6 + (PALETTE === 'rgy' && n.value >= .1 ? Math.max(n.value, .75) : n.value) * 1.4) * S;
+  function fit() { W = canvas.clientWidth; H = canvas.clientHeight; canvas.width = W * dpr; canvas.height = H * dpr; }
+  fit(); addEventListener('resize', fit);
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(l => (l.kind === 'belongs' ? 40 : 75) * S).strength(l => l.kind === 'belongs' ? .8 : .12))
+    .force('charge', d3.forceManyBody().strength(d => (d.kind === 'point' ? -70 : -380) * S))
+    .force('x', d3.forceX(() => W / 2).strength(.09)).force('y', d3.forceY(() => H / 2).strength(.13))
+    .force('collide', d3.forceCollide(d => size(d) + 9 * S)).alphaDecay(.02);
+  for (let i = 0; i < 260; i++) sim.tick();
+  sim.alphaTarget(.006);   // 一直保持一点点漂动
+
+  // 背景：细密的微尘 + 淡淡的公式
+  const dust = Array.from({length: mini ? 260 : 900}, () => ({x: Math.random(), y: Math.random(), r: Math.random() * .9 + .15,
+    a: Math.random() * .5 + .08, p: Math.random() * 6.28, s: Math.random() * .8 + .3, z: Math.random()}));
+  const words = mini ? [] : FORMULAS[subject].map((t, i) => ({t, x: .05 + Math.random() * .9, y: .08 + Math.random() * .86,
+    a: Math.random() * .08 + .05, f: 12 + Math.random() * 8, d: (Math.random() - .5) * .00003}));
+  // 背景装饰网络：不对应任何考点，只为让星空更饱满（像参考图那样细密）
+  const decor = Array.from({length: mini ? 70 : 220}, () => ({x: Math.random(), y: Math.random(), r: Math.random() * 1 + .4,
+    p: Math.random() * 6.28, z: Math.random() * .6 + .2}));
+  const decorLinks = [];
+  decor.forEach((a, i) => {
+    const near = decor.map((b, j) => [j, Math.hypot((a.x - b.x) * 1.6, a.y - b.y)]).filter(([j]) => j !== i).sort((u, v) => u[1] - v[1]).slice(0, 2);
+    near.forEach(([j, d]) => { if (d < .16 && i < j) decorLinks.push([a, decor[j]]); });
+  });
+  // 能量流：沿着点亮的连线流动的光点
+  const flows = [];
+  links.forEach(l => { const v = Math.min(l.source.value, l.target.value); if (v >= .45) for (let i = 0; i < (l.kind === 'prereq' ? 2 : 1); i++)
+    flows.push({l, t: Math.random(), sp: (Math.random() * .0025 + .0015) * (l.kind === 'prereq' ? 1.4 : 1)}); });
+  const bursts = [], rings = [];
+  let T = d3.zoomIdentity, hover = null, near = null, time = 0;
+
+  const accent = () => PALETTE === 'rgy' ? '88,214,141' : '255,206,120';
+  const nodeColor = n => PALETTE === 'rgy' ? rgyColor(n.value) : (isGold(n) || n.value >= .5) ? '255,206,120' : '230,226,210';
+  function glow(x, y, r, a, warm) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const c = warm === true ? '255,206,120' : warm === false ? '230,226,210' : warm;
+    g.addColorStop(0, `rgba(${c},${a})`); g.addColorStop(.35, `rgba(${c},${a * .35})`); g.addColorStop(1, `rgba(${c},0)`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  }
+  function flare(x, y, len, a, rot, c) {  // 四角星芒
+    c = c || '255,214,140'; const light = lighten(c, .5);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    for (const [dx, dy, l] of [[1, 0, len], [0, 1, len], [.7, .7, len * .45], [.7, -.7, len * .45]]) {
+      const g = ctx.createLinearGradient(-dx * l, -dy * l, dx * l, dy * l);
+      g.addColorStop(0, `rgba(${c},0)`); g.addColorStop(.5, `rgba(${light},${a})`); g.addColorStop(1, `rgba(${c},0)`);
+      ctx.strokeStyle = g; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-dx * l, -dy * l); ctx.lineTo(dx * l, dy * l); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  const dim = n => 1;
+  const hot = n => near && near.has(n.id);   // 悬停的星和与它相连的星
+
+  function frame() {
+    time += 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#030306'; ctx.fillRect(0, 0, W, H);
+    // 公式背景（不随缩放，像远处的背景）
+    ctx.textAlign = 'left';
+    for (const w of words) { w.x += w.d; ctx.font = `${w.f}px "Cambria Math","Times New Roman",serif`;
+      ctx.fillStyle = PALETTE === 'rgy' ? `rgba(200,206,222,${w.a})` : `rgba(230,214,170,${w.a})`; ctx.fillText(w.t, w.x * W, w.y * H); }
+    ctx.globalCompositeOperation = 'lighter';
+    // 微尘：远近两层，轻微视差
+    for (const d of dust) {
+      const px = (d.x * W + T.x * d.z * .15 + time * .02 * d.s) % W, py = (d.y * H + T.y * d.z * .15) % H;
+      const a = d.a * (.5 + .5 * Math.sin(time * .02 * d.s + d.p));
+      ctx.fillStyle = PALETTE === 'rgy' ? `rgba(215,222,240,${a})` : `rgba(255,${200 + d.z * 40 | 0},${130 + d.z * 90 | 0},${a})`;
+      ctx.fillRect((px + W) % W, (py + H) % H, d.r * 1.4, d.r * 1.4);
+    }
+    // 装饰网络（轻微视差、慢慢明暗）
+    const dx = d => ((d.x * W + T.x * d.z * .25) % W + W) % W, dy = d => ((d.y * H + T.y * d.z * .25) % H + H) % H;
+    ctx.lineWidth = .5;
+    for (const [a, b] of decorLinks) {
+      const ax = dx(a), ay = dy(a), bx = dx(b), by = dy(b);
+      if (Math.abs(ax - bx) > W / 3 || Math.abs(ay - by) > H / 3) continue;
+      ctx.strokeStyle = `rgba(${PALETTE === 'rgy' ? '160,168,190' : '255,190,100'},${.09 + .05 * Math.sin(time * .01 + a.p)})`;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    }
+    for (const d of decor) glow(dx(d), dy(d), d.r * 4, .3 + .2 * Math.sin(time * .025 + d.p), PALETTE === 'rgy' ? '170,178,200' : true);
+    ctx.save(); ctx.translate(T.x, T.y); ctx.scale(T.k, T.k);
+    // 连线
+    for (const l of links) {
+      const v = Math.min(l.source.value, l.target.value), m = Math.min(dim(l.source), dim(l.target));
+      const a = (l.kind === 'prereq' ? .16 + v * .6 : .1 + v * .42) * m;
+      const on = hover && (l.source === hover || l.target === hover);
+      const lc = PALETTE === 'rgy' ? mix(nodeColor(l.source).split(',').map(Number), nodeColor(l.target).split(',').map(Number), .5).join(',')
+        : (on ? '255,220,150' : '255,196,110');
+      ctx.strokeStyle = `rgba(${on ? lighten(lc, .25) : lc},${on ? .95 : a})`;
+      ctx.lineWidth = (on ? 1.8 : l.kind === 'prereq' ? .9 : .6) / Math.sqrt(T.k);
+      ctx.beginPath(); ctx.moveTo(l.source.x, l.source.y); ctx.lineTo(l.target.x, l.target.y); ctx.stroke();
+    }
+    // 能量流
+    for (const f of flows) {
+      const on = hover && (f.l.source === hover || f.l.target === hover);
+      f.t = (f.t + f.sp * (on ? 2.5 : 1)) % 1; const s = f.l.source, t = f.l.target;
+      glow(s.x + (t.x - s.x) * f.t, s.y + (t.y - s.y) * f.t, (on ? 6 : 4) * S, on ? .95 : .55, PALETTE === 'rgy' ? nodeColor(t) : true);
+    }
+    // 星星
+    for (const n of nodes) {
+      const v = Math.max(n.value, .05), r = size(n), m = dim(n), warm = isGold(n) || n.value >= .5;
+      const breathe = .85 + .15 * Math.sin(time * .03 + n.x * .05);
+      const nc = nodeColor(n);
+      if (PALETTE === 'rgy') {
+        // 红黄绿：不画星芒，只用光晕的大小和强弱表示掌握程度（掌握得越好光晕越大越亮）
+        if (n.value >= .1) { glow(n.x, n.y, r * (2.5 + v * 9) * breathe, .18 + v * .62, nc);
+          if (v >= .6) glow(n.x, n.y, r * (1.5 + v * 3), .25 + (v - .6) * 1.2, lighten(nc, .3)); }
+      } else glow(n.x, n.y, r * (3 + v * 5 + (isGold(n) ? 2.5 : 0)) * breathe, (.22 + v * .55) * m, warm);
+      ctx.fillStyle = PALETTE === 'rgy' ? `rgba(${lighten(nc, .35)},${n.value < .1 ? .35 : .9})`
+        : warm ? `rgba(255,236,196,${(.35 + v * .65) * m})` : `rgba(220,218,206,${(.2 + v * .6) * m})`;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r * (n.value < .1 ? .7 : 1), 0, 6.283); ctx.fill();
+      if (hot(n)) glow(n.x, n.y, r * (n === hover ? 10 : 6), n === hover ? .55 : .3, PALETTE === 'rgy' ? nc : true);
+      if (n === hover) for (let k = 0; k < 2; k++) { const ph = ((time * .012) + k * .5) % 1;
+        ctx.strokeStyle = `rgba(${PALETTE === 'rgy' ? lighten(nc, .3) : '255,220,150'},${(1 - ph) * .8})`; ctx.lineWidth = 1.2 / T.k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r + ph * 26, 0, 6.283); ctx.stroke(); }
+      if (PALETTE !== 'rgy' && (isGold(n) || n.kind === 'vocab' || n === hover)) flare(n.x, n.y, r * (n.kind === 'point' ? 11 : 14) * breathe, .85 * m, time * .0015 + n.x, PALETTE === 'rgy' ? nc : null);
+    }
+    // 点亮时刻的光环与迸发
+    for (let i = rings.length - 1; i >= 0; i--) { const g = rings[i]; g.r += 1.6; g.a *= .965;
+      if (g.a < .02) { rings.splice(i, 1); continue; }
+      ctx.strokeStyle = `rgba(${accent()},${g.a})`; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, 6.283); ctx.stroke(); }
+    for (let i = bursts.length - 1; i >= 0; i--) { const b = bursts[i]; b.x += b.vx; b.y += b.vy; b.vx *= .96; b.vy *= .96; b.life--;
+      if (b.life <= 0) { bursts.splice(i, 1); continue; } glow(b.x, b.y, b.r * 3, b.life / b.max, PALETTE === 'rgy' ? accent() : true); }
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  const api = {nodes, sim, setHover(n) { hover = n; if (!n) { near = null; return; }
+      near = new Set([n.id]); links.forEach(l => { if (l.source.id === n.id) near.add(l.target.id); if (l.target.id === n.id) near.add(l.source.id); }); },
+    find(px, py) { const [x, y] = T.invert([px, py]); let best = null, bd = 1e9;
+      for (const n of nodes) { const d = Math.hypot(n.x - x, n.y - y); if (d < bd && d < size(n) + 10 / T.k) { bd = d; best = n; } } return best; },
+    toScreen(n) { return T.apply([n.x, n.y]); },
+    setTransform(t) { T = t; },
+    light(n) { n.value = MASTERED; rings.push({x: n.x, y: n.y, r: size(n), a: .9});
+      for (let i = 0; i < 110; i++) { const a = Math.random() * 6.28, v = Math.random() * 2.2 + .4, life = 50 + Math.random() * 60;
+        bursts.push({x: n.x, y: n.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: Math.random() * 1.2 + .5, life, max: life}); } }};
+  return api;
+}
+
+// ---------- 首页缩略图 ----------
+const miniSky = Sky(document.getElementById('miniCanvas'), DATA.math, 'math', true);
+document.getElementById('miniCount').textContent = lit(DATA.math) + lit(DATA.english);
+
+// ---------- 全屏 ----------
+const canvas = document.getElementById('skyCanvas'), tip = document.getElementById('tip'), card = document.getElementById('card2');
+let sky = null, subject = 'math';
+const zoom = d3.zoom().scaleExtent([.4, 4]).on('zoom', e => sky && sky.setTransform(e.transform));
+d3.select(canvas).call(zoom);
+function open(s) {
+  subject = s; card.classList.remove('show');
+  document.querySelectorAll('.tabs:not(.pal) button').forEach(b => b.classList.toggle('on', b.dataset.s === s));
+  // 每次切换重建一张星空（旧的停止漂动）
+  if (sky) sky.sim.stop();
+  canvas.replaceWith(canvas); sky = Sky(canvas, DATA[s], s, false); d3.select(canvas).call(zoom.transform, d3.zoomIdentity);
+  document.getElementById('count2').innerHTML = `<b>${lit(DATA[s])}</b> 颗已点亮`;
+}
+canvas.addEventListener('mousemove', e => {
+  if (!sky) return; const n = sky.find(e.offsetX, e.offsetY); sky.setHover(n);
+  canvas.style.cursor = n ? 'pointer' : 'grab';
+  if (n) { const [x, y] = sky.toScreen(n); tip.textContent = n.id; tip.style.left = (x + 12) + 'px'; tip.style.top = (y - 10) + 'px'; tip.style.opacity = 1; }
+  else tip.style.opacity = 0;
+});
+canvas.addEventListener('mouseleave', () => { sky && sky.setHover(null); tip.style.opacity = 0; });
+canvas.addEventListener('click', e => {
+  const n = sky && sky.find(e.offsetX, e.offsetY); if (!n) { card.classList.remove('show'); return; }
+  const pct = Math.round(n.value * 100);
+  const state = n.kind === 'vocab' ? `已掌握 ${n.mastered} / ${n.total} 个词` : n.value < .1 ? '还没学' : n.value >= MASTERED ? '已掌握' : n.value < .4 ? '需要加油' : '继续练习，会更亮';
+  card.innerHTML = `<div class="n">${n.id}</div><div class="bar"><i style="width:${pct}%"></i></div><div class="s">${state}</div>`;
+  card.classList.add('show');
+});
+function moment() {
+  const picks = sky.nodes.filter(n => n.kind === 'point' && n.value >= .5 && n.value < MASTERED).slice(0, 3);
+  document.getElementById('toastB').textContent = `点亮了 ${picks.length} 颗星`;
+  const t = document.getElementById('toast'); t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
+  picks.forEach((n, i) => setTimeout(() => sky.light(n), 700 + i * 450));
+  setTimeout(() => document.getElementById('count2').innerHTML = `<b>${sky.nodes.filter(n => n.kind === 'point' && n.value >= MASTERED).length}</b> 颗已点亮`, 2200);
+}
+document.getElementById('mini').onclick = () => { document.getElementById('sky').classList.add('show'); open('math'); };
+document.getElementById('close').onclick = () => document.getElementById('sky').classList.remove('show');
+document.getElementById('moment').onclick = moment;
+document.querySelectorAll('.tabs:not(.pal) button').forEach(b => b.onclick = () => open(b.dataset.s));
+document.querySelectorAll('.pal button').forEach(b => b.onclick = () => { PALETTE = b.dataset.p;
+  document.querySelectorAll('.pal button').forEach(x => x.classList.toggle('on', x === b));
+  document.getElementById('legend').classList.toggle('show', PALETTE === 'rgy'); });
+</script></body></html>
