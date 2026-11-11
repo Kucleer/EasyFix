@@ -549,6 +549,63 @@ def test_seed_builder_rejects_unknown_code():
     raise AssertionError('没有报错')
 
 
+# ---------------------------------------------------------------- 任务 5：英语重新打标
+
+
+def link_by_code(c, qid, code, primary):
+    """按考点编号给错题加一条关联。"""
+    point_id = c.execute('SELECT id FROM knowledge_point WHERE code=? AND deleted=0', (code,)).fetchone()[0]
+    c.execute('INSERT INTO question_knowledge_point(question_id,knowledge_point_id,is_primary,source,deleted) '
+              "VALUES(?,?,?,'manual',0)", (qid, point_id, primary))
+
+
+def test_retag_replaces_english_links():
+    """重新打标：旧关联与旧英语考点软删除，新关联写入且主考点正确，数学不变，重复执行结果不变。"""
+    import intake
+    from starmap_retag import build_retag_sql
+    c = build_database_with_catalog()
+    c.executescript(SEED_0013.read_text(encoding='utf-8'))
+    for qid, subject_id in ((1, 2), (2, 2), (3, 2), (4, 1)):
+        c.execute('INSERT INTO question(id,subject_id,original_text,parsed_question,review_count,correct_count,'
+                  "error_count,deleted,created_at,updated_at,knowledge_revision) VALUES(?,?,'题','题',0,0,0,0,"
+                  "'2026-10-01','2026-10-01',0)", (qid, subject_id))
+    link_by_code(c, 1, 'E6-TEN-01', 1)
+    link_by_code(c, 2, 'E6-PRO-01', 1)
+    link_by_code(c, 4, 'M6-RAT-07', 1)
+    c.commit()
+    mapping = [{'question_id': 1, 'point_codes': ['EG-TEN-01'], 'primary_code': 'EG-TEN-01'},
+               {'question_id': 2, 'point_codes': ['EG-PRO-01', 'EG-PRO-02'], 'primary_code': 'EG-PRO-02'},
+               {'question_id': 3, 'point_codes': [], 'primary_code': None}]
+    sql = build_retag_sql(mapping)
+    c.executescript(sql)
+    c.executescript(sql)
+    live = lambda qid: sorted(tuple(r) for r in c.execute(
+        'SELECT k.code, l.is_primary FROM question_knowledge_point l JOIN knowledge_point k ON k.id=l.knowledge_point_id '
+        'WHERE l.question_id=? AND l.deleted=0', (qid,)).fetchall())
+    assert [tuple(r) for r in live(1)] == [('EG-TEN-01', 1)]
+    assert [tuple(r) for r in live(2)] == [('EG-PRO-01', 0), ('EG-PRO-02', 1)]
+    assert live(3) == []
+    assert [tuple(r) for r in live(4)] == [('M6-RAT-07', 1)]
+    assert c.execute("SELECT COUNT(*) FROM knowledge_point WHERE code LIKE 'E6-%' AND deleted=0").fetchone()[0] == 0
+    assert c.execute('SELECT knowledge_point FROM question WHERE id=2').fetchone()[0] == '物主代词'
+    db = adapter(c)
+    catalog = run(intake.load_catalog(db, 2, 6, 1))
+    codes = {row[0] for row in c.execute('SELECT code FROM knowledge_point WHERE deleted=0 AND subject_id=2')}
+    assert catalog and all(code.startswith('EG-') for code in codes)
+
+
+def test_retag_rejects_bad_mapping():
+    """主考点不在考点列表里、或编号不是英语新体系，生成时报错。"""
+    from starmap_retag import build_retag_sql
+    for bad in ([{'question_id': 1, 'point_codes': ['EG-TEN-01'], 'primary_code': 'EG-TEN-02'}],
+                [{'question_id': 1, 'point_codes': ['M6-RAT-07'], 'primary_code': 'M6-RAT-07'}]):
+        try:
+            build_retag_sql(bad)
+        except ValueError:
+            continue
+        raise AssertionError('没有报错：%r' % bad)
+
+
 TESTS = [
     test_migration_adds_tables_and_column,
     test_migration_is_rerunnable,
@@ -575,6 +632,8 @@ TESTS = [
     test_starmap_query_count_is_fixed,
     test_seed_sql_applies_and_is_rerunnable,
     test_seed_builder_rejects_unknown_code,
+    test_retag_replaces_english_links,
+    test_retag_rejects_bad_mapping,
 ]
 
 
