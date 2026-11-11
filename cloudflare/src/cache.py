@@ -4,7 +4,7 @@ import time
 from database import Database
 
 ENTRIES={}
-PATHS={'/api/stats/summary','/api/stats/today','/api/stats/overview','/api/stats/knowledge-points','/api/stats/analysis/full'}
+PATHS={'/api/stats/summary','/api/stats/today','/api/stats/overview','/api/stats/knowledge-points','/api/stats/analysis/full','/api/starmap'}
 
 
 async def lookup(request):

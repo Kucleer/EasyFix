@@ -21,6 +21,7 @@ from reports import router as reports_router
 from intake import router as intake_router
 from papers import router as papers_router
 from similar import router as similar_router
+from starmap import router as starmap_router
 from media import router as media_router
 
 app = FastAPI(title='EasyFix Cloudflare', docs_url=None, redoc_url=None, openapi_url=None)
@@ -36,6 +37,7 @@ app.include_router(reports_router)
 app.include_router(intake_router)
 app.include_router(papers_router)
 app.include_router(similar_router)
+app.include_router(starmap_router)
 app.include_router(media_router)
 app.include_router(catalog_router)
 app.include_router(knowledge_router)

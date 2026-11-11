@@ -203,6 +203,289 @@ def test_lighting():
     assert lighting({1, 2, 3}, {1, 4}) == ({2, 3}, {1})
 
 
+# ---------------------------------------------------------------- 任务 3：取数与接口
+
+
+class FakeEnv:
+    """只带 DB 绑定的假 env。"""
+
+    def __init__(self, db):
+        self.DB = db
+
+
+class FakeRequest:
+    """伪造 FastAPI 的 Request，只提供 scope 与 json()。"""
+
+    def __init__(self, payload, db):
+        self.scope = {'env': FakeEnv(db)}
+        self.payload = payload
+
+    async def json(self):
+        """返回构造时给定的请求体。"""
+        return self.payload
+
+
+def request_for(db, payload=None):
+    """造一个假请求，并让 starmap、settings 模块直接使用传入的 db。"""
+    import settings
+    import starmap
+    starmap.Database = lambda binding: binding
+    settings.Database = lambda binding: binding
+    return FakeRequest(payload, db)
+
+
+def add_question(c, qid, subject_id, created_at, points, status='approved', deleted=0, paper_id=None):
+    """插入一道错题和它的考点关联（第一个考点是主考点）。"""
+    c.execute('INSERT INTO question(id,subject_id,original_text,parsed_question,review_count,correct_count,error_count,'
+              'deleted,created_at,updated_at,review_status,paper_id) VALUES(?,?,?,?,0,0,0,0,?,?,?,?)',
+              (qid, subject_id, '题%d' % qid, '题%d' % qid, created_at, created_at, status, paper_id))
+    for index, point_id in enumerate(points):
+        c.execute('INSERT INTO question_knowledge_point(question_id,knowledge_point_id,is_primary,source,deleted) '
+                  'VALUES(?,?,?,?,0)', (qid, point_id, 1 if index == 0 else 0, 'test'))
+    if deleted:
+        c.execute('UPDATE question SET deleted=1 WHERE id=?', (qid,))
+
+
+def add_paper(c, paper_id, subject_id, paper_date, source='agent'):
+    """插入一份卷子。"""
+    c.execute('INSERT INTO paper(id,subject_id,name,paper_date,source,deleted) VALUES(?,?,?,?,?,0)',
+              (paper_id, subject_id, '卷子%d' % paper_id, paper_date, source))
+
+
+def add_practice(c, practice_id, reviewed_at, items, deleted=0, subject_id=1):
+    """插入一份已批改的练习卷：items 为 [(错题编号, 是否做对或 None, 是否删除)]。"""
+    c.execute('INSERT INTO practice_set(id,name,subject_id,deleted,last_reviewed_at,reviewed) VALUES(?,?,?,?,?,1)',
+              (practice_id, '练习%d' % practice_id, subject_id, deleted, reviewed_at))
+    for order, (qid, correct, item_deleted) in enumerate(items):
+        c.execute('INSERT INTO practice_set_question(practice_set_id,question_id,is_correct,display_order,deleted) '
+                  'VALUES(?,?,?,?,?)', (practice_id, qid, correct, order, item_deleted))
+
+
+def add_section(c, section_id, subject_id, chapter_no, section_no, sort_order, point_ids):
+    """插入教材的一节和它对应的考点。"""
+    c.execute('INSERT INTO textbook_section(id,subject_id,textbook,chapter_no,chapter_name,section_no,section_name,'
+              'sort_order,deleted) VALUES(?,?,?,?,?,?,?,?,0)',
+              (section_id, subject_id, '测试教材', chapter_no, '第%d章' % chapter_no, section_no, '节' + section_no,
+               sort_order))
+    for point_id in point_ids:
+        c.execute('INSERT INTO textbook_section_point(section_id,knowledge_point_id,deleted) VALUES(?,?,0)',
+                  (section_id, point_id))
+
+
+def set_config(c, name, value):
+    """写入一条应用配置。"""
+    import json
+    c.execute('INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES(?,?,0,CURRENT_TIMESTAMP) '
+              'ON CONFLICT(name) DO UPDATE SET value=excluded.value', (name, json.dumps(value)))
+
+
+def math_fixture():
+    """数学场景：101 两道错题后练习做对一次；章节 4.1→111、4.2→112，进度 4.1；101→102 先学后学。"""
+    c = build_database()
+    add_question(c, 1, 1, '2026-10-01 08:00:00', [101])
+    add_question(c, 2, 1, '2026-10-02 08:00:00', [101])
+    add_practice(c, 1, '2026-10-05 08:00:00', [(1, 1, 0)])
+    add_section(c, 1, 1, 4, '4.1', 41, [111])
+    add_section(c, 2, 1, 4, '4.2', 42, [112])
+    c.execute('INSERT INTO knowledge_link(from_point_id,to_point_id,deleted) VALUES(101,102,0)')
+    set_config(c, 'starmap', {'progress': {'1': '4.1'}})
+    c.commit()
+    return c
+
+
+def view(c, subject_id):
+    """调用 GET /api/starmap，返回内容。"""
+    import starmap
+    db = adapter(c)
+    return run(starmap.starmap_view(request_for(db), subject_id))
+
+
+def by_id(body):
+    """把返回的节点按编号整理成字典。"""
+    return {node['id']: node for node in body['nodes']}
+
+
+def expect_http_error(status, coroutine):
+    """运行协程，要求抛出指定状态码的 HTTPException。"""
+    from fastapi import HTTPException
+    try:
+        run(coroutine)
+    except HTTPException as error:
+        assert error.status_code == status, error.status_code
+        return
+    raise AssertionError('没有抛出 %d' % status)
+
+
+def test_starmap_basic_math():
+    """数学：掌握度、状态、最近结果、学过与没学、连线。"""
+    body = view(math_fixture(), 1)
+    node = by_id(body)
+    assert abs(node[101]['value'] - 0.35) < 1e-9 and node[101]['status'] == 'weak'
+    assert node[101]['recent'] == ['wrong', 'wrong', 'right'] and node[101]['wrong_count'] == 2
+    assert node[102]['value'] == 0.5                      # 有理数模块没有章节对应 → 学过
+    assert node[111]['status'] == 'fair' and node[111]['value'] == 0.5
+    assert node[112]['status'] == 'unlearned' and node[112]['value'] is None
+    assert node[121]['value'] == 0.5                      # 课本外模块 → 学过
+    assert {'source': 100, 'target': 101, 'kind': 'belongs'} in body['links']
+    assert {'source': 101, 'target': 102, 'kind': 'prereq'} in body['links']
+    assert body['vocab'] is None and body['subject_name'] == '数学'
+    assert 200 not in node                                 # 只返回本学科
+
+
+def test_starmap_uses_paper_date_for_wrong_questions():
+    """错题时间优先用卷子日期：卷子 10-01 的错题排在 10-03~10-05 三次练习做对之前 → 掌握。"""
+    c = math_fixture()
+    add_paper(c, 9, 1, '2026-10-01')
+    add_question(c, 3, 1, '2026-10-10 08:00:00', [102], paper_id=9)
+    for practice_id, day in ((2, '03'), (3, '04'), (4, '05')):
+        add_practice(c, practice_id, '2026-10-%s 09:00:00' % day, [(3, 1, 0)])
+    c.commit()
+    assert by_id(view(c, 1))[102]['value'] == 1
+    # 历史作业卷子的日期不可靠，改用录入时间：三次做对之后再错 → 0.85
+    c.execute("UPDATE paper SET source='history' WHERE id=9")
+    c.commit()
+    assert abs(by_id(view(c, 1))[102]['value'] - 0.85) < 1e-9
+
+
+def test_starmap_ignores_deleted_and_pending():
+    """待核对错题、软删除错题、软删除关联、删除的练习卷和练习题、未批改的练习题都不影响掌握度。"""
+    c = math_fixture()
+    before = by_id(view(c, 1))[101]
+    add_question(c, 10, 1, '2026-10-06 08:00:00', [101], status='pending')
+    add_question(c, 11, 1, '2026-10-06 08:00:00', [101], deleted=1)
+    add_question(c, 12, 1, '2026-10-06 08:00:00', [101])
+    c.execute('UPDATE question_knowledge_point SET deleted=1 WHERE question_id=12')
+    add_practice(c, 5, '2026-10-07 08:00:00', [(1, 1, 0)], deleted=1)
+    add_practice(c, 6, '2026-10-07 08:00:00', [(1, 1, 1), (2, None, 0)])
+    c.commit()
+    after = by_id(view(c, 1))[101]
+    assert (after['value'], after['recent'], after['wrong_count']) == (
+        before['value'], before['recent'], before['wrong_count'])
+
+
+def test_starmap_adjust_only_point_is_learned():
+    """没学的考点只要有一条手动调整，就算学过：0.5 + 0.15 = 0.65。"""
+    c = math_fixture()
+    c.execute("INSERT INTO mastery_adjustment(knowledge_point_id,kind,created_at) VALUES(112,'up_small','2026-10-08')")
+    c.commit()
+    node = by_id(view(c, 1))[112]
+    assert node['status'] != 'unlearned' and abs(node['value'] - 0.65) < 1e-9
+
+
+def test_starmap_upper_nodes():
+    """一级模块取已学子考点平均值。"""
+    node = by_id(view(math_fixture(), 1))
+    assert abs(node[100]['value'] - (0.35 + 0.5) / 2) < 1e-9
+    assert abs(node[110]['value'] - 0.5) < 1e-9          # 只算已学的 111
+
+
+def test_starmap_english_learn_grade_and_vocab():
+    """英语：学习年级不高于默认年级的算学过；词汇星团按单词本"正确率超过 80%"算掌握。"""
+    c = build_database()
+    set_config(c, 'app', {'default_grade': 6, 'default_semester': 1})
+    for wid, review, correct in ((1, 5, 5), (2, 10, 9), (3, 4, 1)):
+        c.execute("INSERT INTO word(id,english,chinese,review_count,correct_count,deleted,created_at,updated_at) "
+                  "VALUES(?,?,'词',?,?,0,'2026-10-01','2026-10-01')", (wid, 'w%d' % wid, review, correct))
+    c.commit()
+    body = view(c, 2)
+    node = by_id(body)
+    assert node[201]['value'] == 0.5 and node[202]['status'] == 'unlearned'
+    assert body['vocab']['mastered'] == 2 and body['vocab']['total'] == 3 and body['vocab']['stage'] == 2
+
+
+def test_starmap_vocab_empty():
+    """单词本为空时词汇星团是 0，不报错。"""
+    body = view(build_database(), 2)
+    assert body['vocab'] == {'mastered': 0, 'total': 0, 'ratio': 0, 'stage': 0}
+
+
+def test_starmap_lighting_flow():
+    """第一次不播放；新掌握的播放；看过后不再播放；掉出后再掌握又播放。"""
+    import starmap
+    c = math_fixture()
+    assert view(c, 1)['to_play'] == []
+    add_practice(c, 7, '2026-10-06 08:00:00', [(1, 1, 0)])
+    add_practice(c, 8, '2026-10-07 08:00:00', [(2, 1, 0)])
+    c.commit()
+    body = view(c, 1)
+    assert body['to_play'] == [101] and body['mastered_count'] == 1
+    db = adapter(c)
+    run(starmap.mark_seen(request_for(db, {'subject_id': 1, 'point_ids': [101]})))
+    assert view(c, 1)['to_play'] == []
+    add_question(c, 20, 1, '2026-10-08 08:00:00', [101])
+    c.commit()
+    assert view(c, 1)['to_play'] == []                   # 掉出掌握
+    for practice_id, day in ((9, '09'), (10, '10'), (11, '11')):
+        add_practice(c, practice_id, '2026-10-%s 08:00:00' % day, [(20, 1, 0)])
+    c.commit()
+    assert view(c, 1)['to_play'] == [101]
+
+
+def test_adjustment_endpoints():
+    """新增、展开一级考点、校验、撤销。"""
+    import starmap
+    c = math_fixture()
+    db = adapter(c)
+    created = run(starmap.add_adjustment(request_for(db, {'knowledge_point_id': 102, 'kind': 'up_small'})))
+    assert created[0]['knowledge_point_id'] == 102 and created[0]['kind'] == 'up_small'
+    expanded = run(starmap.add_adjustment(request_for(db, {'knowledge_point_id': 110, 'kind': 'down_small'})))
+    assert sorted(item['knowledge_point_id'] for item in expanded) == [111]     # 112 没学，不展开
+    expect_http_error(422, starmap.add_adjustment(request_for(db, {'knowledge_point_id': 102, 'kind': 'bad'})))
+    expect_http_error(404, starmap.add_adjustment(request_for(db, {'knowledge_point_id': 999, 'kind': 'up_small'})))
+    listing = run(starmap.list_adjustments(request_for(db), 1))
+    assert {item['knowledge_point_id'] for item in listing} == {102, 111}
+    assert abs(by_id(view(c, 1))[102]['value'] - 0.65) < 1e-9
+    target = next(item['id'] for item in listing if item['knowledge_point_id'] == 102)
+    run(starmap.remove_adjustment(target, request_for(db)))
+    assert by_id(view(c, 1))[102]['value'] == 0.5
+    assert {item['knowledge_point_id'] for item in run(starmap.list_adjustments(request_for(db), 1))} == {111}
+
+
+def test_progress_endpoints():
+    """读取节列表、修改进度后 112 变成学过、不存在的节 422。"""
+    import starmap
+    c = math_fixture()
+    db = adapter(c)
+    body = run(starmap.get_progress(request_for(db), 1))
+    assert body['section_no'] == '4.1' and [s['section_no'] for s in body['sections']] == ['4.1', '4.2']
+    run(starmap.save_progress(request_for(db, {'section_no': '4.2'}), 1))
+    assert by_id(view(c, 1))[112]['value'] == 0.5
+    expect_http_error(422, starmap.save_progress(request_for(db, {'section_no': '9.9'}), 1))
+
+
+class CountingDB(SQLiteDB):
+    """记录执行了多少条 SQL 的数据库适配器。"""
+
+    def __init__(self, connection):
+        super().__init__(connection)
+        self.calls = 0
+
+    async def all(self, sql, parameters=()):
+        self.calls += 1
+        return await super().all(sql, parameters)
+
+    async def first(self, sql, parameters=()):
+        self.calls += 1
+        return await super().first(sql, parameters)
+
+
+def test_starmap_query_count_is_fixed():
+    """考点多少不影响 SQL 条数（不逐个考点查询）。"""
+    import starmap
+    small = math_fixture()
+    counter_small = CountingDB(small)
+    run(starmap.starmap_view(request_for(counter_small), 1))
+    big = math_fixture()
+    for offset in range(20):
+        big.execute('INSERT INTO knowledge_point(id,name,name_key,subject_id,level,parent_id,sort_order,deleted) '
+                    'VALUES(?,?,?,1,2,120,0,0)', (300 + offset, '考点%d' % offset, 'kp%d' % offset))
+        add_question(big, 100 + offset, 1, '2026-10-0%d 08:00:00' % (offset % 9 + 1), [300 + offset])
+    big.commit()
+    counter_big = CountingDB(big)
+    run(starmap.starmap_view(request_for(counter_big), 1))
+    assert counter_small.calls == counter_big.calls, (counter_small.calls, counter_big.calls)
+
+
 TESTS = [
     test_migration_adds_tables_and_column,
     test_migration_is_rerunnable,
@@ -216,6 +499,17 @@ TESTS = [
     test_status_and_recent,
     test_vocab_progress,
     test_lighting,
+    test_starmap_basic_math,
+    test_starmap_uses_paper_date_for_wrong_questions,
+    test_starmap_ignores_deleted_and_pending,
+    test_starmap_adjust_only_point_is_learned,
+    test_starmap_upper_nodes,
+    test_starmap_english_learn_grade_and_vocab,
+    test_starmap_vocab_empty,
+    test_starmap_lighting_flow,
+    test_adjustment_endpoints,
+    test_progress_endpoints,
+    test_starmap_query_count_is_fixed,
 ]
 
 
