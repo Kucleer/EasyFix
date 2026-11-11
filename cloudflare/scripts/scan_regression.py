@@ -52,7 +52,7 @@ import local_dev_server  # noqa: E402  复用本机测试环境：应用、真�
 IMAGE_TYPES = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp'}
 STEP_KEYS = ('read_ms', 'analyze_ms', 'rescan_ms', 'analyze2_ms', 'host_read_ms', 'host_rescan_ms')
 CSV_HEADER = (['图名', '状态', '题数', '做错数', '拿不准数', '带提示数', '是否重扫']
-              + list(STEP_KEYS) + ['总用时_ms'])
+              + list(STEP_KEYS) + ['总用时_ms', '备注'])
 MAX_ADVANCE_ROUNDS = 40  # 一页最多推进的次数，防止卡住的页面无限循环
 BUSY_WAIT_SECONDS = 0.5
 DEFAULT_OUT_ROOT = pathlib.Path.home() / '.easyfix' / 'scan-regression'
@@ -105,7 +105,7 @@ def find_subject_id(client, name):
 
 
 def run_one_image(client, connection, image_path, subject_id, grade, semester):
-    """把一张图走完整流程，返回 (页面视图, 识别原文, 重扫后原文, 总用时毫秒)。"""
+    """把一张图走完整流程，返回 (页面视图, 识别原文, 重扫后原文, 总用时毫秒, 备注)。"""
     started = time.monotonic()
     upload = client.post('/api/upload/file', files={
         'file': (image_path.name, image_path.read_bytes(), IMAGE_TYPES[image_path.suffix.lower()])})
@@ -120,7 +120,10 @@ def run_one_image(client, connection, image_path, subject_id, grade, semester):
     for _ in range(MAX_ADVANCE_ROUNDS):
         if page['status'] in ('ready', 'failed'):
             break
-        result = client.post('/api/scan/pages/%d/advance' % page_id).json()
+        response = client.post('/api/scan/pages/%d/advance' % page_id)
+        if response.status_code != 200:
+            raise RegressionError('推进失败（%s）：%s' % (response.status_code, response.text[:200]))
+        result = response.json()
         page = result['page']
         if result['busy']:
             # 别的请求正在做这一步：稍等再查一次状态
@@ -129,10 +132,11 @@ def run_one_image(client, connection, image_path, subject_id, grade, semester):
     total_ms = int((time.monotonic() - started) * 1000)
     # OCR 原文不在接口的页面视图里，直接从库里读
     row = connection.execute('SELECT ocr_text, ocr_text_enhanced FROM scan_page WHERE id=?', (page_id,)).fetchone()
-    return page, row['ocr_text'], row['ocr_text_enhanced'], total_ms
+    note = '' if page['status'] in ('ready', 'failed') else '超过推进次数，页面停在 %s' % page['status']
+    return page, row['ocr_text'], row['ocr_text_enhanced'], total_ms, note
 
 
-def summarize_page(name, page, total_ms):
+def summarize_page(name, page, total_ms, note=''):
     """把一页整理成 summary.csv 的一行。"""
     items = page['items']
     timings = page['timings']
@@ -141,7 +145,7 @@ def summarize_page(name, page, total_ms):
              sum(1 for item in items if item.get('verdict') == 'unsure'),
              sum(1 for item in items if item.get('flags')),
              '是' if page['rescan_used'] == 1 else '否']
-            + [timings.get(key, '') for key in STEP_KEYS] + [total_ms])
+            + [timings.get(key, '') for key in STEP_KEYS] + [total_ms, note])
 
 
 def describe_item(item):
@@ -157,9 +161,11 @@ def describe_item(item):
     return line
 
 
-def make_comparison_section(name, page):
+def make_comparison_section(name, page, note=''):
     """对照表里一页的一段：模型判错的、拿不准的、判对的题。"""
     lines = ['## %s（%s%s）' % (name, page['status'], '，重扫过' if page['rescan_used'] == 1 else '')]
+    if note:
+        lines.append('备注：%s' % note)
     if page.get('error'):
         lines.append('失败提示：%s' % page['error'])
     for title, verdict in (('模型判错', 'wrong'), ('拿不准', 'unsure'), ('模型判对', 'right')):
@@ -168,6 +174,28 @@ def make_comparison_section(name, page):
         lines.append('### %s（%d 道）' % (title, len(group)))
         lines.extend(describe_item(item) for item in group)
     return '\n'.join(lines) + '\n'
+
+
+def make_error_section(name, message):
+    """对照表里一张出错图的一段。"""
+    return '## %s（error）' % name + chr(10) + '备注：%s' % message + chr(10)
+
+
+def read_config_file(path, label, parse_json=False):
+    """读口令或配置文件；找不到、读不了、JSON 不对都给中文提示，不打印文件内容。"""
+    try:
+        text = local_dev_server.read_text_file(path)
+    except (OSError, UnicodeDecodeError):
+        raise RegressionError('读不了 %s 指定的文件：%s' % (label, path))
+    if not parse_json:
+        return text.strip()
+    try:
+        config = json.loads(text)
+    except ValueError:
+        raise RegressionError('%s 指定的文件不是有效的 JSON：%s' % (label, path))
+    if not isinstance(config, dict):
+        raise RegressionError('%s 指定的文件内容应是一个 JSON 对象：%s' % (label, path))
+    return config
 
 
 def print_timing_summary(totals_ms):
@@ -200,9 +228,8 @@ def run_regression(arguments):
     check_outside_repo(out_dir, '--out')
     images = list_images(arguments.images)
     # 口令和模型配置只从文件读（去掉 BOM 和首尾空白），不打印
-    ocr_key = (local_dev_server.read_text_file(arguments.ocr_key_file).strip()
-               if arguments.ocr_key_file else None)
-    llm_config = (json.loads(local_dev_server.read_text_file(arguments.llm_config))
+    ocr_key = read_config_file(arguments.ocr_key_file, '--ocr-key-file') if arguments.ocr_key_file else None
+    llm_config = (read_config_file(arguments.llm_config, '--llm-config', parse_json=True)
                   if arguments.llm_config else None)
     if arguments.ocr_url and not ocr_key:
         print('警告：给了 --ocr-url 但没有 --ocr-key-file，访问识别服务时不会带口令，可能被拒绝。')
@@ -217,13 +244,20 @@ def run_regression(arguments):
               % ('真实' if arguments.ocr_url else '假的', '真实' if llm_config else '假的', len(images)))
         rows, sections, totals_ms = [], [], []
         for index, image_path in enumerate(images, start=1):
-            page, ocr_text, ocr_text_enhanced, total_ms = run_one_image(
-                client, connection, image_path, subject_id, arguments.grade, arguments.semester)
+            try:
+                page, ocr_text, ocr_text_enhanced, total_ms, note = run_one_image(
+                    client, connection, image_path, subject_id, arguments.grade, arguments.semester)
+            except RegressionError as error:
+                # 一张图出错不影响其他图：记一行 error，继续往下跑
+                rows.append([image_path.name, 'error'] + [''] * (len(CSV_HEADER) - 3) + [str(error)])
+                sections.append(make_error_section(image_path.name, str(error)))
+                print('[%d/%d] %s：出错，%s' % (index, len(images), image_path.name, error))
+                continue
             (out_dir / (image_path.name + '.json')).write_text(json.dumps(
                 {**page, 'ocr_text': ocr_text, 'ocr_text_enhanced': ocr_text_enhanced},
                 ensure_ascii=False, indent=2), encoding='utf-8')
-            rows.append(summarize_page(image_path.name, page, total_ms))
-            sections.append(make_comparison_section(image_path.name, page))
+            rows.append(summarize_page(image_path.name, page, total_ms, note))
+            sections.append(make_comparison_section(image_path.name, page, note))
             totals_ms.append(total_ms)
             print('[%d/%d] %s：%s，%.1f 秒' % (index, len(images), image_path.name, page['status'], total_ms / 1000))
     # utf-8-sig 让 Excel 直接打开不乱码

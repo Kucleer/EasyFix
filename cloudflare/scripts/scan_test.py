@@ -1361,6 +1361,23 @@ def test_regression_script_runs_with_fakes_and_refuses_repo_paths():
             saved_page = json.loads((out / 'a.png.json').read_text(encoding='utf-8'))
             assert saved_page['ocr_text'] and len(saved_page['items']) == 3
             assert (out / '对照表.md').exists()
+            # 一张坏图（空文件）不拖垮整批：记 error 行，汇总和对照表照常写出
+            (images / 'c_bad.png').write_bytes(b'')
+            out2 = temp / 'out2'
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = scan_regression.main(['--images', str(images), '--out', str(out2)])
+            assert code == 0, code
+            with open(out2 / 'summary.csv', encoding='utf-8-sig', newline='') as file:
+                rows = list(csv.DictReader(file))
+            assert [row['状态'] for row in rows] == ['ready', 'ready', 'error'], rows
+            assert rows[2]['备注'], rows[2]
+            assert 'c_bad.png' in (out2 / '对照表.md').read_text(encoding='utf-8')
+            # 口令文件不存在：中文提示，不抛堆栈
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = scan_regression.main(['--images', str(images), '--out', str(out2),
+                                             '--llm-config', str(temp / 'nope.json')])
+            assert code == 2 and '--llm-config' in output.getvalue(), (code, output.getvalue())
             # 图片目录在仓库里：拒绝运行
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
