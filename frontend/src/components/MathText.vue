@@ -22,7 +22,8 @@ watch(() => props.text, render, { flush: 'post' })
 </script>
 
 <style>
-.math-text { display: inline-block; vertical-align: middle; max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; }
+/* 很长的公式可以左右滑动；竖直方向不滚动（否则分数略高于行高时会出现带上下箭头的小滚动条），上下留一点空防止被切 */
+.math-text { display: inline-block; vertical-align: middle; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: .15em 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; }
 .math-text-content { white-space: pre-wrap; }
 .math-text .katex { white-space: nowrap; }
 .math-text .katex-display { overflow-x: auto; overflow-y: hidden; padding: .3em 0; }
