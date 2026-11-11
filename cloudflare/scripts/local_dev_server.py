@@ -451,6 +451,8 @@ def main(argv):
     ocr_key = read_text_file(arguments.ocr_key_file).strip() if arguments.ocr_key_file else None
     llm_config = json.loads(read_text_file(arguments.llm_config)) if arguments.llm_config else None
     app = build_app(build_connection(), uploads_dir, frontend_dir, arguments.ocr_url, ocr_key, llm_config)
+    if arguments.ocr_url and not arguments.ocr_key_file:
+        print('警告：给了 --ocr-url 但没有 --ocr-key-file，访问识别主机时不会带口令，可能被拒绝。')
     print('整页识别：识别主机%s，文本模型%s' % ('真实' if arguments.ocr_url else '假的', '真实' if llm_config else '假的'))
     print('本机测试环境：数据在内存里，关掉就没了；不连接正式库。')
     print('访问地址：http://%s:%d' % (HOST, arguments.port))

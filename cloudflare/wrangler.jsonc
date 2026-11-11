@@ -13,5 +13,4 @@
   }],
   "r2_buckets": [{"binding": "IMAGES", "bucket_name": "easyfix"}]
   ,"services": [{"binding":"PDF","service":"easyfix-pdf"}]
-  ,"vars": {"SCAN_RESCAN": "on"}
 }
