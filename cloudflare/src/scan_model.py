@@ -124,13 +124,15 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '',
         *_ocr_block(ocr_text, enhanced_text),
         '',
-        '请把这一页的每一道题都列出来，按卷面顺序，只返回 JSON：{"questions": [ ... ]}。每道题的字段：',
-        '- question_no：卷面上印的题号，照原样。',
+        '请把这一页的每一道题都列出来，按卷面顺序，只返回 JSON：{"questions": [ ... ]}。'
+        '一道大题下面有 (1)(2)… 小题、并且小题各有答案的，每个小题单独列一项。每道题的字段（按这个顺序写）：',
+        '- question_no：题号，带上大题号和小题号，例如"二、4(3)"；卷面上没有大题号就只写题号。',
         '- parsed_question：完整题干（判为 right 的题例外，见下）。'
         '数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。',
-        '- wrong_answer：孩子写的答案，读不出就留空字符串。',
+        '- wrong_answer：孩子写的最终答案，读不出就留空字符串。',
+        '- solution：你自己的演算，一两行，写出关键步骤和最终结果。每道题都要先写它，再下判断。',
         '- verdict：wrong（做错了）、right（做对了）或 unsure（拿不准）。',
-        '- reason：一句话判断理由，例如"孩子写 x²+3，应为 x³−3"。',
+        '- reason：一句话，固定写成"孩子最终答案 …，正确答案 …"，例如"孩子最终答案 x²+3，正确答案 x³−3"。',
         '- flags：读图异常标记数组，没有就写 []。只能用这四种：'
         'broken_formula（公式或算式不完整、括号不配对、数字明显不合理）、'
         'unsolvable（按读到的题干解不出，或条件不够）、'
@@ -138,17 +140,22 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         'figure_needed（题目依赖图形或表格，但文字里没有相应条件）。',
         '- verdict 为 wrong 或 unsure 的题，还要给：answer（正确答案）、analysis（解析）、'
         'knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
-        '- verdict 为 right 的题只给三个字段：question_no、parsed_question（只写题干开头，不超过 40 个字，'
-        '不要完整题干）、verdict。不要给孩子的答案、判断理由、答案、解析、考点、错因和难度，'
+        '- verdict 为 right 的题只给四个字段：question_no、parsed_question（只写题干开头，不超过 40 个字，'
+        '不要完整题干）、solution、verdict。不要给孩子的答案、判断理由、答案、解析、考点、错因和难度，'
         '这样整页返回得快，也不会超出长度。',
         '',
-        '判断对错的规则：先自己把每道题做一遍，再和孩子的作答比对。',
-        '1. 孩子的作答读得出、和你算的不一样：wrong。',
-        '2. 孩子的作答读得出、和你算的一样：right。',
+        '判断对错的规则：先在 solution 里自己把题做一遍，再和孩子的最终答案比对。',
+        '1. 孩子的最终答案读得出、和你算的不一样：先把你的演算再仔细复查一遍，确认是你算对了，才判 wrong。',
+        '2. 孩子的最终答案读得出、和你算的一样（或等价）：right。对错只看最终答案：'
+        '过程写得乱、有涂改、有笔误、步骤不规范，只要最终答案对，一律 right，不许因为过程判 wrong。',
         '3. 孩子的作答读不出，或者你自己解不出，或者是没有标准答案的题型（作图、作文、开放题）：unsure。',
         '4. 没有作答（空着）按做错处理：wrong，reason 写"没有作答"。',
         '5. 不许猜孩子写了什么：看不清就是看不清，wrong_answer 留空并判 unsure。',
         '6. 只是书写形式不同不算错，例如 0.5 和 1/2、化简前后的同一个数，都按做对（0.5 和 1/2 不算错）。',
+        '7. 例外：孩子的答案里有字母（代数式）时，书写规范本身就是考点，要逐条检查：'
+        '数字和字母相乘，数字写在字母前面（a·0.8、a×10 都要写成 0.8a、10a）；字母之间的乘号省略；'
+        '带分数系数要化成假分数（1\frac{2}{5}x 写成 \frac{7}{5}x）；除法写成分数形式（(36-x)÷a 写成 \frac{36-x}{a}）；'
+        '和或差后面带单位时要加括号。值相等但违反任意一条的，判 wrong，reason 写明违反哪条。',
         '',
         _knowledge_rules(catalog, error_type_names),
         '',
