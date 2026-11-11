@@ -102,15 +102,14 @@
       </el-empty>
     </el-card>
 
-    <!-- 整理：Task 8 用 ScanWorkspace 替换这个占位（props page、subjectName；事件 update、next） -->
-    <el-card v-else-if="mode === 'sorting' && page">
-      <div class="sorting-placeholder">
-        <div>{{ subject_name }} · 识别出 {{ page.items.length }} 道题（整理区还没接上）</div>
-        <div class="scan-actions">
-          <el-button type="primary" size="small" :loading="sorting_busy" @click="next_page">下一张</el-button>
-        </div>
-      </div>
-    </el-card>
+    <!-- 整理：左原图右题目，逐道录入 -->
+    <ScanWorkspace
+      v-else-if="mode === 'sorting' && page"
+      :page="page"
+      :subject-name="subject_name"
+      @update="apply_workspace_page"
+      @next="next_page"
+    />
 
     <!-- 手工录：现有的手工表单，可带上照片和学科年级学期 -->
     <template v-else-if="mode === 'manual'">
@@ -158,6 +157,7 @@
 // 录入错题页：选图 → 识别中 → 整理，任何时候都可以改为手工录
 import PageHeading from '@/components/PageHeading.vue'
 import ManualQuestionForm from '@/components/ManualQuestionForm.vue'
+import ScanWorkspace from '@/components/scan/ScanWorkspace.vue'
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Loading } from '@element-plus/icons-vue'
@@ -456,6 +456,16 @@ const add_blank_item = async () => {
   }
 }
 
+/** 整理区拿到了新的页：仍在整理就替换；已经被结束（比如别的窗口点了下一张）就回到选图。 */
+const apply_workspace_page = (new_page) => {
+  if (new_page.status !== 'ready') {
+    ElMessage.warning('这一页已经结束了')
+    back_to_pick()
+    return
+  }
+  page.value = new_page
+}
+
 /** "下一张"/"换一张"：结束这一页，回到选图。 */
 const next_page = async () => {
   sorting_busy.value = true
@@ -585,12 +595,6 @@ onBeforeUnmount(stop_scan_loop)
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.sorting-placeholder {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .back-link {

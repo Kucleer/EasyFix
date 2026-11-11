@@ -14,7 +14,8 @@ export const scanApi = {
     return api.post('/scan/pages', data)
   },
   get(id) {
-    return api.get(`/scan/pages/${id}`)
+    // 一页的状态随时在变（别的窗口也可能改），不走 GET 短时缓存
+    return api.get(`/scan/pages/${id}`, { cache: false })
   },
   unfinished() {
     return api.get('/scan/pages/unfinished')

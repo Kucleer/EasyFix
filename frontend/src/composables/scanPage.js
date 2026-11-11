@@ -77,3 +77,82 @@ export function scaledSize(width, height, maxSide) {
   const ratio = maxSide / longest
   return { width: Math.round(width * ratio), height: Math.round(height * ratio) }
 }
+
+// ---------------------------------------------------------------- 整理区
+
+// 年级编号 -> 名称（与录入页的年级选项一致）
+const GRADE_NAMES = ['', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级',
+  '初一', '初二', '初三', '高一', '高二', '高三']
+
+// 原图缩放的上下限
+const MIN_ZOOM = 1
+const MAX_ZOOM = 4
+
+// 修改表单里能改的字段及其空值
+const EDITABLE_DEFAULTS = {
+  question_no: '', parsed_question: '', wrong_answer: '', answer: '', analysis: '',
+  knowledge_point_ids: [], primary_knowledge_point_id: null, error_types: [], difficulty: 3,
+}
+
+/** 顶部统计：识别出几道（手工加的不算），模型判断几道做错（补成错题的原本判对，不算）。 */
+export function pageSummary(items) {
+  return {
+    total: items.filter(item => item.source !== 'manual').length,
+    wrong: items.filter(item => item.source === 'model' && item.verdict === 'wrong').length,
+  }
+}
+
+/** 卡片上的题目名称："第 3 题"；没填题号时给一句说明。 */
+export function itemLabel(item) {
+  const no = String(item.question_no || '').trim()
+  return no ? `第 ${no} 题` : '没填题号的题'
+}
+
+/** 年级学期文字，如"六年级上"；没有年级时返回空串。 */
+export function gradeTermText(grade, semester) {
+  const name = GRADE_NAMES[grade] || ''
+  if (!name) return ''
+  if (semester === 1) return name + '上'
+  if (semester === 2) return name + '下'
+  return name
+}
+
+/** 考点名称，主考点排在最前，用顿号连接；目录里找不到的编号忽略。 */
+export function knowledgeText(ids, primaryId, names) {
+  const ordered = [...(ids || [])].sort((a, b) => (b === primaryId) - (a === primaryId))
+  return ordered.map(id => names[id]).filter(Boolean).join('、')
+}
+
+/** 取一道题里可修改的字段，作为修改表单的初值（数组复制一份，改表单不影响原题）。 */
+export function editableFields(item) {
+  const fields = {}
+  for (const [key, empty] of Object.entries(EDITABLE_DEFAULTS)) {
+    const value = item[key] ?? empty
+    fields[key] = Array.isArray(value) ? [...value] : value
+  }
+  return fields
+}
+
+/**
+ * "全部录入"一批的结果：哪些失败了、要不要再调一次。
+ * 失败的题仍是 open，会算进 remaining，所以只要有失败就必须停下，否则永远录不完。
+ * 这一批一道都没处理时也停下，避免空转。
+ */
+export function acceptAllOutcome(data) {
+  const results = data.results || []
+  const failed = results.filter(result => !result.ok)
+  return { failed, again: failed.length === 0 && results.length > 0 && data.remaining > 0 }
+}
+
+/**
+ * 围绕指针位置缩放原图：view 是 { scale, x, y }（平移量，单位像素，变换原点在左上角），
+ * point 是指针在图框里的坐标，factor 是缩放倍数；结果限制在 1–4 倍，回到 1 倍时位置复位。
+ */
+export function zoomAt(view, point, factor) {
+  const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.scale * factor))
+  if (scale === MIN_ZOOM) return { scale, x: 0, y: 0 }
+  // 指针下的那一点在图上的坐标，缩放后仍应落在指针下
+  const image_x = (point.x - view.x) / view.scale
+  const image_y = (point.y - view.y) / view.scale
+  return { scale, x: point.x - image_x * scale, y: point.y - image_y * scale }
+}
