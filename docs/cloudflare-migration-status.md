@@ -191,3 +191,12 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 备份 `backups/starmap_release_20261111T072641Z/remote.sql`（SHA-256 `0be5f6b674fe824e7ffaae4f2a43aa5ee5de241ab038ecf460f67acd14a5da9d`），同目录有演练结果、映射和打标 SQL、Time Travel 书签与每一步输出。维护开关开启期间执行，核对与演练一致：613 道未删除题不变、数学关联 396 条不变、旧英语考点 0、新英语考点 56/12、节 13、对应 22、连线 73。
 - 部署：Worker `25235f69-5147-4ee1-ac00-c18d3dfcd582`（上一版本 `020fdb21`），Pages `6bee1586`。上线时按用户决定"照实显示"：数学 39 颗薄弱、3 颗一般；英语 3 颗已掌握。第一次读取已把当时已掌握的考点记为已看。
 - 未验证：管理设置"知识星空"栏未在浏览器实测（本机环境没有访问密码那一步）；平板和手机布局不在本期范围。
+
+## 变更记录：整页识别录入（2026-11-11 上线试用）
+
+- 设计 `docs/superpowers/specs/2026-11-11-page-scan-intake-design.md`，主机端 `docs/superpowers/specs/2026-11-11-ocr-host-service-design.md`，计划 `docs/superpowers/plans/2026-11-11-page-scan-intake.md`，联调与调优记录 `docs/scan-intake-tuning-2026-11-11.md`。
+- 迁移 `0014_scan_page.sql`（只新建 `scan_page` 表和索引）。执行前备份 `backups/scan_trial_20261111T111154Z/remote.sql`，在备份副本上演练：原有 40 张表结构和行数不变。
+- Worker 绑定 `OCR_HOST`（Workers VPC 服务），密钥 `OCR_SHARED_KEY` 由用户填写；重扫开关 `SCAN_RESCAN` 未设置，即开启。
+- 部署：Worker `50db82b1`（上线前一版 `54589127`），Pages `dd159130`（上线前一版 `a54a1ab2`）。分支 `feature/page-scan-intake` 尚未合并进 main。
+- 联调与调优期间没有录入任何错题，题库前后 637 道（未删除 613 道）；联调和评测用的识别页 5–13 都已结束。
+
