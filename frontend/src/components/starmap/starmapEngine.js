@@ -178,6 +178,23 @@ export function createStarEngine(canvas, data, options = {}) {
         }
       }
     }
+    // 一级模块（和词汇星团）的名称：小号、淡灰白色，放在星的下方，不和红黄绿抢颜色；缩略图不显示
+    if (!mini) {
+      ctx.globalCompositeOperation = 'source-over'
+      const size = 12 / Math.sqrt(transform.k)
+      ctx.font = `${size}px "PingFang SC","Microsoft YaHei",sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      for (const n of nodes) {
+        if (n.level !== 1) continue
+        const faded = n.value === null
+        ctx.fillStyle = `rgba(214,219,232,${faded ? 0.3 : 0.62})`
+        ctx.fillText(n.name, n.x, n.y + radiusOf(n, scale) + 8 / transform.k)
+      }
+      ctx.textAlign = 'start'
+      ctx.textBaseline = 'alphabetic'
+      ctx.globalCompositeOperation = 'lighter'
+    }
     // 点亮时刻：扩散的光环和迸发的绿色粒子
     for (let i = rings.length - 1; i >= 0; i--) {
       const g = rings[i]
