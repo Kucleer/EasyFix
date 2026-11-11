@@ -76,6 +76,11 @@ const routes = [
     component: () => import('@/views/Motivation.vue'),
   },
   {
+    path: '/star-map',
+    name: 'StarMap',
+    component: () => import('@/views/StarMap.vue'),
+  },
+  {
     path: '/learning-analysis',
     name: 'LearningAnalysis',
     component: () => import('@/views/LearningAnalysis.vue'),

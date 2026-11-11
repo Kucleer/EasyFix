@@ -15,7 +15,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { House, Document, Notebook, Tickets, Reading, DataAnalysis, TrendCharts, Trophy, Setting, Grid, Plus, MoreFilled, Warning, Files } from '@element-plus/icons-vue'
+import { House, Document, Notebook, Tickets, Reading, DataAnalysis, TrendCharts, Trophy, Setting, Grid, Plus, MoreFilled, Warning, Files, Star } from '@element-plus/icons-vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { useReviewCountStore } from '@/stores/reviewCount'
 const route = useRoute()
@@ -23,7 +23,7 @@ const moreOpen = ref(false)
 const navigation = [
   { label: '学习空间', items: [{ path: '/', label: '今日学习', icon: House }, { path: '/questions', label: '我的错题', icon: Document }, { path: '/review', label: '待核对', icon: Warning, badge: true }, { path: '/papers', label: '卷子和作业', icon: Files }, { path: '/words', label: '单词本', icon: Notebook }] },
   { label: '巩固与提升', items: [{ path: '/practice-sets', label: '练习中心', icon: Tickets }, { path: '/reading', label: '阅读空间', icon: Reading }] },
-  { label: '成长记录', items: [{ path: '/learning-reports', label: '学习报告', icon: TrendCharts }, { path: '/learning-analysis', label: '知识点分析', icon: DataAnalysis }, { path: '/motivation', label: '我的成就', icon: Trophy }] },
+  { label: '成长记录', items: [{ path: '/star-map', label: '知识星空', icon: Star }, { path: '/learning-reports', label: '学习报告', icon: TrendCharts }, { path: '/learning-analysis', label: '知识点分析', icon: DataAnalysis }, { path: '/motivation', label: '我的成就', icon: Trophy }] },
   { label: '管理与设置', items: [{ path: '/management', label: '资料管理', icon: Grid }, { path: '/settings', label: '模型配置', icon: Setting }] },
 ]
 const mobileLinks = [navigation[0].items[0], navigation[0].items[1], navigation[1].items[0]]
