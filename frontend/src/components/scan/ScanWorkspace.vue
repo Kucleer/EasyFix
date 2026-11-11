@@ -31,6 +31,7 @@
           @accept="accept_item(item)"
           @dismiss="dismiss_item(item)"
           @withdraw="withdraw_item(item)"
+          @editing-change="(value) => set_editing(item.seq, value)"
         />
 
         <!-- 模型认为做对的题：默认收起；主列表为空时自动展开 -->
@@ -52,7 +53,7 @@
           </el-collapse-item>
         </el-collapse>
 
-        <el-button class="add-button" :loading="adding" :disabled="accepting_all" @click="add_item">
+        <el-button class="add-button" size="small" :loading="adding" :disabled="accepting_all" @click="add_item">
           ＋ 手工加一道
         </el-button>
       </div>
@@ -80,7 +81,7 @@
 import MathText from '@/components/MathText.vue'
 import ScanImagePane from '@/components/scan/ScanImagePane.vue'
 import ScanItemCard from '@/components/scan/ScanItemCard.vue'
-import { ref, computed, watch, onMounted, nextTick, h } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification, ElButton } from 'element-plus'
 import { questionApi } from '@/api/question'
 import { scanApi } from '@/api/scan'
@@ -112,6 +113,8 @@ const adding = ref(false)
 const accepting_all = ref(false)
 const accepted_in_run = ref(0)     // 这次"全部录入"已录入的道数
 const open_panels = ref([])        // 展开的折叠区
+const editing_seqs = ref({})       // 正在修改（表单打开着）的题
+let undo_notifications = []        // 还开着的"撤销"提示，结束这一页或离开时关掉
 
 const groups = computed(() => groupItems(props.page.items))
 const progress = computed(() => progressCounts(props.page.items))
@@ -134,13 +137,15 @@ const read_error_text = (error) => {
   return error?.message || '未知错误'
 }
 
-/** 重新读这一页的最新状态（别处改过时用）。 */
+/** 重新读这一页的最新状态（别处改过时用），返回新的页；读失败返回 null。 */
 const refresh_page = async () => {
   try {
     const { data } = await scanApi.get(props.page.id)
     emit('update', data)
+    return data
   } catch (error) {
     ElMessage.error('刷新失败：' + read_error_text(error))
+    return null
   }
 }
 
@@ -148,9 +153,11 @@ const refresh_page = async () => {
 const report_error = async (error) => {
   const text = read_error_text(error)
   if (error?.response?.status === 409) {
+    const fresh = await refresh_page()
+    // 这一页已经被结束：上层会提示"这一页已经结束了"并回选图，这里不再重复提示
+    if (fresh && fresh.status !== 'ready') return
     // 后端的提示可能自带"请刷新"，这里已经替她刷新了，换成"已刷新这一页"
     ElMessage.error(text.replace(/，?请刷新$/, '') + '，已刷新这一页')
-    await refresh_page()
     return
   }
   ElMessage.error(text)
@@ -170,6 +177,20 @@ const set_server_error = (seq, text) => {
   if (text) next[seq] = text
   else delete next[seq]
   server_errors.value = next
+}
+
+/** 记录某道题的修改表单是否打开着。 */
+const set_editing = (seq, value) => {
+  const next = { ...editing_seqs.value }
+  if (value) next[seq] = true
+  else delete next[seq]
+  editing_seqs.value = next
+}
+
+/** 关掉所有还开着的"撤销"提示，免得这一页结束后再点撤销。 */
+const close_undo_notifications = () => {
+  undo_notifications.forEach(notification => notification.close())
+  undo_notifications = []
 }
 
 /** 对一道题调接口：期间标记忙，成功时把新页交给上层并返回响应数据，失败时报错并返回 null。 */
@@ -241,6 +262,9 @@ const dismiss_item = async (item) => {
   emit('update', data)
   set_server_error(item.seq, '')
   const notification = ElNotification({
+    onClose: () => {
+      undo_notifications = undo_notifications.filter(one => one !== notification)
+    },
     title: itemLabel(item) + ' 已去掉',
     duration: UNDO_DURATION_MS,
     position: 'bottom-right',
@@ -259,6 +283,7 @@ const dismiss_item = async (item) => {
       }, () => '撤销'),
     ]),
   })
+  undo_notifications.push(notification)
 }
 
 /** 补成错题：移到主列表并请模型补全；没补上时卡片进修改状态让她自己填。 */
@@ -295,9 +320,25 @@ const add_item = async () => {
  * 某一批有失败就停下（失败的题仍算在 remaining 里，继续调会没完没了），失败的卡片进修改状态。
  */
 const accept_all = async () => {
+  // 正在修改的题也在"全部录入"里时，录入的是草稿里存着的内容，表单里没保存的修改会丢，先问一句
+  const candidates = acceptAllSeqs(props.page.items)
+  const editing_count = candidates.filter(seq => editing_seqs.value[seq]).length
+  if (editing_count > 0) {
+    try {
+      await ElMessageBox.confirm(`有 ${editing_count} 道正在修改，先保存吗？`, '全部录入', {
+        confirmButtonText: '先去保存',
+        cancelButtonText: '不保存，照原样录入',
+        distinguishCancelAndClose: true,
+        type: 'warning',
+      })
+      return  // 选了"先去保存"：不录入，回去保存
+    } catch (action) {
+      if (action !== 'cancel') return  // 关掉对话框也当作不录入
+    }
+  }
   accepting_all.value = true
   accepted_in_run.value = 0
-  acceptAllSeqs(props.page.items).forEach(seq => set_server_error(seq, ''))
+  candidates.forEach(seq => set_server_error(seq, ''))
   try {
     for (;;) {
       const { data } = await scanApi.acceptAll(props.page.id)
@@ -337,6 +378,7 @@ const request_next = async () => {
       return  // 点了"再看看"
     }
   }
+  close_undo_notifications()
   emit('next')
 }
 
@@ -362,6 +404,8 @@ const load_catalog = async () => {
 }
 
 onMounted(load_catalog)
+// 离开整理区（下一张、页被结束、离开页面）时关掉撤销提示
+onBeforeUnmount(close_undo_notifications)
 </script>
 
 <style scoped>

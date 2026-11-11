@@ -215,8 +215,11 @@ def test_accept_all_and_warning():
         {'seq': 4, 'state': 'accepted', 'verdict': 'wrong', 'flags': [], 'edited': False},
         {'seq': 5, 'state': 'dismissed', 'verdict': 'wrong', 'flags': [], 'edited': False},
         {'seq': 6, 'state': 'open', 'verdict': 'right', 'flags': [], 'edited': False},
+        # 手工加的题：没保存过的不算，保存过的算
+        {'seq': 7, 'state': 'open', 'verdict': 'wrong', 'flags': [], 'edited': False, 'source': 'manual'},
+        {'seq': 8, 'state': 'open', 'verdict': 'wrong', 'flags': [], 'edited': True, 'source': 'manual'},
     ]
-    assert scan_model.accept_all_seqs(items) == [0, 2]
+    assert scan_model.accept_all_seqs(items) == [0, 2, 8]
     assert scan_model.has_warning(items[1]) is True and scan_model.has_warning(items[2]) is False
 
 
@@ -933,6 +936,27 @@ def test_accept_rejected_by_save_keeps_item_open():
         assert item['state'] == 'open' and item['question_id'] is None
 
 
+def test_accept_rejects_empty_question():
+    """题干为空（或只有空白）的题不能录入：422"题干不能为空"，题库不变，草稿仍 open；全部录入也跳过没保存过的手工题。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before, top = live_questions(connection), max_question_id(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0, parsed_question='  \t '), scan_model.blank_item(1)])
+        for seq in (0, 1):
+            try:
+                item_call(scan.accept_item, page_id, seq, db)
+            except HTTPException as error:
+                assert error.status_code == 422 and error.detail == '题干不能为空'
+            else:
+                raise AssertionError('空题干应被拒绝')
+        result = run(scan.accept_all(page_id, PageRequest(db)))
+    # 第 0 道是模型来源，会被全部录入选中但被拒；第 1 道是没保存过的手工题，不在候选里
+    assert [(entry['seq'], entry['ok'], entry['detail']) for entry in result['results']] ==         [(0, False, '题干不能为空')]
+    assert live_questions(connection) == before and max_question_id(connection) == top
+    assert [item['state'] for item in stored_items(connection, page_id)] == ['open', 'open']
+
+
 def test_accept_all_skips_warning_and_unsure():
     """全部录入只录"做错了、没提示（或有提示但改过）、未处理"的题，其余不动。"""
     connection = build_scan_database()
@@ -1335,6 +1359,7 @@ TESTS = [
     test_accept_twice_writes_once,
     test_accept_race_keeps_one_question,
     test_accept_rejected_by_save_keeps_item_open,
+    test_accept_rejects_empty_question,
     test_accept_all_skips_warning_and_unsure,
     test_accept_all_partial_failure,
     test_withdraw_soft_deletes,

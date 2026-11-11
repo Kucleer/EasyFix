@@ -338,9 +338,11 @@ def has_warning(item):
 
 
 def accept_all_seqs(items):
-    """"全部录入"包含的题：未处理、判断为做错、没有提示的。"""
+    """"全部录入"包含的题：未处理、判断为做错、没有提示的；手工加的题要保存过（改过）才算。"""
     return [item['seq'] for item in items
-            if item.get('state') == 'open' and item.get('verdict') == 'wrong' and not has_warning(item)]
+            if item.get('state') == 'open' and item.get('verdict') == 'wrong' and not has_warning(item)
+            # 手工加的空白题没填过内容，不能跟着"全部录入"存成空题
+            and not (item.get('source') == 'manual' and not item.get('edited'))]
 
 
 # ---------------------------------------------------------------- 编辑与入库

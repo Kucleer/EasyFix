@@ -54,7 +54,7 @@
       </el-form-item>
       <div class="card-actions">
         <el-button size="small" :disabled="saving" @click="cancel_edit">取消</el-button>
-        <el-button type="primary" size="small" :loading="saving" @click="submit_edit">保存</el-button>
+        <el-button type="primary" size="small" :loading="saving" :disabled="busy && !saving" @click="submit_edit">保存</el-button>
       </div>
     </el-form>
 
@@ -105,7 +105,7 @@
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
 import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck } from '@element-plus/icons-vue'
 import {
@@ -122,7 +122,8 @@ const props = defineProps({
 })
 
 // save 的第二个参数是回调 finish(ok)：保存成功才回到只读，失败留在表单里不丢内容
-const emit = defineEmits(['save', 'accept', 'dismiss', 'withdraw'])
+// editing-change(是否在修改)：让整理区知道哪些题的表单开着（全部录入前要提醒）
+const emit = defineEmits(['save', 'accept', 'dismiss', 'withdraw', 'editing-change'])
 
 const DIFFICULTY_TEXTS = ['很简单', '简单', '一般', '较难', '很难']
 
@@ -201,6 +202,19 @@ const request_accept = async () => {
 // 录入被拒（或补全失败）时自动进修改状态；已经在改的保留正在填的内容
 watch(() => props.serverError, (text) => {
   if (text && !editing.value) start_edit()
+})
+
+// 表单开关变化时告诉整理区
+watch(editing, (value) => emit('editing-change', value))
+
+// 这道题已经录入或去掉了（比如被"全部录入"带走），表单不再有意义，收起来，撤回后看到的是最新内容
+watch(() => props.item.state, (state) => {
+  if (state !== 'open') editing.value = false
+})
+
+// 卡片被移走（比如去掉）时，表单也随之关掉，告诉整理区
+onBeforeUnmount(() => {
+  if (editing.value) emit('editing-change', false)
 })
 
 onMounted(() => {

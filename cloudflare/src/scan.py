@@ -40,6 +40,7 @@ MISSING_IMAGE_TEXT = '照片找不到了'
 MODEL_FAILED_TEXT = '文本模型请求失败，请检查模型配置和余额'
 PAGE_CLOSED_TEXT = '这一页已经结束了，请刷新'
 ITEM_CHANGED_TEXT = '这道题刚被别的操作改过，请刷新'
+EMPTY_QUESTION_TEXT = '题干不能为空'
 PROMOTED_REASON = '家长补成错题'
 
 
@@ -358,6 +359,9 @@ async def accept_one(request, db, page_id, student_id, seq):
     if item.get('verdict') == 'right':
         # 模型认为做对的题没有答案和解析，要先"补成错题"才能录入
         raise HTTPException(409, '这道题模型认为做对了，请先点"补成错题"再录入')
+    if not str(item.get('parsed_question') or '').strip():
+        # 空题干不入库（比如手工加了一道还没填），什么都不写
+        raise HTTPException(422, EMPTY_QUESTION_TEXT)
     question = await save_question(db, copy_payload(question_payload(page, item)), request=request)
     accepted = dict(item, state='accepted', question_id=question['id'])
     if await write_item(db, page_id, seq, 'open', accepted):

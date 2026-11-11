@@ -29,10 +29,12 @@ export function hasWarning(item) {
   return Boolean(item.flags && item.flags.length) && !item.edited
 }
 
-/** "全部录入"包含的题：未处理、判断为做错、没有提示（与后端 accept_all_seqs 一致）。 */
+/** "全部录入"包含的题：未处理、判断为做错、没有提示；手工加的要保存过才算（与后端 accept_all_seqs 一致）。 */
 export function acceptAllSeqs(items) {
   return items
     .filter(item => item.state === 'open' && item.verdict === 'wrong' && !hasWarning(item))
+    // 手工加的空白题没填过内容，不能跟着"全部录入"存成空题
+    .filter(item => !(item.source === 'manual' && !item.edited))
     .map(item => item.seq)
 }
 

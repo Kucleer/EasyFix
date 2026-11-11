@@ -21,7 +21,7 @@ test('分组', () => {
 })
 
 test('全部录入只含无提示的做错题', () => {
-  // 与后端 test_accept_all_and_warning 的七项一致
+  // 与后端 test_accept_all_and_warning 的九项一致
   const items = [
     { seq: 0, state: 'open', verdict: 'wrong', flags: [], edited: false },
     { seq: 1, state: 'open', verdict: 'wrong', flags: ['merged'], edited: false },
@@ -30,8 +30,11 @@ test('全部录入只含无提示的做错题', () => {
     { seq: 4, state: 'accepted', verdict: 'wrong', flags: [], edited: false },
     { seq: 5, state: 'dismissed', verdict: 'wrong', flags: [], edited: false },
     { seq: 6, state: 'open', verdict: 'right', flags: [], edited: false },
+    // 手工加的题：没保存过的不算，保存过的算
+    { seq: 7, state: 'open', verdict: 'wrong', flags: [], edited: false, source: 'manual' },
+    { seq: 8, state: 'open', verdict: 'wrong', flags: [], edited: true, source: 'manual' },
   ]
-  assert.deepEqual(acceptAllSeqs(items), [0, 2])
+  assert.deepEqual(acceptAllSeqs(items), [0, 2, 8])
   assert.equal(hasWarning(items[1]), true)
   assert.equal(hasWarning(items[2]), false)
 })
