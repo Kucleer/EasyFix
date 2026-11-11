@@ -1,11 +1,12 @@
 """整页识别录入的本地测试。
 
-后续任务会在本脚本中追加解析、入库与接口测试。运行：
+任务 3 起用生产结构基线 + 种子数据 + 迁移 0011、0012、0014 建库测试接口。运行：
 
     python cloudflare/scripts/scan_test.py
 """
 
 import asyncio
+import contextlib
 import pathlib
 import sys
 import traceback
@@ -14,8 +15,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
+from fastapi import HTTPException  # noqa: E402
+from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
+from intake_test import build_legacy_database  # noqa: E402  生产结构基线 + 种子数据
 import scan  # noqa: E402
 import scan_model  # noqa: E402
+
+MIGRATIONS = ROOT / 'migrations'
 
 
 def configure_output():
@@ -277,6 +283,437 @@ def test_build_fill_prompt():
         assert field in prompt
 
 
+# ---------------------------------------------------------------- 任务 3：建页与分步推进
+
+NOW = 1_800_000_000          # 假的"当前时间"（整数秒）
+GOOD_IMAGE = '2026/11/a1b2c3d4_page.jpg'
+FIRST_TEXT = '1. 计算 3/4×2/3=  孩子写 1/3\n2. 计算 1/2÷1/4=  孩子写 1/8\n3. 计算 1+1=  孩子写 2'
+ENHANCED_TEXT = '重扫读到的文字ENHANCED'
+
+
+def apply_migrations(connection, names):
+    """按顺序执行 migrations 目录里的若干迁移文件。"""
+    for name in names:
+        connection.executescript((MIGRATIONS / name).read_text(encoding='utf-8'))
+    connection.commit()
+
+
+def build_scan_database():
+    """建库：生产结构基线 + 种子数据，再执行 0011、0012、0014。"""
+    connection = build_legacy_database()
+    apply_migrations(connection, ['0011_intake_papers.sql', '0012_starmap.sql', '0014_scan_page.sql'])
+    return connection
+
+
+class ScanEnv:
+    """伪造 Worker 的 env：DB 放测试库，rescan 不为空时设置重扫开关。"""
+
+    def __init__(self, db, rescan=None):
+        self.DB = db
+        if rescan is not None:
+            self.SCAN_RESCAN = rescan
+
+
+class PageRequest:
+    """伪造 FastAPI 的 Request：提供 scope 与 json()。"""
+
+    def __init__(self, db, payload=None, rescan=None):
+        self.scope = {'env': ScanEnv(db, rescan)}
+        self.payload = payload
+
+    async def json(self):
+        """返回构造时给定的请求体。"""
+        return self.payload
+
+
+class YieldingDB(SQLiteDB):
+    """每次访问数据库前先让出一次，让两个并发的推进请求真正交错执行。"""
+
+    async def first(self, sql, parameters=()):
+        """让出一次再查询。"""
+        await asyncio.sleep(0)
+        return await super().first(sql, parameters)
+
+    async def run(self, sql, parameters=()):
+        """让出一次再写入。"""
+        await asyncio.sleep(0)
+        return await super().run(sql, parameters)
+
+
+def ocr_ok(text, mode='normal'):
+    """主机读图成功时的返回。"""
+    return 200, {'ok': True, 'contract': 1, 'mode': mode, 'text': text, 'segments': [text],
+                 'elapsed_ms': 4000, 'model': 'x'}
+
+
+BUSY = (503, {'ok': False, 'contract': 1, 'code': 'busy', 'detail': '排队已满'})
+HOST_FAILED = (502, {'ok': False, 'contract': 1, 'code': 'ocr_failed', 'detail': 'Ollama 连不上'})
+
+
+class FakeHost:
+    """假的识别主机（替换 scan.ocr_client）：按顺序给出预设返回，最后一个一直重复，并记录调用次数。"""
+
+    def __init__(self, normal=(), enhanced=(), image=(b'img', 'image/jpeg'), yield_once=False):
+        self.replies = {'normal': list(normal) or [ocr_ok(FIRST_TEXT)],
+                        'enhanced': list(enhanced) or [ocr_ok(ENHANCED_TEXT, 'enhanced')]}
+        self.calls = {'normal': 0, 'enhanced': 0}
+        self.image = image
+        self.yield_once = yield_once
+
+    async def read_image(self, env, key):
+        """返回预设的图片（None 表示照片找不到）。"""
+        return self.image
+
+    async def fetch_ocr(self, env, content, content_type, mode, timeout_seconds):
+        """记录一次调用，按顺序返回预设结果。"""
+        assert timeout_seconds == scan_model.HOST_TIMEOUT_SECONDS[mode]
+        index = self.calls[mode]
+        self.calls[mode] += 1
+        if self.yield_once:
+            await asyncio.sleep(0)  # 让出一次，模拟真实的网络等待
+        replies = self.replies[mode]
+        return replies[min(index, len(replies) - 1)]
+
+
+def model_result(first_flags=()):
+    """假模型的整页结果：两道错、一道对；first_flags 是第一道题的读图异常标记。"""
+    return {'questions': [
+        {'question_no': '1', 'parsed_question': '计算 \\(\\frac{3}{4}\\times\\frac{2}{3}\\)', 'wrong_answer': '1/3',
+         'verdict': 'wrong', 'reason': '应为 1/2', 'flags': list(first_flags), 'answer': '1/2', 'analysis': '约分',
+         'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101, 'error_types': ['计算错误'],
+         'difficulty': 2},
+        {'question_no': '2', 'parsed_question': '计算 1/2÷1/4', 'wrong_answer': '1/8', 'verdict': 'wrong',
+         'reason': '应为 2', 'flags': [], 'answer': '2', 'analysis': '除以一个数等于乘它的倒数',
+         'knowledge_point_ids': [102], 'primary_knowledge_point_id': 102, 'error_types': ['概念错误'],
+         'difficulty': 3},
+        {'question_no': '3', 'parsed_question': '计算 1+1', 'wrong_answer': '2', 'verdict': 'right',
+         'reason': '对', 'flags': []},
+    ]}
+
+
+class FakeModel:
+    """假的文本模型（替换 scan.generate_json）：按顺序给出预设结果，异常就抛出，记录每次的提示词。"""
+
+    def __init__(self, *replies):
+        self.replies = list(replies) or [model_result()]
+        self.prompts = []
+
+    async def __call__(self, request, prompt):
+        """记录提示词并返回（或抛出）预设结果。"""
+        reply = self.replies[min(len(self.prompts), len(self.replies) - 1)]
+        self.prompts.append(prompt)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+class FakeSleep:
+    """假的 sleep：只记录等了几次、每次多久，不真的等。"""
+
+    def __init__(self):
+        self.waits = []
+
+    async def __call__(self, seconds):
+        """记录一次等待。"""
+        self.waits.append(seconds)
+
+
+@contextlib.contextmanager
+def scan_patched(host=None, model=None, sleeper=None, now=NOW):
+    """临时替换 scan 模块里的主机、模型、sleep、时间和 Database，结束后一定还原。"""
+    replacements = {
+        'ocr_client': host or FakeHost(), 'generate_json': model or FakeModel(),
+        'sleep': sleeper or FakeSleep(), 'now_seconds': lambda: now, 'Database': lambda binding: binding,
+    }
+    originals = {name: getattr(scan, name) for name in replacements}
+    for name, value in replacements.items():
+        setattr(scan, name, value)
+    try:
+        yield
+    finally:
+        for name, value in originals.items():
+            setattr(scan, name, value)
+
+
+def expect_http(status_code, function):
+    """调用函数，要求它抛出指定状态码的 HTTPException。"""
+    try:
+        function()
+    except HTTPException as error:
+        assert error.status_code == status_code, '期望 %s，实际 %s' % (status_code, error.status_code)
+        return
+    raise AssertionError('期望 HTTP %s，但没有抛出' % status_code)
+
+
+def new_page(db, **overrides):
+    """用接口新建一页（调用方负责先替换 Database），返回页面内容。"""
+    payload = {'image': GOOD_IMAGE, 'subject_id': 1, 'grade': 6, 'semester': 1, **overrides}
+    return run(scan.create_page(PageRequest(db, payload)))
+
+
+def advance(db, page_id, rescan=None):
+    """推进一页一步，返回 {'busy', 'page'}。"""
+    return run(scan.advance_page(page_id, PageRequest(db, rescan=rescan)))
+
+
+def page_row(connection, page_id):
+    """直接从库里读一页的整行（含 OCR 文字）。"""
+    return dict(connection.execute('SELECT * FROM scan_page WHERE id=?', (page_id,)).fetchone())
+
+
+def schema_rows(connection):
+    """库里所有对象的 (type, name, sql)。"""
+    return set(tuple(row) for row in connection.execute('SELECT type,name,sql FROM sqlite_master').fetchall())
+
+
+def test_migration_0014_only_adds_scan_page():
+    """0014 只新增 scan_page 表和它的索引，已有的表、索引、触发器一个不变；可以重复执行。"""
+    connection = build_legacy_database()
+    apply_migrations(connection, ['0011_intake_papers.sql', '0012_starmap.sql', '0013_starmap_seed.sql'])
+    before = schema_rows(connection)
+    apply_migrations(connection, ['0014_scan_page.sql'])
+    after = schema_rows(connection)
+    assert before <= after
+    assert {(kind, name) for kind, name, _ in after - before} == {
+        ('table', 'scan_page'), ('index', 'cf_scan_page_student_status')}
+    apply_migrations(connection, ['0014_scan_page.sql'])
+    assert schema_rows(connection) == after
+
+
+def test_create_page_validates_image_and_subject():
+    """照片路径不合规则 422，学科不存在 400，年级越界 422；合格的建成 uploaded 页。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with scan_patched():
+        expect_http(422, lambda: new_page(db, image='../x.jpg'))
+        expect_http(422, lambda: new_page(db, image='2026/11/zz_p.jpg'))
+        expect_http(400, lambda: new_page(db, subject_id=99))
+        expect_http(422, lambda: new_page(db, grade=13))
+        expect_http(422, lambda: new_page(db, semester=3))
+        page = new_page(db)
+    assert page['status'] == 'uploaded' and page['image'] == GOOD_IMAGE and page['items'] == []
+    assert page['timings'] == {} and page['rescan_used'] == 0 and 'ocr_text' not in page
+    row = page_row(connection, page['id'])
+    assert row['student_id'] == 1 and row['subject_id'] == 1 and row['grade'] == 6 and row['semester'] == 1
+    assert connection.execute('SELECT COUNT(*) FROM scan_page').fetchone()[0] == 1
+
+
+def test_advance_happy_path_without_rescan():
+    """不重扫：读图 → 整理 → ready，再推不再调用主机和模型。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host, model = FakeHost(), FakeModel()
+    with scan_patched(host, model):
+        page_id = new_page(db)['id']
+        first = advance(db, page_id)
+        assert first['busy'] is False and first['page']['status'] == 'analyzing'
+        second = advance(db, page_id)
+        assert second['busy'] is False and second['page']['status'] == 'ready'
+        third = advance(db, page_id)
+        assert third['busy'] is False and third['page']['status'] == 'ready'
+    page = third['page']
+    assert len(page['items']) == 3 and [item['verdict'] for item in page['items']] == ['wrong', 'wrong', 'right']
+    assert 'read_ms' in page['timings'] and 'analyze_ms' in page['timings']
+    assert page['timings']['host_read_ms'] == 4000 and 'ocr_text' not in page and page['error'] is None
+    assert host.calls == {'normal': 1, 'enhanced': 0} and len(model.prompts) == 1
+    # 提示词里有读图文字、考点清单和错因清单
+    assert FIRST_TEXT in model.prompts[0] and '101' in model.prompts[0] and '计算错误' in model.prompts[0]
+    row = page_row(connection, page_id)
+    assert row['ocr_text'] == FIRST_TEXT and row['step_started_at'] is None
+
+
+def test_advance_with_rescan_runs_once():
+    """有读图异常标记时重扫一次，两份文字一起再整理；第二次仍有标记也不再重扫。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host, model = FakeHost(), FakeModel(model_result(['merged']), model_result(['merged']))
+    with scan_patched(host, model):
+        page_id = new_page(db)['id']
+        statuses = [advance(db, page_id)['page']['status'] for _ in range(4)]
+        assert statuses == ['analyzing', 'rescanning', 'analyzing', 'ready'], statuses
+        last = advance(db, page_id)
+    assert last['busy'] is False and last['page']['status'] == 'ready'
+    assert host.calls == {'normal': 1, 'enhanced': 1} and len(model.prompts) == 2
+    assert ENHANCED_TEXT not in model.prompts[0] and ENHANCED_TEXT in model.prompts[1]
+    assert FIRST_TEXT in model.prompts[1]
+    timings = last['page']['timings']
+    for key in ('read_ms', 'analyze_ms', 'rescan_ms', 'analyze2_ms', 'host_read_ms', 'host_rescan_ms'):
+        assert key in timings, key
+    assert last['page']['rescan_used'] == 1
+    assert page_row(connection, page_id)['ocr_text_enhanced'] == ENHANCED_TEXT
+
+
+def test_rescan_switch_off():
+    """SCAN_RESCAN=off 时，带标记也直接 ready，不调重扫。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host, model = FakeHost(), FakeModel(model_result(['merged']))
+    with scan_patched(host, model):
+        page_id = new_page(db)['id']
+        advance(db, page_id, rescan='OFF')
+        result = advance(db, page_id, rescan='OFF')
+    assert result['page']['status'] == 'ready' and result['page']['rescan_used'] == 0
+    assert host.calls['enhanced'] == 0 and len(model.prompts) == 1
+
+
+def test_rescan_failure_keeps_first_result():
+    """重扫失败：直接 ready，保留第一次整理的结果，不再调模型。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host, model = FakeHost(enhanced=[HOST_FAILED]), FakeModel(model_result(['merged']))
+    with scan_patched(host, model):
+        page_id = new_page(db)['id']
+        advance(db, page_id)
+        first_items = advance(db, page_id)['page']['items']
+        result = advance(db, page_id)
+        again = advance(db, page_id)
+    page = result['page']
+    assert page['status'] == 'ready' and page['items'] == first_items and page['error'] is None
+    assert page['rescan_used'] == 1 and page['timings']['host_detail'] == 'Ollama 连不上'
+    assert again['busy'] is False and again['page']['status'] == 'ready'
+    assert host.calls == {'normal': 1, 'enhanced': 1} and len(model.prompts) == 1
+
+
+def test_busy_host_retries_then_fails():
+    """主机一直忙：等 3 次、共调 4 次后失败；忙两次后成功就继续。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host, sleeper = FakeHost(normal=[BUSY]), FakeSleep()
+    with scan_patched(host, sleeper=sleeper):
+        page_id = new_page(db)['id']
+        page = advance(db, page_id)['page']
+    assert sleeper.waits == [scan_model.BUSY_WAIT_SECONDS] * 3 and host.calls['normal'] == 4
+    assert page['status'] == 'failed' and page['error'] == '读图没成功'
+    host, sleeper = FakeHost(normal=[BUSY, BUSY, ocr_ok(FIRST_TEXT)]), FakeSleep()
+    with scan_patched(host, sleeper=sleeper):
+        page_id = new_page(db)['id']
+        page = advance(db, page_id)['page']
+    assert page['status'] == 'analyzing' and host.calls['normal'] == 3 and len(sleeper.waits) == 2
+
+
+def test_host_garbage_and_contract_mismatch():
+    """主机返回乱码或版本不一致都算读图失败；主机的细节只记进 timings，不给用户看。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with scan_patched(FakeHost(normal=[(200, None)])):
+        page = advance(db, new_page(db)['id'])['page']
+    assert page['status'] == 'failed' and page['error'] == '读图没成功'
+    mismatch = (200, {'ok': True, 'contract': 2, 'text': 'x', 'detail': '主机版本 2'})
+    with scan_patched(FakeHost(normal=[mismatch])):
+        page = advance(db, new_page(db)['id'])['page']
+    assert page['status'] == 'failed' and page['error'] == '识别服务版本不一致'
+    assert page['timings']['host_detail'] == '主机版本 2' and '主机版本' not in page['error']
+    with scan_patched(FakeHost(normal=[HOST_FAILED])):
+        page = advance(db, new_page(db)['id'])['page']
+    assert page['error'] == '读图没成功' and page['timings']['host_detail'] == 'Ollama 连不上'
+
+
+def test_model_failure_retry_does_not_reread():
+    """模型失败：页面失败并显示模型的报错，读图文字保留；再试只重新整理，不再读图。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host = FakeHost()
+    model = FakeModel(HTTPException(502, '模型没有返回有效的结构化内容'), model_result())
+    with scan_patched(host, model):
+        page_id = new_page(db)['id']
+        advance(db, page_id)
+        failed = advance(db, page_id)['page']
+        assert failed['status'] == 'failed' and failed['error'] == '模型没有返回有效的结构化内容'
+        assert page_row(connection, page_id)['ocr_text'] == FIRST_TEXT
+        page = advance(db, page_id)['page']
+    assert page['status'] == 'ready' and page['error'] is None and len(page['items']) == 3
+    assert host.calls['normal'] == 1 and len(model.prompts) == 2
+
+
+def test_read_failure_retry_rereads():
+    """读图失败后再推，会重新读图。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host = FakeHost(normal=[HOST_FAILED, ocr_ok(FIRST_TEXT)])
+    with scan_patched(host):
+        page_id = new_page(db)['id']
+        assert advance(db, page_id)['page']['status'] == 'failed'
+        page = advance(db, page_id)['page']
+    assert page['status'] == 'analyzing' and page['error'] is None and host.calls['normal'] == 2
+
+
+def test_missing_image_fails_cleanly():
+    """R2 里照片不见了：失败并提示"照片找不到了"，不调主机。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host = FakeHost(image=None)
+    with scan_patched(host):
+        page = advance(db, new_page(db)['id'])['page']
+    assert page['status'] == 'failed' and page['error'] == '照片找不到了' and host.calls['normal'] == 0
+
+
+def test_concurrent_advance_only_one_runs():
+    """同一页同一时刻只跑一个推进：正在做的返回 busy；卡住超过 150 秒可以重做；并发只有一个认领成功。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host = FakeHost()
+    with scan_patched(host):
+        page_id = new_page(db)['id']
+        connection.execute("UPDATE scan_page SET status='reading',step_started_at=? WHERE id=?", (NOW - 10, page_id))
+        connection.commit()
+        result = advance(db, page_id)
+        assert result['busy'] is True and result['page']['status'] == 'reading' and host.calls['normal'] == 0
+        connection.execute('UPDATE scan_page SET step_started_at=? WHERE id=?', (NOW - 151, page_id))
+        connection.commit()
+        result = advance(db, page_id)
+        assert result['busy'] is False and result['page']['status'] == 'analyzing' and host.calls['normal'] == 1
+    # 两个推进真正并发：两边都先读到 uploaded，只有一个条件更新能认领成功
+    yielding = YieldingDB(connection)
+    host = FakeHost(yield_once=True)
+    with scan_patched(host):
+        page_id = new_page(yielding)['id']
+
+        async def both():
+            """同时推进同一页两次。"""
+            return await asyncio.gather(scan.advance_page(page_id, PageRequest(yielding)),
+                                        scan.advance_page(page_id, PageRequest(yielding)))
+
+        results = run(both())
+    assert sorted(result['busy'] for result in results) == [False, True]
+    assert host.calls['normal'] == 1 and page_row(connection, page_id)['status'] == 'analyzing'
+
+
+def test_unfinished_and_close():
+    """没整理完的页：当前学生、不含已结束 / 失败 / 已删除，最多最近 5 条；结束后推进什么都不做。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host, model = FakeHost(), FakeModel()
+    with scan_patched(host, model):
+        ids = [new_page(db)['id'] for _ in range(9)]
+        closed = run(scan.close_page(ids[8], PageRequest(db)))
+        assert closed['status'] == 'closed'
+        connection.execute("UPDATE scan_page SET status='failed' WHERE id=?", (ids[7],))
+        connection.execute('UPDATE scan_page SET deleted=1 WHERE id=?', (ids[6],))
+        # 别的学生的页不出现
+        connection.execute('INSERT INTO scan_page(student_id,subject_id,image) VALUES(2,1,?)', (GOOD_IMAGE,))
+        connection.commit()
+        unfinished = run(scan.list_unfinished(PageRequest(db)))
+        assert [page['id'] for page in unfinished['items']] == list(reversed(ids[1:6]))
+        result = advance(db, ids[8])
+    assert result['busy'] is False and result['page']['status'] == 'closed'
+    assert host.calls == {'normal': 0, 'enhanced': 0} and model.prompts == []
+
+
+def test_unknown_page_is_404():
+    """不存在或已软删除的页，查、推进、结束都是 404。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with scan_patched():
+        deleted_id = new_page(db)['id']
+        connection.execute('UPDATE scan_page SET deleted=1 WHERE id=?', (deleted_id,))
+        connection.commit()
+        for page_id in (999, deleted_id):
+            expect_http(404, lambda: run(scan.get_page(page_id, PageRequest(db))))
+            expect_http(404, lambda: advance(db, page_id))
+            expect_http(404, lambda: run(scan.close_page(page_id, PageRequest(db))))
+        assert page_row(connection, deleted_id)['status'] == 'uploaded'
+
+
 TESTS = [
     test_interpret_health,
     test_health_endpoint_hides_host_details,
@@ -296,6 +733,20 @@ TESTS = [
     test_changes_library,
     test_build_page_prompt,
     test_build_fill_prompt,
+    test_migration_0014_only_adds_scan_page,
+    test_create_page_validates_image_and_subject,
+    test_advance_happy_path_without_rescan,
+    test_advance_with_rescan_runs_once,
+    test_rescan_switch_off,
+    test_rescan_failure_keeps_first_result,
+    test_busy_host_retries_then_fails,
+    test_host_garbage_and_contract_mismatch,
+    test_model_failure_retry_does_not_reread,
+    test_read_failure_retry_rereads,
+    test_missing_image_fails_cleanly,
+    test_concurrent_advance_only_one_runs,
+    test_unfinished_and_close,
+    test_unknown_page_is_404,
 ]
 
 
