@@ -111,6 +111,25 @@ def test_clean_items_drops_bad_catalog_and_error_types():
     assert item['flags'] == ['broken_formula']
 
 
+def test_wrap_bare_math_and_clean_items_use_it():
+    """模型没给公式加 \\( \\) 时，清洗把裸公式包好；已经加了边界的、普通文字和题号原样不动。"""
+    assert scan_model.wrap_bare_math(r'\frac{61}{40}') == r'\(\frac{61}{40}\)'
+    assert (scan_model.wrap_bare_math(r'学生最终答案 9\frac{7}{8}，正确答案 -\frac{359}{248}')
+            == r'学生最终答案 \(9\frac{7}{8}\)，正确答案 \(-\frac{359}{248}\)')
+    assert scan_model.wrap_bare_math(r'已有 \(\frac{1}{2}\) 和 \frac{3}{4}。') == r'已有 \(\frac{1}{2}\) 和 \(\frac{3}{4}\)。'
+    assert scan_model.wrap_bare_math(r'当 \(x=2\) 时为 1') == r'当 \(x=2\) 时为 1'
+    assert scan_model.wrap_bare_math('0.8a 元') == '0.8a 元'
+    raw = {'questions': [{'question_no': '4', 'parsed_question': r'计算 \(\frac{1}{2}\)', 'verdict': 'wrong',
+                          'wrong_answer': r'\frac{21}{40}', 'answer': r'\frac{61}{40}',
+                          'reason': r'学生最终答案 \frac{21}{40}，正确答案 \frac{61}{40}', 'analysis': r'先算 \times'}]}
+    [item] = scan_model.clean_items(raw, set(), set())
+    assert item['answer'] == r'\(\frac{61}{40}\)' and item['wrong_answer'] == r'\(\frac{21}{40}\)'
+    assert item['reason'] == r'学生最终答案 \(\frac{21}{40}\)，正确答案 \(\frac{61}{40}\)'
+    assert item['parsed_question'] == r'计算 \(\frac{1}{2}\)' and item['analysis'] == r'先算 \(\times\)'
+    fill = scan_model.clean_fill({'answer': r'\frac{2x}{a} 支'}, set(), set())
+    assert fill['answer'] == r'\(\frac{2x}{a}\) 支'
+
+
 def test_clean_items_accepts_string_and_float_point_ids():
     """模型把考点编号写成字符串或 101.0 时照样认；bool、非数字、清单外的编号仍然丢掉。"""
     raw = {'questions': [{'parsed_question': '题', 'verdict': 'wrong',
@@ -209,7 +228,7 @@ def test_parse_model_json_failure_carries_hint_into_timings():
 
 
 def test_clean_fill():
-    """单题补全返回八个字段（含完整题干和孩子的答案），规则同整页清洗。"""
+    """单题补全返回八个字段（含完整题干和学生的答案），规则同整页清洗。"""
     fill = scan_model.clean_fill({'parsed_question': '完整题干', 'wrong_answer': '3', 'answer': '1', 'analysis': 5,
                                   'knowledge_point_ids': [101, 7], 'primary_knowledge_point_id': 7,
                                   'error_types': ['计算错误', 'x'], 'difficulty': 0, 'extra': 'ignored'},
@@ -223,7 +242,7 @@ def test_clean_fill():
 
 
 def test_merge_fill():
-    """补全结果合进题目：空的题干、孩子的答案沿用原来的，其余以补全为准。"""
+    """补全结果合进题目：空的题干、学生的答案沿用原来的，其余以补全为准。"""
     item = {**scan_model.blank_item(0), 'question_no': '3', 'parsed_question': '题干开头', 'wrong_answer': '2'}
     full = scan_model.merge_fill(item, {'parsed_question': '完整的题干', 'wrong_answer': '5', 'answer': '1'})
     assert full['parsed_question'] == '完整的题干' and full['wrong_answer'] == '5' and full['answer'] == '1'
@@ -323,7 +342,7 @@ def test_build_page_prompt():
     catalog = [{'id': 1, 'name': '代数', 'points': [{'id': 101, 'name': '一元二次方程'}]}]
     prompt = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', None, catalog, ['计算错误'])
     assert '101' in prompt and '一元二次方程' in prompt and '计算错误' in prompt and '第一遍文字ABC' in prompt
-    for rule in ['不许猜孩子写了什么', '0.5 和 1/2 不算错', '没有作答', '按做错', 'questions']:
+    for rule in ['不许猜学生写了什么', '0.5 和 1/2 不算错', '没有作答', '按做错', 'questions']:
         assert rule in prompt, rule
     assert '分段重新读取' not in prompt
     # 做对的题只要题号、题干开头（不超过 40 个字）和判断，不要完整题干（设计 6.2、决定 16）
@@ -476,7 +495,7 @@ def test_read_with_retries():
 
 NOW = 1_800_000_000          # 假的"当前时间"（整数秒）
 GOOD_IMAGE = '2026/11/a1b2c3d4_page.jpg'
-FIRST_TEXT = '1. 计算 3/4×2/3=  孩子写 1/3\n2. 计算 1/2÷1/4=  孩子写 1/8\n3. 计算 1+1=  孩子写 2'
+FIRST_TEXT = '1. 计算 3/4×2/3=  学生写 1/3\n2. 计算 1/2÷1/4=  学生写 1/8\n3. 计算 1+1=  学生写 2'
 ENHANCED_TEXT = '重扫读到的文字ENHANCED'
 
 
@@ -996,7 +1015,7 @@ def draft_item(seq, **overrides):
     """一道完整的"做错了"草稿项（模型来源），可用 overrides 改任意字段。"""
     item = scan_model.blank_item(seq)
     item.update(source='model', question_no=str(seq + 1), parsed_question='计算第 %d 题' % (seq + 1),
-                wrong_answer='孩子写 %d' % seq, reason='算错了', answer='答案 %d' % seq, analysis='解析 %d' % seq,
+                wrong_answer='学生写 %d' % seq, reason='算错了', answer='答案 %d' % seq, analysis='解析 %d' % seq,
                 knowledge_point_ids=[101], primary_knowledge_point_id=101, error_types=['计算错误'], difficulty=2)
     item.update(overrides)
     return item
@@ -1071,7 +1090,7 @@ def test_accept_writes_approved_question_with_page_fields():
     assert row['deleted'] == 0 and row['review_status'] == 'approved' and row['paper_id'] is None
     assert row['student_id'] == 1 and row['original_image'] == ITEM_IMAGE
     assert json.loads(row['original_images']) == [ITEM_IMAGE]
-    assert row['wrong_evidence'] == '页面识别，家长确认' and row['wrong_answer'] == '孩子写 0'
+    assert row['wrong_evidence'] == '页面识别，家长确认' and row['wrong_answer'] == '学生写 0'
     assert row['question_no'] == '1' and row['error_type'] == '计算错误' and row['difficulty'] == 2
     assert row['subject_id'] == 1 and row['grade'] == 6 and row['semester'] == 1
     assert row['parsed_question'] == '计算第 1 题' and row['answer'] == '答案 0' and row['analysis'] == '解析 0'
@@ -1340,7 +1359,7 @@ def test_item_operations_work_when_integers_bind_as_reals():
 
 
 def test_promote_fills_from_model_and_survives_model_failure():
-    """补成错题：模型拿整页文字补全完整题干、孩子的答案等并清洗；模型失败时移动保留、字段为空；做错的题不能补。"""
+    """补成错题：模型拿整页文字补全完整题干、学生的答案等并清洗；模型失败时移动保留、字段为空；做错的题不能补。"""
     connection = build_scan_database()
     db = SQLiteDB(connection)
     right = scan_model.blank_item(0)
@@ -1665,6 +1684,7 @@ TESTS = [
     test_health_endpoint_hides_host_details,
     test_clean_items_drops_bad_catalog_and_error_types,
     test_clean_items_accepts_string_and_float_point_ids,
+    test_wrap_bare_math_and_clean_items_use_it,
     test_clean_items_primary_none_when_several_points_left,
     test_clean_items_right_items_drop_answer_fields,
     test_clean_items_bad_types_mark_unsure,

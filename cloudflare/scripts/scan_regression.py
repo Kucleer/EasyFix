@@ -37,7 +37,7 @@ cloudflare/scripts/knowledge_grade6_catalog.json，只取 --subject 学科、符
 【跑完之后人工评分】（设计文档 12.2 第 1 条；不设及格线，数字交给用户决定能不能给妈妈用）
 拿 对照表.md 对着原图和交接文档（ocr-ollama-handoff.md）里人工核对过的 61 道目标题，数出：
   1. 关键题干完全正确的道数、有关键错误的道数（和交接文档里的 41 / 6 比）；
-  2. 模型判断做错、而且孩子确实做错的道数；
+  2. 模型判断做错、而且学生确实做错的道数；
   3. 做错了却被判成做对的道数（漏判）：61 道目标题都是真错题，被判成做对就算漏判；
   4. 做对了却被判成做错的道数（误判）：模型判错但不在 61 道里的题，要对着原图看一眼，
      可能是误判，也可能是当初没录的错题；
@@ -346,11 +346,11 @@ def summarize_page(name, page, total_ms, note=''):
 
 
 def describe_item(item):
-    """对照表里一道题的一行：题号、题干开头、孩子的答案、原因、提示。"""
+    """对照表里一道题的一行：题号、题干开头、学生的答案、原因、提示。"""
     text = (item.get('parsed_question') or '').replace('\n', ' ')[:40]
     line = '- 第 %s 题：%s' % (item.get('question_no') or '?', text)
     if item.get('wrong_answer'):
-        line += '；孩子写：%s' % item['wrong_answer']
+        line += '；学生写：%s' % item['wrong_answer']
     if item.get('reason'):
         line += '；原因：%s' % item['reason']
     if item.get('flags'):

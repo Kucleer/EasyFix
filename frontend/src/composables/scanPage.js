@@ -64,7 +64,7 @@ export function progressCounts(items) {
 /** "拿不准"题的提示语；不是 unsure 返回空串。 */
 export function unsureHint(item) {
   if (item.verdict !== 'unsure') return ''
-  return item.reason ? '模型拿不准：' + item.reason : '没看清孩子的答案，请对照原图判断'
+  return item.reason ? '模型拿不准：' + item.reason : '没看清学生的答案，请对照原图判断'
 }
 
 /** 文件是否超过上传上限、需要压缩。 */

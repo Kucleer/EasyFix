@@ -51,7 +51,7 @@ test('提示文字', () => {
   assert.equal(stepLabel('reading'), '正在读图')
   assert.equal(stepLabel('analyzing'), '正在整理题目')
   assert.equal(stepLabel('ready'), '')
-  assert.equal(unsureHint({ verdict: 'unsure', reason: '' }), '没看清孩子的答案，请对照原图判断')
+  assert.equal(unsureHint({ verdict: 'unsure', reason: '' }), '没看清学生的答案，请对照原图判断')
   assert.equal(unsureHint({ verdict: 'unsure', reason: '字迹潦草' }), '模型拿不准：字迹潦草')
   assert.equal(unsureHint({ verdict: 'wrong', reason: 'x' }), '')
 })

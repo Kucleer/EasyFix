@@ -56,7 +56,7 @@
             <el-tag v-if="q.review_status === 'pending'" type="warning" size="small">待核对</el-tag>
           </div>
           <div class="stem"><MathText :text="q.parsed_question || '（空）'" /></div>
-          <div class="field"><span class="label">孩子的答案</span><MathText :text="q.wrong_answer || '（没有记录）'" /></div>
+          <div class="field"><span class="label">学生的答案</span><MathText :text="q.wrong_answer || '（没有记录）'" /></div>
           <div class="field">
             <span class="label">考点</span>
             <span v-if="q.knowledge_points?.length" class="kp-list">

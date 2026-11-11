@@ -448,7 +448,7 @@ async def restore_item(page_id: int, seq: int, request: Request):
 async def promote_item(page_id: int, seq: int, request: Request):
     """补成错题：把模型认为做对的一道移到主列表，再调一次模型补全这一道。
 
-    模型拿到整页文字和这道题的题号、题干开头，返回完整题干、孩子的答案、答案、解析、考点、错因、难度。
+    模型拿到整页文字和这道题的题号、题干开头，返回完整题干、学生的答案、答案、解析、考点、错因、难度。
     先写入移动（source、verdict、reason），模型失败时不回滚移动，返回 fill_error 让前端进入修改状态；
     失败的异常类型名记进这一页的 timings.model_error_type，方便排查。
     """

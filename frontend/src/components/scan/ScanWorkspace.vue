@@ -17,22 +17,25 @@
           show-icon
         />
 
-        <ScanItemCard
-          v-for="item in groups.main"
-          :key="item.seq"
-          :data-seq="item.seq"
-          :item="item"
-          :subject-id="page.subject_id"
-          :error-types="error_type_names"
-          :knowledge-names="knowledge_names"
-          :server-error="server_errors[item.seq] || ''"
-          :busy="accepting_all || Boolean(busy_seqs[item.seq])"
-          @save="(fields, finish) => save_item(item, fields, finish)"
-          @accept="accept_item(item)"
-          @dismiss="dismiss_item(item)"
-          @withdraw="withdraw_item(item)"
-          @editing-change="(value) => set_editing(item.seq, value)"
-        />
+        <!-- 点"不是错题"的卡片向右滑出 -->
+        <TransitionGroup name="card-out" tag="div" class="card-list">
+          <ScanItemCard
+            v-for="item in main_items"
+            :key="item.seq"
+            :data-seq="item.seq"
+            :item="item"
+            :subject-id="page.subject_id"
+            :error-types="error_type_names"
+            :knowledge-names="knowledge_names"
+            :server-error="server_errors[item.seq] || ''"
+            :busy="accepting_all || Boolean(busy_seqs[item.seq])"
+            @save="(fields, finish) => save_item(item, fields, finish)"
+            @accept="accept_item(item)"
+            @dismiss="dismiss_item(item)"
+            @withdraw="withdraw_item(item)"
+            @editing-change="(value) => set_editing(item.seq, value)"
+          />
+        </TransitionGroup>
 
         <!-- 模型认为做对的题：默认收起；主列表为空时自动展开 -->
         <el-collapse v-if="groups.right.length" v-model="open_panels" class="right-group">
@@ -81,8 +84,8 @@
 import MathText from '@/components/MathText.vue'
 import ScanImagePane from '@/components/scan/ScanImagePane.vue'
 import ScanItemCard from '@/components/scan/ScanItemCard.vue'
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from 'vue'
-import { ElMessage, ElMessageBox, ElNotification, ElButton } from 'element-plus'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi } from '@/api/question'
 import { scanApi } from '@/api/scan'
 import {
@@ -98,13 +101,8 @@ const props = defineProps({
 // update(page)：接口返回了新的页；next：确认后要结束这一页、回到选图
 const emit = defineEmits(['update', 'next'])
 
-// "不是错题"后撤销提示停留的毫秒数
-const UNDO_DURATION_MS = 5000
 // 补成错题没补上时给的提示
 const FILL_FAILED_TEXT = '没补上答案和解析，可以点修改自己填'
-// 手机端宽度上限，以及手机端撤销提示离底部的距离（导航约 65px + 按钮条约 54px）
-const MOBILE_MAX_WIDTH = 768
-const MOBILE_NOTIFY_OFFSET = 130
 
 const error_type_names = ref([])   // 这一学科的错因名称
 const knowledge_names = ref({})    // 考点编号 -> 名称
@@ -115,9 +113,11 @@ const accepting_all = ref(false)
 const accept_all_progress = ref('')  // "全部录入"进行中按钮上的进度，如"正在录入 2/5"
 const open_panels = ref([])        // 展开的折叠区
 const editing_seqs = ref({})       // 正在修改（表单打开着）的题
-let undo_notifications = []        // 还开着的"撤销"提示，结束这一页或离开时关掉
+const leaving_seqs = ref({})       // 点了"不是错题"、正在滑出的题（接口失败时再放回来）
 
 const groups = computed(() => groupItems(props.page.items))
+// 主列表里显示的卡片：去掉正在滑出的
+const main_items = computed(() => groups.value.main.filter(item => !leaving_seqs.value[item.seq]))
 const progress = computed(() => progressCounts(props.page.items))
 const summary = computed(() => pageSummary(props.page.items))
 const accept_all_count = computed(() => acceptAllSeqs(props.page.items).length)
@@ -188,12 +188,6 @@ const set_editing = (seq, value) => {
   editing_seqs.value = next
 }
 
-/** 关掉所有还开着的"撤销"提示，免得这一页结束后再点撤销。 */
-const close_undo_notifications = () => {
-  undo_notifications.forEach(notification => notification.close())
-  undo_notifications = []
-}
-
 /** 对一道题调接口：期间标记忙，成功时把新页交给上层并返回响应数据，失败时报错并返回 null。 */
 const run_item_request = async (seq, request) => {
   set_busy(seq, true)
@@ -260,41 +254,23 @@ const withdraw_item = async (item) => {
   }
 }
 
-/** 撤销"不是错题"：把这道题恢复回来。 */
-const restore_item = async (item) => {
-  const data = await run_item_request(item.seq, () => scanApi.restore(props.page.id, item.seq))
-  if (data) emit('update', data)
+/** 记录某道题是否正在滑出。 */
+const set_leaving = (seq, value) => {
+  const next = { ...leaving_seqs.value }
+  if (value) next[seq] = true
+  else delete next[seq]
+  leaving_seqs.value = next
 }
 
-/** 不是错题：直接去掉，不二次确认；给一个约 5 秒的"撤销"提示。 */
+/** 不是错题：不确认、不弹提示，卡片马上滑出；接口失败时卡片回来并报错。 */
 const dismiss_item = async (item) => {
+  set_leaving(item.seq, true)
   const data = await run_item_request(item.seq, () => scanApi.dismiss(props.page.id, item.seq))
-  if (!data) return
-  emit('update', data)
-  set_server_error(item.seq, '')
-  const notification = ElNotification({
-    onClose: () => {
-      undo_notifications = undo_notifications.filter(one => one !== notification)
-    },
-    title: itemLabel(item) + ' 已去掉',
-    duration: UNDO_DURATION_MS,
-    position: 'bottom-right',
-    // 手机端底部有导航和固定的按钮条，提示往上挪，免得挡住
-    offset: window.innerWidth <= MOBILE_MAX_WIDTH ? MOBILE_NOTIFY_OFFSET : 16,
-    message: h('div', { class: 'scan-undo' }, [
-      h('span', '不会录入。'),
-      h(ElButton, {
-        link: true,
-        type: 'primary',
-        size: 'small',
-        onClick: () => {
-          notification.close()
-          restore_item(item)
-        },
-      }, () => '撤销'),
-    ]),
-  })
-  undo_notifications.push(notification)
+  if (data) {
+    emit('update', data)
+    set_server_error(item.seq, '')
+  }
+  set_leaving(item.seq, false)  // 成功时这道题已是"去掉"状态，不会再出现在主列表
 }
 
 /** 补成错题：移到主列表并请模型补全；没补上时卡片进修改状态让她自己填。 */
@@ -380,7 +356,6 @@ const request_next = async () => {
       return  // 点了"再看看"
     }
   }
-  close_undo_notifications()
   emit('next')
 }
 
@@ -406,8 +381,6 @@ const load_catalog = async () => {
 }
 
 onMounted(load_catalog)
-// 离开整理区（下一张、页被结束、离开页面）时关掉撤销提示
-onBeforeUnmount(close_undo_notifications)
 </script>
 
 <style scoped>
@@ -453,6 +426,28 @@ onBeforeUnmount(close_undo_notifications)
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* 卡片列表：间距和外层一致；滑出时不让页面出现横向滚动 */
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: clip;
+}
+
+/* "不是错题"：卡片向右滑出并淡出，下面的卡片平滑补上 */
+.card-out-leave-active {
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}
+
+.card-out-leave-to {
+  transform: translateX(110%);
+  opacity: 0;
+}
+
+.card-out-move {
+  transition: transform 0.28s ease;
 }
 
 .right-group {

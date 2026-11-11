@@ -197,7 +197,7 @@
           </div>
         </div>
 
-        <!-- 卷子、题号、孩子的答案和判错依据 -->
+        <!-- 卷子、题号、学生的答案和判错依据 -->
         <div class="detail-card">
           <div class="card-header-gray">卷子与作答</div>
           <div class="card-content">
@@ -213,7 +213,7 @@
               </div>
             </div>
             <div class="meta-item">
-              <label>孩子的答案：</label>
+              <label>学生的答案：</label>
               <div class="question-text"><MathText :text="currentQuestion.wrong_answer || '暂无'" /></div>
             </div>
             <div class="meta-item">
@@ -348,7 +348,7 @@
         <el-form-item label="题号">
           <el-input v-model="editForm.question_no" placeholder="如 二、5" />
         </el-form-item>
-        <el-form-item label="孩子的答案">
+        <el-form-item label="学生的答案">
           <MathEditor v-model="editForm.wrong_answer" :rows="3" />
         </el-form-item>
         <el-form-item label="答案">

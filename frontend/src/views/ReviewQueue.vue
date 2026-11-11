@@ -36,7 +36,7 @@
 
             <div class="field"><span class="label">题干</span><MathText :text="q.parsed_question || '（空）'" /></div>
             <div class="answers">
-              <div class="field"><span class="label">孩子的答案</span><MathText :text="q.wrong_answer || '（没有记录）'" /></div>
+              <div class="field"><span class="label">学生的答案</span><MathText :text="q.wrong_answer || '（没有记录）'" /></div>
               <div class="field"><span class="label">正确答案</span><MathText :text="q.answer || '（没有记录）'" /></div>
             </div>
             <div v-if="q.wrong_evidence" class="field"><span class="label">判错依据</span><span>{{ q.wrong_evidence }}</span></div>
@@ -64,7 +64,7 @@
       <el-form label-position="top">
         <el-form-item label="题号"><el-input v-model="form.question_no" placeholder="如 二、5" /></el-form-item>
         <el-form-item label="题干"><MathEditor v-model="form.parsed_question" :rows="5" /></el-form-item>
-        <el-form-item label="孩子的答案"><MathEditor v-model="form.wrong_answer" :rows="3" /></el-form-item>
+        <el-form-item label="学生的答案"><MathEditor v-model="form.wrong_answer" :rows="3" /></el-form-item>
         <el-form-item label="正确答案"><MathEditor v-model="form.answer" :rows="3" /></el-form-item>
         <el-form-item label="解析"><MathEditor v-model="form.analysis" :rows="4" /></el-form-item>
         <el-form-item label="考点">

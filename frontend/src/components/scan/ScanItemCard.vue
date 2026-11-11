@@ -28,8 +28,8 @@
       <el-form-item label="题干">
         <MathEditor v-model="form.parsed_question" :rows="4" placeholder="题目内容" />
       </el-form-item>
-      <el-form-item label="孩子的答案">
-        <MathEditor v-model="form.wrong_answer" :rows="2" placeholder="孩子写的答案" />
+      <el-form-item label="学生的答案">
+        <MathEditor v-model="form.wrong_answer" :rows="2" placeholder="学生写的答案" />
       </el-form-item>
       <el-form-item label="正确答案">
         <MathEditor v-model="form.answer" :rows="2" placeholder="正确答案" />
@@ -65,16 +65,18 @@
         :key="text"
         class="card-alert"
         type="warning"
-        :title="text"
         :closable="false"
         show-icon
-      />
+      >
+        <!-- 拿不准的原因来自模型，可能带公式 -->
+        <template #title><MathText :text="text" /></template>
+      </el-alert>
       <div class="field-row">
         <MathText :text="item.parsed_question || '（没有题干，点修改补上）'" />
       </div>
       <div class="field-grid">
         <div class="field">
-          <span class="field-label">孩子的答案</span>
+          <span class="field-label">学生的答案</span>
           <MathText :text="item.wrong_answer || '—'" />
         </div>
         <div class="field">
@@ -90,9 +92,10 @@
           <span>{{ item.error_types.length ? item.error_types.join('、') : '—' }}</span>
         </div>
       </div>
-      <div v-if="item.reason && item.verdict !== 'unsure'" class="reason">判断理由：{{ item.reason }}</div>
+      <div v-if="item.reason && item.verdict !== 'unsure'" class="reason">判断理由：<MathText :text="item.reason" /></div>
       <div class="card-actions">
-        <el-button link size="small" :disabled="busy" @click="emit('dismiss')">不是错题</el-button>
+        <!-- 不是错题：浅红描边，表示"移出列表"，和修改（白底）、录入（主色）区分开 -->
+        <el-button type="danger" plain size="small" :disabled="busy" @click="emit('dismiss')">不是错题</el-button>
         <el-button size="small" :disabled="busy" @click="start_edit">修改</el-button>
         <el-button type="primary" size="small" :loading="busy" @click="request_accept">录入</el-button>
       </div>

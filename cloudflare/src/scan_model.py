@@ -49,7 +49,7 @@ NO_VERDICT_REASON = '模型没有给出明确判断，请对照原图'
 TEXT_FIELDS = ('question_no', 'parsed_question', 'wrong_answer', 'reason', 'answer', 'analysis')
 EDIT_TEXT_FIELDS = ('question_no', 'parsed_question', 'wrong_answer', 'answer', 'analysis')
 # 给用户看的字段中文名
-FIELD_LABELS = {'question_no': '题号', 'parsed_question': '题干', 'wrong_answer': '孩子的答案',
+FIELD_LABELS = {'question_no': '题号', 'parsed_question': '题干', 'wrong_answer': '学生的答案',
                 'answer': '正确答案', 'analysis': '解析'}
 
 _CHANGES_LIBRARY_PATH = re.compile(r'/api/scan/pages/\d+/items/\d+/(accept|withdraw)')
@@ -128,11 +128,13 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '一道大题下面有 (1)(2)… 小题、并且小题各有答案的，每个小题单独列一项。每道题的字段（按这个顺序写）：',
         '- question_no：题号，带上大题号和小题号，例如"二、4(3)"；卷面上没有大题号就只写题号。',
         '- parsed_question：完整题干（判为 right 的题例外，见下）。'
-        '数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。',
-        '- wrong_answer：孩子写的最终答案，读不出就留空字符串。',
+        '数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。'
+        'wrong_answer、solution、reason、answer、analysis 里的公式也一样，每个公式都要写在 \\(...\\) 里，'
+        '不能直接写 \\frac{1}{2} 这样不带边界的公式。',
+        '- wrong_answer：学生写的最终答案，读不出就留空字符串。',
         '- solution：你自己的演算，一两行，写出关键步骤和最终结果。每道题都要先写它，再下判断。',
         '- verdict：wrong（做错了）、right（做对了）或 unsure（拿不准）。',
-        '- reason：一句话，固定写成"孩子最终答案 …，正确答案 …"，例如"孩子最终答案 x²+3，正确答案 x³−3"。',
+        '- reason：一句话，固定写成"学生最终答案 …，正确答案 …"，例如"学生最终答案 x²+3，正确答案 x³−3"。',
         '- flags：读图异常标记数组，没有就写 []。只能用这四种：'
         'broken_formula（公式或算式不完整、括号不配对、数字明显不合理）、'
         'unsolvable（按读到的题干解不出，或条件不够）、'
@@ -141,18 +143,18 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '- verdict 为 wrong 或 unsure 的题，还要给：answer（正确答案）、analysis（解析）、'
         'knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
         '- verdict 为 right 的题只给四个字段：question_no、parsed_question（只写题干开头，不超过 40 个字，'
-        '不要完整题干）、solution、verdict。不要给孩子的答案、判断理由、答案、解析、考点、错因和难度，'
+        '不要完整题干）、solution、verdict。不要给学生的答案、判断理由、答案、解析、考点、错因和难度，'
         '这样整页返回得快，也不会超出长度。',
         '',
-        '判断对错的规则：先在 solution 里自己把题做一遍，再和孩子的最终答案比对。',
-        '1. 孩子的最终答案读得出、和你算的不一样：先把你的演算再仔细复查一遍，确认是你算对了，才判 wrong。',
-        '2. 孩子的最终答案读得出、和你算的一样（或等价）：right。对错只看最终答案：'
+        '判断对错的规则：先在 solution 里自己把题做一遍，再和学生的最终答案比对。',
+        '1. 学生的最终答案读得出、和你算的不一样：先把你的演算再仔细复查一遍，确认是你算对了，才判 wrong。',
+        '2. 学生的最终答案读得出、和你算的一样（或等价）：right。对错只看最终答案：'
         '过程写得乱、有涂改、有笔误、步骤不规范，只要最终答案对，一律 right，不许因为过程判 wrong。',
-        '3. 孩子的作答读不出，或者你自己解不出，或者是没有标准答案的题型（作图、作文、开放题）：unsure。',
+        '3. 学生的作答读不出，或者你自己解不出，或者是没有标准答案的题型（作图、作文、开放题）：unsure。',
         '4. 没有作答（空着）按做错处理：wrong，reason 写"没有作答"。',
-        '5. 不许猜孩子写了什么：看不清就是看不清，wrong_answer 留空并判 unsure。',
+        '5. 不许猜学生写了什么：看不清就是看不清，wrong_answer 留空并判 unsure。',
         '6. 只是书写形式不同不算错，例如 0.5 和 1/2、化简前后的同一个数，都按做对（0.5 和 1/2 不算错）。',
-        '7. 例外：孩子的答案里有字母（代数式）时，书写规范本身就是考点，要逐条检查：'
+        '7. 例外：学生的答案里有字母（代数式）时，书写规范本身就是考点，要逐条检查：'
         '数字和字母相乘，数字写在字母前面（a·0.8、a×10 都要写成 0.8a、10a）；字母之间的乘号省略；'
         '带分数系数要化成假分数（1\\frac{2}{5}x 写成 \\frac{7}{5}x）；除法写成分数形式（(36-x)÷a 写成 \\frac{36-x}{a}）；'
         '和或差后面带单位时要加括号。值相等但违反任意一条的，判 wrong，reason 写明违反哪条。',
@@ -169,7 +171,7 @@ def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalo
     """拼单题补全的提示词：给整页文字和这道题的题号、题干开头，只补全这一道（设计 8.4）。"""
     parts = [
         '你是一位中小学老师。下面是一张作业或试卷照片读出来的整页文字。'
-        '家长认为其中有一道题孩子做错了，请在整页文字里找到这道题，只补全这一道题的信息。',
+        '家长认为其中有一道题学生做错了，请在整页文字里找到这道题，只补全这一道题的信息。',
         _scope_line(subject_name, grade),
         '',
         *_ocr_block(ocr_text, enhanced_text),
@@ -180,11 +182,12 @@ def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalo
         '',
         '只返回这一道题的 JSON（一个对象），字段：',
         '- parsed_question：完整题干。',
-        '- wrong_answer：孩子写的答案，读不出就留空字符串，不许猜。',
+        '- wrong_answer：学生写的答案，读不出就留空字符串，不许猜。',
         '- answer：正确答案。',
         '- analysis：解析。',
         '- knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
-        '数学公式用 LaTeX：行内 \\(...\\)，独立 \\[...\\]。',
+        '数学公式用 LaTeX：行内 \\(...\\)，独立 \\[...\\]。每个字段里的每个公式都要写在 \\(...\\) 里，'
+        '不能直接写 \\frac{1}{2} 这样不带边界的公式。',
         '',
         _knowledge_rules(catalog, error_type_names),
         '不要输出 JSON 以外的任何内容。',
@@ -269,6 +272,41 @@ def blank_item(seq):
     }
 
 
+# ---------------------------------------------------------------- 没加边界的公式
+#
+# 模型常把答案、理由里的公式直接写成 \frac{61}{40}，不加 \( \)，页面上就显示成原始代码，
+# 公式校验也查不到。清洗时把这种"裸公式"包上 \( \)；已经在 \( \)、\[ \]、$$ $$ 里的不动。
+# （注释里的反斜杠只是说明，不是转义。）
+_MATH_SPAN = re.compile(r'\\\(.*?\\\)|\\\[.*?\\\]|\$\$.*?\$\$', re.DOTALL)
+# 一段裸公式：只含 ASCII 字母数字、运算符和括号（不含中文和中文标点），并且至少有一个 \命令
+_BARE_MATH = re.compile(r'[A-Za-z0-9{}^_+\-*/=().|<>!×÷·\s]*\\[A-Za-z]+[A-Za-z0-9\\{}^_+\-*/=().|<>!×÷·\s]*')
+
+
+def _wrap_run(match):
+    """把一段裸公式包上 \\( \\)，两头的空白和句末标点留在外面。"""
+    run = match.group(0)
+    core = run.strip()
+    while core and core[-1] in '.,':
+        core = core[:-1]
+    if '\\' not in core:
+        return run
+    start = run.index(core)
+    return run[:start] + '\\(' + core + '\\)' + run[start + len(core):]
+
+
+def wrap_bare_math(text):
+    """把文字里没加边界的 LaTeX 公式包上 \\( \\)，已经加了边界的部分原样保留。"""
+    if not isinstance(text, str) or '\\' not in text:
+        return text
+    pieces, position = [], 0
+    for span in _MATH_SPAN.finditer(text):
+        pieces.append(_BARE_MATH.sub(_wrap_run, text[position:span.start()]))
+        pieces.append(span.group(0))
+        position = span.end()
+    pieces.append(_BARE_MATH.sub(_wrap_run, text[position:]))
+    return ''.join(pieces)
+
+
 def _clean_item(raw, seq, catalog_ids, error_type_names):
     """清洗模型返回的一道题，得到完整的草稿项。"""
     item = blank_item(seq)
@@ -279,7 +317,7 @@ def _clean_item(raw, seq, catalog_ids, error_type_names):
         if value is None:
             continue
         if isinstance(value, str):
-            item[field] = value
+            item[field] = value if field == 'question_no' else wrap_bare_math(value)
         elif field == 'question_no' and _number_text(value) is not None:
             item[field] = _number_text(value)  # 题号被写成数字时转成文字
         else:
@@ -325,11 +363,11 @@ def clean_items(raw, catalog_ids, error_type_names):
 def _text_or_empty(raw, field):
     """取一个文字字段：是字符串就原样返回，否则（缺失、类型不对）返回空串。"""
     value = raw.get(field)
-    return value if isinstance(value, str) else ''
+    return wrap_bare_math(value) if isinstance(value, str) else ''
 
 
 def clean_fill(raw, catalog_ids, error_type_names):
-    """清洗单题补全的结果，返回八个字段（完整题干、孩子的答案、答案、解析、考点、主考点、错因、难度），规则同 clean_items。"""
+    """清洗单题补全的结果，返回八个字段（完整题干、学生的答案、答案、解析、考点、主考点、错因、难度），规则同 clean_items。"""
     raw = raw if isinstance(raw, dict) else {}
     ids, primary = _clean_knowledge(raw, catalog_ids)
     return {
@@ -345,7 +383,7 @@ def clean_fill(raw, catalog_ids, error_type_names):
 
 
 def merge_fill(item, fill):
-    """把补全结果合进这道题：模型没给（空的）题干、孩子的答案沿用原来的，其余字段以补全结果为准。"""
+    """把补全结果合进这道题：模型没给（空的）题干、学生的答案沿用原来的，其余字段以补全结果为准。"""
     merged = dict(item, **fill)
     for field in ('parsed_question', 'wrong_answer'):
         if not fill.get(field, '').strip():
