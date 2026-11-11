@@ -338,6 +338,11 @@
             </el-table>
           </div>
         </el-tab-pane>
+
+        <!-- 知识星空：学习进度和手动调整掌握程度 -->
+        <el-tab-pane label="知识星空" name="starmap" lazy>
+          <div class="tab-content"><StarMapSettings /></div>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -554,6 +559,7 @@
 
 <script setup>
 import PageHeading from '@/components/PageHeading.vue'
+import StarMapSettings from '@/components/StarMapSettings.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi, uploadApi } from '@/api/question'

@@ -31,10 +31,12 @@ DEFAULT_PORT = 8765
 HOST = '127.0.0.1'
 SCHEMA_FILE = ROOT / 'scripts' / 'd1_schema_before_0011.sql'
 MIGRATION_FILE = ROOT / 'migrations' / '0011_intake_papers.sql'
+STARMAP_MIGRATION = ROOT / 'migrations' / '0012_starmap.sql'
+STARMAP_SEED = ROOT / 'migrations' / '0013_starmap_seed.sql'
 CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
 # 挂载顺序与 main.py 一致：intake 的固定路径要排在 questions 的 {question_id} 之前
 ROUTER_MODULES = ('intake', 'papers', 'similar', 'catalog', 'knowledge', 'questions', 'settings', 'analytics',
-                  'practices', 'reports')
+                  'practices', 'reports', 'starmap')
 IMAGE_TYPES = ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_FILES = 10
@@ -70,12 +72,13 @@ def seed_catalog(connection, subject_ids):
 
 
 def build_connection():
-    """建一份内存库：结构基线 + 0011 迁移 + 种子数据。"""
+    """建一份内存库：结构基线 + 0011、0012 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
     # 测试客户端和 uvicorn 都会在别的线程里使用连接，单用户本机工具可以放开线程检查
     connection = sqlite3.connect(':memory:', check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_FILE.read_text(encoding='utf-8'))
     connection.executescript(MIGRATION_FILE.read_text(encoding='utf-8'))
+    connection.executescript(STARMAP_MIGRATION.read_text(encoding='utf-8'))
     connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')
     connection.execute('INSERT INTO knowledge_assert(id,guard,structure) VALUES(1,1,1)')
     config = {'data_revision': '0', 'taxonomy_version': '1', 'app': '{"default_grade":6,"default_semester":1}'}
@@ -86,6 +89,10 @@ def build_connection():
     for subject_id, name in SUBJECTS:
         connection.execute('INSERT INTO subject(id,name,deleted) VALUES(?,?,0)', (subject_id, name))
     seed_catalog(connection, {name: subject_id for subject_id, name in SUBJECTS})
+    # 星空种子（英语新语法体系、数学章节、连线），再用空映射执行重新打标，去掉旧英语考点，和发布后一致
+    from starmap_retag import build_retag_sql
+    connection.executescript(STARMAP_SEED.read_text(encoding='utf-8'))
+    connection.executescript(build_retag_sql([]))
     for name, subject_id in ERROR_TYPES:
         connection.execute('INSERT INTO error_type(name,subject_id,deleted) VALUES(?,?,0)', (name, subject_id))
     connection.commit()

@@ -83,11 +83,27 @@ def test_guide_math():
 
 
 def test_guide_english():
-    """英语 guide：9 个模块 37 个考点。"""
+    """英语 guide：本机环境模拟发布后的状态，只有新的语法体系（12 个模块 56 个考点）。"""
     client, _ = make_client()
     body = client.get('/api/intake/guide', params={'subject': '英语'}).json()
-    assert len(body['knowledge_modules']) == 9, len(body['knowledge_modules'])
-    assert count_points(body) == 37, count_points(body)
+    assert len(body['knowledge_modules']) == 12, len(body['knowledge_modules'])
+    assert count_points(body) == 56, count_points(body)
+
+
+def test_starmap_available():
+    """知识星空：数学星空有节点和章节进度，英语带词汇星团，可以新增和撤销手动调整。"""
+    client, _ = make_client()
+    body = client.get('/api/starmap', params={'subject_id': 1}).json()
+    assert len(body['nodes']) == 51 and any(link['kind'] == 'prereq' for link in body['links']), len(body['nodes'])
+    progress = client.get('/api/starmap/progress', params={'subject_id': 1}).json()
+    assert len(progress['sections']) == 13
+    english = client.get('/api/starmap', params={'subject_id': 2}).json()
+    assert english['vocab'] == {'mastered': 0, 'total': 0, 'ratio': 0, 'stage': 0}
+    point_id = next(n['id'] for n in body['nodes'] if n['level'] == 2)
+    created = client.post('/api/starmap/adjustments', json={'knowledge_point_id': point_id, 'kind': 'up_small'})
+    assert created.status_code == 201, created.text
+    removed = client.delete('/api/starmap/adjustments/%d' % created.json()[0]['id'])
+    assert removed.status_code == 204
 
 
 def test_upload_and_fetch():
