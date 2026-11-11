@@ -1,12 +1,13 @@
 <template>
-  <!-- 默写字母格：点击聚焦唤起键盘，键盘输入填格并判对 -->
+  <!--
+    默写字母格：点击时把焦点交给下面的隐藏输入框，手机才会弹出软键盘。
+    mousedown 阻止默认行为，避免点格子时输入框先失焦、键盘先收起再弹出（闪一下）。
+  -->
   <div
-    ref="boxRef"
     class="letter-input"
     :class="{ compact }"
-    tabindex="0"
+    @mousedown="keepInputFocus"
     @click="focusInput"
-    @keydown="handleKeydown"
   >
     <div class="letter-cells">
       <!-- 每个词一组，整组换行，避免一个词被拆到两行 -->
@@ -33,19 +34,31 @@
         </div>
       </div>
     </div>
-    <!-- 隐藏输入框：在手机上唤起软键盘，沿用旧实现 -->
+    <!--
+      隐藏输入框：真正接收键盘输入的元素（电脑键盘和手机软键盘都走这里）。
+      手机软键盘（尤其安卓、微信）按键时 keydown 拿不到具体字母，
+      所以字母和退格都从 input 事件里读输入框的值来判断，见 handleInput。
+    -->
     <input
       ref="inputRef"
       class="letter-hidden-input"
+      type="text"
+      inputmode="text"
+      enterkeyhint="done"
       autocomplete="off"
+      autocorrect="off"
       autocapitalize="off"
       spellcheck="false"
+      aria-label="默写输入"
+      @input="handleInput"
+      @compositionend="handleInput"
+      @keydown="handleKeydown"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { buildCells } from '@/composables/dictation'
 
 const props = defineProps({
@@ -62,7 +75,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'submit'])
 
-const boxRef = ref(null)
 const inputRef = ref(null)
 const answers = ref([])
 const activeLetterIdx = ref(0)
@@ -127,70 +139,132 @@ function reset() {
   emit('update:modelValue', answers.value.slice())
 }
 
+// 隐藏输入框里常驻的占位字符：有它在，按退格时输入框才有东西可删，
+// 才会触发 input 事件（手机软键盘的退格只能靠这个识别）
+const SENTINEL = ' '
+
 /**
- * 聚焦输入区，唤起键盘（禁用时不聚焦）。
+ * 把隐藏输入框的值还原成占位字符，并把光标放到末尾。
+ */
+function reset_input_value() {
+  const el = inputRef.value
+  if (!el) return
+  el.value = SENTINEL
+  try {
+    el.setSelectionRange(SENTINEL.length, SENTINEL.length)
+  } catch (err) {
+    // 个别浏览器在输入框未聚焦时不允许设置光标，忽略即可
+  }
+}
+
+/**
+ * 聚焦隐藏输入框，唤起键盘（禁用时不聚焦）。
+ * 注意：iOS 和微信只在「用户点击的同一个事件」里调用 focus 才会弹键盘，
+ * 所以点击处理函数里要直接调用它，不能放进 setTimeout。
  */
 function focus() {
   if (props.disabled) return
-  boxRef.value?.focus()
+  const el = inputRef.value
+  if (!el) return
+  reset_input_value()
+  // preventScroll：聚焦时不要让页面跳到隐藏输入框的位置
+  el.focus({ preventScroll: true })
 }
 
-// 点击聚焦（已提交后不聚焦）
+// 点击格子区域：在点击事件里同步聚焦隐藏输入框（已提交后不聚焦）
 function focusInput() {
-  if (props.disabled) return
-  boxRef.value?.focus()
+  focus()
 }
 
 /**
- * 键盘处理：字母键填入并跳到下一个可填格，退格清空或回退，回车触发 submit。
+ * 按下鼠标/手指时阻止默认行为：否则焦点会先离开输入框，
+ * 手机键盘会先收起再弹出。输入框本身不在这里处理。
+ * @param {MouseEvent} e 鼠标事件
+ */
+function keepInputFocus(e) {
+  if (e.target !== inputRef.value) e.preventDefault()
+}
+
+/**
+ * 填入一个字母，并把光标跳到下一个可填格。
+ * @param {string} letter 单个英文字母
+ */
+function type_letter(letter) {
+  const cs = cells.value
+  let idx = activeLetterIdx.value
+  while (idx < cs.length && cs[idx].fixed) idx++
+  if (idx >= cs.length) return
+  answers.value[idx] = letter.toLowerCase()
+  // 跳到下一个可填格
+  let next = idx + 1
+  while (next < cs.length && cs[next].fixed) next++
+  activeLetterIdx.value = Math.min(next, cs.length - 1)
+}
+
+/**
+ * 退格：当前格有内容则清空；否则回退到上一个可填格并清空它。
+ */
+function delete_letter() {
+  const cs = cells.value
+  const idx = activeLetterIdx.value
+  if (idx < cs.length && !cs[idx].fixed && answers.value[idx]) {
+    answers.value[idx] = ''
+    return
+  }
+  let i = idx - 1
+  while (i >= 0 && cs[i].fixed) i--
+  if (i >= 0) {
+    answers.value[i] = ''
+    activeLetterIdx.value = i
+  }
+}
+
+/**
+ * 处理隐藏输入框的内容变化（电脑和手机统一走这里）。
+ * - 值比占位字符短：说明按了退格，删一个字母。
+ * - 值里出现英文字母：逐个填进格子；中文、数字、标点直接丢掉。
+ * 处理完把输入框还原成占位字符，等下一次输入。
+ */
+function handleInput() {
+  const el = inputRef.value
+  if (!el) return
+  const value = el.value
+  if (props.disabled) {
+    reset_input_value()
+    return
+  }
+  let changed = false
+  if (value.length < SENTINEL.length) {
+    delete_letter()
+    changed = true
+  } else {
+    // 拼音输入法下孩子直接敲字母，也按英文字母收下
+    const letters = value.match(/[a-zA-Z]/g) || []
+    for (const letter of letters) type_letter(letter)
+    changed = letters.length > 0
+  }
+  reset_input_value()
+  if (changed) emit('update:modelValue', answers.value.slice())
+}
+
+/**
+ * 键盘处理：只管回车提交。字母和退格交给 handleInput，
+ * 因为手机软键盘的 keydown 往往拿不到具体按键（key 为 Unidentified）。
  * @param {KeyboardEvent} e 键盘事件
  */
 function handleKeydown(e) {
-  if (props.disabled) return
-
-  if (e.key === 'Backspace') {
-    e.preventDefault()
-    const cs = cells.value
-    const idx = activeLetterIdx.value
-    // 当前格有内容则清空；否则回退到上一个可填格
-    if (idx < cs.length && !cs[idx].fixed && answers.value[idx]) {
-      answers.value[idx] = ''
-      emit('update:modelValue', answers.value.slice())
-      return
-    }
-    let i = idx - 1
-    while (i >= 0 && cs[i].fixed) i--
-    if (i >= 0) {
-      answers.value[i] = ''
-      activeLetterIdx.value = i
-      emit('update:modelValue', answers.value.slice())
-    }
-    return
-  }
-
   if (e.key === 'Enter') {
     e.preventDefault()
+    if (props.disabled) return
     emit('submit')
-    return
-  }
-
-  if (/^[a-zA-Z]$/.test(e.key)) {
-    e.preventDefault()
-    const cs = cells.value
-    let idx = activeLetterIdx.value
-    while (idx < cs.length && cs[idx].fixed) idx++
-    if (idx >= cs.length) return
-    answers.value[idx] = e.key.toLowerCase()
-    // 跳到下一个可填格
-    let next = idx + 1
-    while (next < cs.length && cs[next].fixed) next++
-    activeLetterIdx.value = Math.min(next, cs.length - 1)
-    emit('update:modelValue', answers.value.slice())
   }
 }
 
 // 题目变化时自动重置作答
 watch(() => props.question, reset, { immediate: true })
+
+// 挂载后先放好占位字符，保证第一次按退格也能被识别
+onMounted(reset_input_value)
 
 defineExpose({ focus, reset })
 </script>
@@ -319,11 +393,24 @@ defineExpose({ focus, reset })
   margin-left: 8px;
 }
 
+/*
+  隐藏输入框：看不见但必须「可聚焦」。
+  不能用 display:none / visibility:hidden，否则手机不弹键盘；
+  字号至少 16px，否则 iOS 聚焦时会自动放大页面。
+*/
 .letter-hidden-input {
   position: absolute;
-  opacity: 0;
+  top: 0;
+  left: 50%;
   width: 1px;
   height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  color: transparent;
+  caret-color: transparent;
+  background: transparent;
   pointer-events: none;
 }
 

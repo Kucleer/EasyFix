@@ -355,7 +355,8 @@
 
           <!-- 默写模式：显示中文 + 喇叭按钮 + 字母格输入 -->
           <div v-else-if="reviewConfig.type === 1" class="dictation">
-            <div class="chinese" :style="{ fontSize: chineseFontSize }">
+            <!-- 点题目文字也能唤起键盘：手机上方格比较小，点题目更顺手 -->
+            <div class="chinese" :style="{ fontSize: chineseFontSize }" @click="dictationInputRef?.focus()">
               {{ currentQuestion.chinese }}
             </div>
             <!-- 读音按钮和提示放在一行，作为次要信息 -->
