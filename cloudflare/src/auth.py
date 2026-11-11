@@ -77,7 +77,10 @@ async def guard(request, call_next):
         media_type=response.headers.get('content-type','application/json').split(';')[0]
         remember(key,body,media_type)
         response=Response(body,status_code=response.status_code,headers=dict(response.headers))
-    if request.method not in ('GET','HEAD','OPTIONS') and 200<=response.status_code<300 and request.url.path not in ('/api/stats/analysis/llm','/api/intake/papers/check'):
+    # 整页识别的推进、改草稿、去掉等请求不改错题库，不清缓存；只有录入、撤回、全部录入才清
+    from scan_model import changes_library
+    scan_only = request.url.path.startswith('/api/scan/') and not changes_library(request.method, request.url.path)
+    if request.method not in ('GET','HEAD','OPTIONS') and 200<=response.status_code<300 and request.url.path not in ('/api/stats/analysis/llm','/api/intake/papers/check') and not scan_only:
         await invalidate(request)
     response.headers['Cache-Control'] = 'private, no-store'
     return response

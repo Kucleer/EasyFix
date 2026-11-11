@@ -19,6 +19,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 from intake_test import build_legacy_database  # noqa: E402  生产结构基线 + 种子数据
+import auth  # noqa: E402
+import cache  # noqa: E402
 import pdf  # noqa: E402
 import scan  # noqa: E402
 import scan_model  # noqa: E402
@@ -1244,6 +1246,56 @@ def test_close_leaves_open_items_out_of_library():
     assert [item['state'] for item in page['items']] == ['accepted', 'open']
 
 
+class GuardRequest:
+    """伪造经过 auth.guard 的请求：带 Agent 令牌，迁移已就绪。"""
+
+    def __init__(self, method, path):
+        self.method = method
+        self.url = type('Url', (), {'path': path, '__str__': lambda self: 'http://test' + path})()
+        self.headers = {'authorization': 'Bearer agent-token'}
+        self.cookies = {}
+        self.scope = {'env': type('Env', (), {'ACCESS_TOKEN': 'agent-token', 'SESSION_SECRET': 's',
+                                              'MIGRATION_READY': 'true'})()}
+
+
+def count_invalidations(method, path):
+    """让 guard 处理一个成功的请求，返回 cache.invalidate 被调用了几次。"""
+    from fastapi.responses import JSONResponse
+    calls = []
+
+    async def counting_invalidate(request):
+        """只计数，不碰数据库。"""
+        calls.append(request.url.path)
+
+    async def not_in_maintenance(request):
+        """维护开关关闭。"""
+        return False
+
+    async def call_next(request):
+        """下游处理成功。"""
+        return JSONResponse({'ok': True})
+
+    # guard 在函数里才导入 invalidate，所以要换 cache 模块里的，不是 auth 里的
+    original_invalidate, original_maintenance = cache.invalidate, auth.maintenance_enabled
+    cache.invalidate, auth.maintenance_enabled = counting_invalidate, not_in_maintenance
+    try:
+        response = run(auth.guard(GuardRequest(method, path), call_next))
+    finally:
+        cache.invalidate, auth.maintenance_enabled = original_invalidate, original_maintenance
+    assert response.status_code == 200, response.status_code
+    return len(calls)
+
+
+def test_guard_clears_cache_only_when_scan_changes_library():
+    """整页识别的推进不清缓存，录入清一次；其他写请求照旧清。"""
+    assert count_invalidations('POST', '/api/scan/pages/1/advance') == 0
+    assert count_invalidations('PUT', '/api/scan/pages/1/items/0') == 0
+    assert count_invalidations('POST', '/api/scan/pages/1/items/0/accept') == 1
+    assert count_invalidations('POST', '/api/scan/pages/1/items/0/withdraw') == 1
+    assert count_invalidations('POST', '/api/scan/pages/1/accept-all') == 1
+    assert count_invalidations('POST', '/api/questions') == 1
+
+
 TESTS = [
     test_interpret_health,
     test_health_endpoint_hides_host_details,
@@ -1291,6 +1343,7 @@ TESTS = [
     test_closed_page_rejects_item_operations,
     test_page_closed_during_accept_drops_question,
     test_close_leaves_open_items_out_of_library,
+    test_guard_clears_cache_only_when_scan_changes_library,
     test_accept_all_batches_within_query_budget,
     test_concurrent_withdraw_acts_once,
     test_withdraw_on_page_closed_midway_is_409,

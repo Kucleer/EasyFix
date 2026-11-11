@@ -259,6 +259,89 @@ def test_no_auth_needed():
     assert client.get('/api/subjects').status_code == 200
 
 
+def test_scan_health_with_fake():
+    """假的识别主机可用：健康检查返回 available 为真。"""
+    client, _ = make_client()
+    response = client.get('/api/scan/health')
+    assert response.status_code == 200, response.text
+    assert response.json() == {'available': True}, response.json()
+
+
+def test_scan_flow_with_fakes():
+    """上传一张图、建页、推进到 ready（含一次重扫），录入、全部录入不重复、结束。"""
+    client, _ = make_client()
+    image = client.post('/api/upload/file', files={'file': ('page.jpg', b'fake-page', 'image/jpeg')}).json()['path']
+    created = client.post('/api/scan/pages', json={'image': image, 'subject_id': 1, 'grade': 6, 'semester': 1})
+    assert created.status_code == 201, created.text
+    page_id = created.json()['id']
+    page = created.json()
+    for _ in range(6):
+        if page['status'] == 'ready':
+            break
+        response = client.post('/api/scan/pages/%d/advance' % page_id)
+        assert response.status_code == 200, response.text
+        page = response.json()['page']
+    assert page['status'] == 'ready', page
+    # 2 道做错的（其中 1 道带读图提示）、1 道做对的；考点来自本机目录
+    wrong = [item for item in page['items'] if item['verdict'] == 'wrong']
+    assert len(page['items']) == 3 and len(wrong) == 2, page['items']
+    assert all(item['knowledge_point_ids'] for item in wrong), wrong
+    assert page['rescan_used'] == 1
+    before = len(question_items_all(client))
+    accepted = client.post('/api/scan/pages/%d/items/0/accept' % page_id)
+    assert accepted.status_code == 200, accepted.text
+    assert len(question_items_all(client)) == before + 1
+    # 带提示的那道不在"全部录入"里；第 1 道已录入，不会重复
+    result = client.post('/api/scan/pages/%d/accept-all' % page_id).json()
+    assert result['results'] == [] and result['remaining'] == 0, result
+    assert len(question_items_all(client)) == before + 1
+    assert client.post('/api/scan/pages/%d/items/1/accept' % page_id).status_code == 200
+    assert len(question_items_all(client)) == before + 2
+    closed = client.post('/api/scan/pages/%d/close' % page_id)
+    assert closed.status_code == 200 and closed.json()['status'] == 'closed', closed.text
+
+
+def question_items_all(client):
+    """读取主列表里的全部错题（兼容分页对象和纯列表两种返回）。"""
+    body = client.get('/api/questions', params={'page_size': 100}).json()
+    return body['items'] if isinstance(body, dict) else body
+
+
+def test_scan_promote_uses_fake_fill():
+    """补成错题：假模型返回补充字段，考点来自提示词里的清单。"""
+    client, _ = make_client()
+    image = client.post('/api/upload/file', files={'file': ('page.jpg', b'fake-page', 'image/jpeg')}).json()['path']
+    page_id = client.post('/api/scan/pages', json={'image': image, 'subject_id': 1, 'grade': 6,
+                                                   'semester': 1}).json()['id']
+    page = {'status': 'uploaded'}
+    for _ in range(6):
+        page = client.post('/api/scan/pages/%d/advance' % page_id).json()['page']
+        if page['status'] == 'ready':
+            break
+    promoted = client.post('/api/scan/pages/%d/items/2/promote' % page_id)
+    assert promoted.status_code == 200, promoted.text
+    body = promoted.json()
+    item = body['page']['items'][2]
+    assert body['fill_error'] is None and item['verdict'] == 'wrong' and item['answer'] and item['knowledge_point_ids']
+
+
+def test_scan_missing_image_fails_cleanly():
+    """照片不在上传目录：读图失败，页面转 failed，不抛 500。"""
+    client, _ = make_client()
+    page_id = client.post('/api/scan/pages', json={'image': '2026/11/deadbeef_none.jpg', 'subject_id': 1,
+                                                   'grade': 6, 'semester': 1}).json()['id']
+    response = client.post('/api/scan/pages/%d/advance' % page_id)
+    assert response.status_code == 200 and response.json()['page']['status'] == 'failed', response.text
+
+
+def test_http_ocr_never_raises():
+    """真实主机客户端：连不上时返回 (0, None)，不抛异常。"""
+    import asyncio
+    ocr = local_dev_server.HttpOcr('http://127.0.0.1:1', 'k')
+    assert asyncio.run(ocr.fetch_health(None, 1)) == (0, None)
+    assert asyncio.run(ocr.fetch_ocr(None, b'x', 'image/jpeg', 'normal', 1)) == (0, None)
+
+
 def test_main_rejects_non_local_host():
     """命令行不接受 127.0.0.1 之外的监听地址参数。"""
     try:
