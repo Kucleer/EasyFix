@@ -27,7 +27,7 @@ from knowledge_stats import knowledge_options, validate_filter_ids
 router = APIRouter()
 FIELDS = {'error_book_id', 'subject_id', 'original_image', 'original_images', 'original_text',
           'parsed_question', 'grade', 'semester', 'answer', 'analysis', 'analysis_image',
-          'difficulty', 'error_type', 'wrong_answer', 'question_no'}
+          'difficulty', 'error_type', 'wrong_answer', 'question_no', 'wrong_evidence'}
 
 
 def stamp_now():

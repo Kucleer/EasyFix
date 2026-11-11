@@ -926,7 +926,8 @@ def test_approve_requires_primary_knowledge_point():
 
 
 def test_save_accepts_new_fields_and_old_page_keeps_them():
-    """保存接口认 wrong_answer、question_no；旧页面不带时保持原值；不认识的字段被忽略。"""
+    """保存接口认 wrong_answer、question_no、wrong_evidence（整页识别录入要写判错依据）；
+    旧页面不带时保持原值；不认识的字段被忽略。"""
     import questions
     c = build_database(); db = adapter(c)
     question_id = add_question(c, status='pending')
@@ -936,7 +937,7 @@ def test_save_accepts_new_fields_and_old_page_keeps_them():
     assert tuple(row) == ('3/4', '二、5', 'pending', '2/3')
     run(questions.save(db, {'review_status': 'approved', 'paper_id': 999, 'wrong_evidence': 'x'}, question_id))
     row = c.execute('SELECT review_status,paper_id,wrong_evidence FROM question WHERE id=?', (question_id,)).fetchone()
-    assert tuple(row) == ('pending', None, None)
+    assert tuple(row) == ('pending', None, 'x')
 
 
 # ---------------------------------------------------------------- 任务 7：卷子接口

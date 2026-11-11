@@ -1,8 +1,12 @@
-"""整页识别录入的接口：查识别服务、建页、分步推进识别、查页、结束一页。
+"""整页识别录入的接口：查识别服务、建页、分步推进识别、查页、结束一页，以及逐题操作与录入。
 
 推进一步的做法：页面反复调"推进"接口，每次只做当前状态的下一步
 （读图 → 整理 → 需要时重扫 → 再整理 → ready）。同一页同一时刻只能有一个推进在跑，
 靠一条带条件的 UPDATE 认领这一步：认领时写入新状态和开始时间，没认领到就返回"正在处理"。
+
+逐题操作（保存修改、去掉、恢复、补成错题、录入、撤回、手工加一道）只在页面是 ready 时允许。
+每次只用 json_set 改草稿里的那一项，并以"那一项的状态没变、页面仍是 ready"为条件，
+这样同时操作不同的题不会互相覆盖，已结束的页也不会被写。
 
 下面这些模块级名字测试时会被替换，代码里一律通过模块名字调用：
 ocr_client、generate_json、sleep、now_seconds、Database。
@@ -19,10 +23,11 @@ from database import Database
 from intake import load_catalog, load_error_type_names, read_payload
 from intake_model import IMAGE_KEY_PATTERN, is_plain_int
 from question_scope import current_student_id
-from questions import stamp_now
+from questions import save as save_question, stamp_now
 from scan_model import (BUSY_RETRIES, BUSY_WAIT_SECONDS, HEALTH_TIMEOUT_SECONDS, HOST_TIMEOUT_SECONDS,
-                        STALE_SECONDS, build_page_prompt, clean_items, interpret_health, interpret_ocr,
-                        needs_rescan, next_step)
+                        STALE_SECONDS, ScanError, accept_all_seqs, blank_item, build_fill_prompt,
+                        build_page_prompt, clean_edit, clean_fill, clean_items, interpret_health, interpret_ocr,
+                        needs_rescan, next_step, question_payload)
 from settings import generate_json
 
 router = APIRouter()
@@ -33,6 +38,9 @@ CLAIM_STATUS = {'read': 'reading', 'analyze': 'analyzing', 'rescan': 'rescanning
 UNFINISHED_LIMIT = 5
 MISSING_IMAGE_TEXT = '照片找不到了'
 MODEL_FAILED_TEXT = '文本模型请求失败，请检查模型配置和余额'
+PAGE_CLOSED_TEXT = '这一页已经结束了，请刷新'
+ITEM_CHANGED_TEXT = '这道题刚被别的操作改过，请刷新'
+PROMOTED_REASON = '家长补成错题'
 
 
 def now_seconds():
@@ -280,4 +288,217 @@ async def close_page(page_id: int, request: Request):
     await load_page(db, page_id, student_id)
     await db.run("UPDATE scan_page SET status='closed',step_started_at=NULL,updated_at=? WHERE id=? AND deleted=0",
                  (stamp_now(), page_id))
+    return page_view(await load_page(db, page_id, student_id))
+
+
+# ---------------------------------------------------------------- 逐题操作的公共部分
+
+
+async def load_ready_item(db, page_id, student_id, seq):
+    """读一页和其中第 seq 道题：页不是 ready 时 409，序号越界 404。返回 (页, 这一项)。"""
+    page = await load_page(db, page_id, student_id)
+    if page['status'] != 'ready':
+        raise HTTPException(409, PAGE_CLOSED_TEXT)
+    items = json.loads(page['items'] or '[]')
+    if not 0 <= seq < len(items):
+        raise HTTPException(404, '这道题不存在')
+    return page, items[seq]
+
+
+async def write_item(db, page_id, seq, expected_state, item):
+    """把草稿第 seq 项整体换成 item；只有页面仍是 ready、这一项仍是 expected_state 时才写。
+
+    返回是否写成功。没写成功说明页已结束，或这一项刚被别的请求改了状态。
+    """
+    row = await db.first(
+        "UPDATE scan_page SET items=json_set(items, '$[' || ? || ']', json(?)), updated_at=? "
+        "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, '$[' || ? || '].state')=? "
+        'RETURNING id',
+        (seq, json.dumps(item, ensure_ascii=False), stamp_now(), page_id, seq, expected_state))
+    return row is not None
+
+
+async def raise_write_conflict(db, page_id, student_id):
+    """条件写入没成功时，按原因抛 409：页已结束，或这道题刚被别的操作改过。"""
+    page = await load_page(db, page_id, student_id)
+    if page['status'] != 'ready':
+        raise HTTPException(409, PAGE_CLOSED_TEXT)
+    raise HTTPException(409, ITEM_CHANGED_TEXT)
+
+
+async def change_state(request, page_id, seq, from_state, to_state, wrong_state_text):
+    """把一道题从 from_state 改成 to_state（去掉、恢复共用），返回最新的页。"""
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    _, item = await load_ready_item(db, page_id, student_id, seq)
+    if item.get('state') != from_state:
+        raise HTTPException(409, wrong_state_text)
+    if not await write_item(db, page_id, seq, from_state, dict(item, state=to_state)):
+        await raise_write_conflict(db, page_id, student_id)
+    return page_view(await load_page(db, page_id, student_id))
+
+
+def copy_payload(payload):
+    """question_payload 里的列表引用着草稿项，交给保存逻辑前复制一份，避免被改动。"""
+    return {key: list(value) if isinstance(value, list) else value for key, value in payload.items()}
+
+
+async def accept_one(request, db, page_id, student_id, seq):
+    """录入一道：写进错题库并把草稿这一项标为 accepted。
+
+    先保存错题，再用条件更新把这一项从 open 改成 accepted。条件更新没成功时
+    （别的请求抢先录了这一道，或者这一页刚被结束），把刚写的错题软删除，避免重复入库。
+    保存逻辑抛出的 HTTPException 原样往外抛，前端据此把卡片切到修改状态。
+    """
+    page, item = await load_ready_item(db, page_id, student_id, seq)
+    if item.get('state') == 'accepted':
+        return  # 已录入过：直接返回上次的结果，不重复写
+    if item.get('state') != 'open':
+        raise HTTPException(409, '这道题已经去掉了，先恢复再录入')
+    question = await save_question(db, copy_payload(question_payload(page, item)), request=request)
+    accepted = dict(item, state='accepted', question_id=question['id'])
+    if await write_item(db, page_id, seq, 'open', accepted):
+        return
+    # 条件更新输了：刚写的这道不能留在题库里
+    await db.run('UPDATE question SET deleted=1 WHERE id=? AND deleted=0', (question['id'],))
+    current = await load_page(db, page_id, student_id)
+    if current['status'] != 'ready':
+        raise HTTPException(409, PAGE_CLOSED_TEXT)
+
+
+# ---------------------------------------------------------------- 逐题操作接口
+
+
+@router.post('/api/scan/pages/{page_id}/items')
+async def add_item(page_id: int, request: Request):
+    """手工加一道：在草稿末尾追加一道空白题，序号等于它的下标。"""
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    page = await load_page(db, page_id, student_id)
+    if page['status'] != 'ready':
+        raise HTTPException(409, PAGE_CLOSED_TEXT)
+    seq = len(json.loads(page['items'] or '[]'))
+    # 以草稿长度没变为条件，两个同时追加的请求不会得到相同的序号
+    row = await db.first(
+        "UPDATE scan_page SET items=json_insert(items, '$[#]', json(?)), updated_at=? "
+        "WHERE id=? AND deleted=0 AND status='ready' AND json_array_length(items)=? RETURNING id",
+        (json.dumps(blank_item(seq), ensure_ascii=False), stamp_now(), page_id, seq))
+    if row is None:
+        await raise_write_conflict(db, page_id, student_id)
+    return page_view(await load_page(db, page_id, student_id))
+
+
+@router.put('/api/scan/pages/{page_id}/items/{seq}')
+async def edit_item(page_id: int, seq: int, request: Request):
+    """保存修改：校验后合并进这道题并标记"被人改过"；只允许未处理的题，不自动录入。"""
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    payload = await read_payload(request)
+    _, item = await load_ready_item(db, page_id, student_id, seq)
+    if item.get('state') != 'open':
+        raise HTTPException(409, '已录入或已去掉的题不能修改')
+    try:
+        edit = clean_edit(payload)
+    except ScanError as error:
+        raise HTTPException(422, error.detail)
+    merged = dict(item, **edit, edited=True)
+    # clean_edit 只在两个字段同时给出时核对；合并后再核对一次主考点必须在考点里
+    primary = merged.get('primary_knowledge_point_id')
+    if primary is not None and primary not in (merged.get('knowledge_point_ids') or []):
+        raise HTTPException(422, '主考点必须是所选考点之一')
+    if not await write_item(db, page_id, seq, 'open', merged):
+        await raise_write_conflict(db, page_id, student_id)
+    return page_view(await load_page(db, page_id, student_id))
+
+
+@router.post('/api/scan/pages/{page_id}/items/{seq}/dismiss')
+async def dismiss_item(page_id: int, seq: int, request: Request):
+    """去掉一道：open → dismissed，不入库。"""
+    return await change_state(request, page_id, seq, 'open', 'dismissed', '只有未处理的题才能去掉')
+
+
+@router.post('/api/scan/pages/{page_id}/items/{seq}/restore')
+async def restore_item(page_id: int, seq: int, request: Request):
+    """恢复一道：dismissed → open。"""
+    return await change_state(request, page_id, seq, 'dismissed', 'open', '这道题没有被去掉')
+
+
+@router.post('/api/scan/pages/{page_id}/items/{seq}/promote')
+async def promote_item(page_id: int, seq: int, request: Request):
+    """补成错题：把模型认为做对的一道移到主列表，再调一次模型补答案、解析、考点、错因、难度。
+
+    先写入移动（source、verdict、reason），模型失败时不回滚移动，返回 fill_error 让前端进入修改状态。
+    """
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    page, item = await load_ready_item(db, page_id, student_id, seq)
+    if item.get('verdict') != 'right' or item.get('state') != 'open':
+        raise HTTPException(409, '只有模型认为做对、还没处理的题才能补成错题')
+    moved = dict(item, source='promoted', verdict='wrong', reason=PROMOTED_REASON)
+    if not await write_item(db, page_id, seq, 'open', moved):
+        await raise_write_conflict(db, page_id, student_id)
+    subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (page['subject_id'],))
+    catalog = await load_catalog(db, page['subject_id'], page['grade'], page['semester'])
+    error_type_names = await load_error_type_names(db, page['subject_id'])
+    prompt = build_fill_prompt(subject['name'] if subject else '', page['grade'], moved, catalog,
+                               sorted(error_type_names))
+    fill_error = None
+    try:
+        raw = await generate_json(request, prompt)
+    except HTTPException as error:
+        fill_error = error.detail
+    except Exception:
+        # 生产环境里网络超时等会抛运行时异常，统一给一句模型失败的提示
+        fill_error = MODEL_FAILED_TEXT
+    if fill_error is None:
+        catalog_ids = {point['id'] for group in catalog for point in group['points']}
+        filled = dict(moved, **clean_fill(raw, catalog_ids, error_type_names))
+        # 补全结果也用条件写：这期间这道题被录入或去掉了就不再覆盖
+        await write_item(db, page_id, seq, 'open', filled)
+    return {'page': page_view(await load_page(db, page_id, student_id)), 'fill_error': fill_error}
+
+
+@router.post('/api/scan/pages/{page_id}/items/{seq}/accept')
+async def accept_item(page_id: int, seq: int, request: Request):
+    """录入一道：写进错题库（已录入过的直接返回），返回最新的页。"""
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    await accept_one(request, db, page_id, student_id, seq)
+    return page_view(await load_page(db, page_id, student_id))
+
+
+@router.post('/api/scan/pages/{page_id}/accept-all')
+async def accept_all(page_id: int, request: Request):
+    """全部录入：对"做错了、没提示、未处理"的题逐道录入，每道独立成败。"""
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    page = await load_page(db, page_id, student_id)
+    if page['status'] != 'ready':
+        raise HTTPException(409, PAGE_CLOSED_TEXT)
+    results = []
+    for seq in accept_all_seqs(json.loads(page['items'] or '[]')):
+        try:
+            await accept_one(request, db, page_id, student_id, seq)
+            results.append({'seq': seq, 'ok': True, 'detail': None})
+        except HTTPException as error:
+            results.append({'seq': seq, 'ok': False, 'detail': error.detail})
+    return {'results': results, 'page': page_view(await load_page(db, page_id, student_id))}
+
+
+@router.post('/api/scan/pages/{page_id}/items/{seq}/withdraw')
+async def withdraw_item(page_id: int, seq: int, request: Request):
+    """撤回录入：这一项回到 open，对应错题软删除。
+
+    先用条件更新（这一项仍是 accepted）把草稿改回 open，成功了才删题，
+    这样同时来的第二次撤回会在条件更新上失败，不会重复动作。
+    """
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    _, item = await load_ready_item(db, page_id, student_id, seq)
+    if item.get('state') != 'accepted':
+        raise HTTPException(409, '这道题还没有录入')
+    if not await write_item(db, page_id, seq, 'accepted', dict(item, state='open', question_id=None)):
+        await raise_write_conflict(db, page_id, student_id)
+    if item.get('question_id') is not None:
+        await db.run('UPDATE question SET deleted=1 WHERE id=? AND deleted=0', (item['question_id'],))
     return page_view(await load_page(db, page_id, student_id))

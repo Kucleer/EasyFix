@@ -7,6 +7,7 @@
 
 import asyncio
 import contextlib
+import json
 import pathlib
 import sys
 import traceback
@@ -18,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 from intake_test import build_legacy_database  # noqa: E402  生产结构基线 + 种子数据
+import pdf  # noqa: E402
 import scan  # noqa: E402
 import scan_model  # noqa: E402
 
@@ -781,6 +783,330 @@ def test_unknown_page_is_404():
         assert page_row(connection, deleted_id)['status'] == 'uploaded'
 
 
+# ---------------------------------------------------------------- 任务 4：逐题操作与录入
+
+ITEM_IMAGE = '2026/11/a1b2c3d4_p.jpg'
+
+
+def draft_item(seq, **overrides):
+    """一道完整的"做错了"草稿项（模型来源），可用 overrides 改任意字段。"""
+    item = scan_model.blank_item(seq)
+    item.update(source='model', question_no=str(seq + 1), parsed_question='计算第 %d 题' % (seq + 1),
+                wrong_answer='孩子写 %d' % seq, reason='算错了', answer='答案 %d' % seq, analysis='解析 %d' % seq,
+                knowledge_point_ids=[101], primary_knowledge_point_id=101, error_types=['计算错误'], difficulty=2)
+    item.update(overrides)
+    return item
+
+
+def ready_page(connection, db, items, status='ready'):
+    """建一页（数学、6 年级上、图片 ITEM_IMAGE），直接把状态和草稿写进库，返回页编号。"""
+    page_id = new_page(db, image=ITEM_IMAGE)['id']
+    connection.execute('UPDATE scan_page SET status=?,items=? WHERE id=?',
+                       (status, json.dumps(items, ensure_ascii=False), page_id))
+    connection.commit()
+    return page_id
+
+
+async def noop_math(request, texts):
+    """公式校验替身：什么都不做。"""
+
+
+async def yielding_math(request, texts):
+    """公式校验替身：让出一次，让两个并发录入真正交错。"""
+    await asyncio.sleep(0)
+
+
+async def failing_math(request, texts):
+    """公式校验替身：一律判公式写坏。"""
+    raise HTTPException(422, '公式写坏了')
+
+
+@contextlib.contextmanager
+def items_patched(model=None, math=noop_math):
+    """在 scan_patched 之外再替换 pdf.validate_math（错题保存逻辑里调用），结束后一定还原。"""
+    original = pdf.validate_math
+    pdf.validate_math = math
+    try:
+        with scan_patched(model=model):
+            yield
+    finally:
+        pdf.validate_math = original
+
+
+def item_call(function, page_id, seq, db, payload=None):
+    """调用一个逐题接口（function(page_id, seq, request)）。"""
+    return run(function(page_id, seq, PageRequest(db, payload)))
+
+
+def live_questions(connection):
+    """题库里未删除的错题数。"""
+    return connection.execute('SELECT COUNT(*) FROM question WHERE deleted=0').fetchone()[0]
+
+
+def max_question_id(connection):
+    """题库里最大的错题编号（含已删除）。"""
+    return connection.execute('SELECT COALESCE(MAX(id),0) FROM question').fetchone()[0]
+
+
+def stored_items(connection, page_id):
+    """直接从库里读一页的草稿。"""
+    return json.loads(page_row(connection, page_id)['items'])
+
+
+def test_accept_writes_approved_question_with_page_fields():
+    """录入一道：错题是已通过、无卷子、带这页图片和判错依据，字段与草稿一致；草稿标为已录入。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0), draft_item(1)])
+        page = item_call(scan.accept_item, page_id, 0, db)
+    item = page['items'][0]
+    assert item['state'] == 'accepted' and isinstance(item['question_id'], int)
+    assert page['items'][1]['state'] == 'open'
+    row = dict(connection.execute('SELECT * FROM question WHERE id=?', (item['question_id'],)).fetchone())
+    assert row['deleted'] == 0 and row['review_status'] == 'approved' and row['paper_id'] is None
+    assert row['student_id'] == 1 and row['original_image'] == ITEM_IMAGE
+    assert json.loads(row['original_images']) == [ITEM_IMAGE]
+    assert row['wrong_evidence'] == '页面识别，家长确认' and row['wrong_answer'] == '孩子写 0'
+    assert row['question_no'] == '1' and row['error_type'] == '计算错误' and row['difficulty'] == 2
+    assert row['subject_id'] == 1 and row['grade'] == 6 and row['semester'] == 1
+    assert row['parsed_question'] == '计算第 1 题' and row['answer'] == '答案 0' and row['analysis'] == '解析 0'
+    links = connection.execute('SELECT knowledge_point_id,is_primary FROM question_knowledge_point '
+                               'WHERE question_id=? AND deleted=0', (item['question_id'],)).fetchall()
+    assert [tuple(link) for link in links] == [(101, 1)]
+
+
+def test_accept_twice_writes_once():
+    """同一道连续录入两次：题库只多 1 道，两次的 question_id 相同。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before = live_questions(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0)])
+        first = item_call(scan.accept_item, page_id, 0, db)
+        second = item_call(scan.accept_item, page_id, 0, db)
+    assert live_questions(connection) == before + 1
+    assert first['items'][0]['question_id'] == second['items'][0]['question_id']
+
+
+def test_accept_race_keeps_one_question():
+    """两个录入同时跑：两边都写了错题，输掉条件更新的那道被软删除，只留 1 道，草稿指向它。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before, top = live_questions(connection), max_question_id(connection)
+    with items_patched(math=yielding_math):
+        page_id = ready_page(connection, db, [draft_item(0)])
+
+        async def both():
+            """同时录入同一道两次。"""
+            return await asyncio.gather(scan.accept_item(page_id, 0, PageRequest(db)),
+                                        scan.accept_item(page_id, 0, PageRequest(db)))
+
+        results = run(both())
+    assert live_questions(connection) == before + 1
+    question_id = stored_items(connection, page_id)[0]['question_id']
+    created = connection.execute('SELECT id,deleted FROM question WHERE id>? ORDER BY id', (top,)).fetchall()
+    assert len(created) == 2 and sorted(row['deleted'] for row in created) == [0, 1]
+    assert [row['id'] for row in created if row['deleted'] == 0] == [question_id]
+    assert all(result['items'][0]['question_id'] == question_id for result in results)
+
+
+def test_accept_rejected_by_save_keeps_item_open():
+    """保存逻辑拒绝（公式写坏、选了考点没主考点）：抛 422，题库不变，草稿仍 open。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before = live_questions(connection)
+    with items_patched(math=failing_math):
+        page_id = ready_page(connection, db, [draft_item(0)])
+        expect_http(422, lambda: item_call(scan.accept_item, page_id, 0, db))
+    with items_patched():
+        no_primary = draft_item(0, knowledge_point_ids=[101, 102], primary_knowledge_point_id=None)
+        other_id = ready_page(connection, db, [no_primary])
+        expect_http(422, lambda: item_call(scan.accept_item, other_id, 0, db))
+    assert live_questions(connection) == before
+    for check_id in (page_id, other_id):
+        item = stored_items(connection, check_id)[0]
+        assert item['state'] == 'open' and item['question_id'] is None
+
+
+def test_accept_all_skips_warning_and_unsure():
+    """全部录入只录"做错了、没提示（或有提示但改过）、未处理"的题，其余不动。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    items = [
+        draft_item(0),
+        draft_item(1, flags=['broken_formula']),
+        draft_item(2, flags=['merged'], edited=True),
+        draft_item(3, verdict='unsure'),
+        draft_item(4, verdict='right'),
+        draft_item(5, state='dismissed'),
+    ]
+    with items_patched():
+        page_id = ready_page(connection, db, items)
+        result = run(scan.accept_all(page_id, PageRequest(db)))
+    assert [(entry['seq'], entry['ok']) for entry in result['results']] == [(0, True), (2, True)]
+    states = [item['state'] for item in result['page']['items']]
+    assert states == ['accepted', 'open', 'accepted', 'open', 'open', 'dismissed']
+
+
+def test_accept_all_partial_failure():
+    """两道候选，第二道被保存逻辑拒绝：第一道成功入库，第二道带说明。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before = live_questions(connection)
+    items = [draft_item(0), draft_item(1, knowledge_point_ids=[101, 102], primary_knowledge_point_id=None)]
+    with items_patched():
+        page_id = ready_page(connection, db, items)
+        result = run(scan.accept_all(page_id, PageRequest(db)))
+    first, second = result['results']
+    assert first == {'seq': 0, 'ok': True, 'detail': None}
+    assert second['seq'] == 1 and second['ok'] is False and second['detail']
+    assert live_questions(connection) == before + 1
+    assert [item['state'] for item in result['page']['items']] == ['accepted', 'open']
+
+
+def test_withdraw_soft_deletes():
+    """录入后撤回：错题软删除，草稿回到 open；再次录入得到新的一道；没录入的不能撤回。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0)])
+        expect_http(409, lambda: item_call(scan.withdraw_item, page_id, 0, db))
+        first_id = item_call(scan.accept_item, page_id, 0, db)['items'][0]['question_id']
+        page = item_call(scan.withdraw_item, page_id, 0, db)
+        assert page['items'][0]['state'] == 'open' and page['items'][0]['question_id'] is None
+        assert connection.execute('SELECT deleted FROM question WHERE id=?', (first_id,)).fetchone()[0] == 1
+        expect_http(409, lambda: item_call(scan.withdraw_item, page_id, 0, db))
+        second_id = item_call(scan.accept_item, page_id, 0, db)['items'][0]['question_id']
+    assert second_id != first_id
+    assert connection.execute('SELECT deleted FROM question WHERE id=?', (second_id,)).fetchone()[0] == 0
+
+
+def test_edit_dismiss_restore_manual():
+    """保存修改、去掉、恢复、手工加一道；越界的序号 404。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0), draft_item(1)])
+        page = item_call(scan.edit_item, page_id, 0, db,
+                         {'answer': '新答案', 'knowledge_point_ids': [101, 102], 'primary_knowledge_point_id': 102})
+        item = page['items'][0]
+        assert item['edited'] is True and item['answer'] == '新答案' and item['primary_knowledge_point_id'] == 102
+        assert item['knowledge_point_ids'] == [101, 102] and item['parsed_question'] == '计算第 1 题'
+        assert page['items'][1]['edited'] is False
+        expect_http(422, lambda: item_call(scan.edit_item, page_id, 0, db, {'difficulty': 9}))
+        # 只改考点、去掉了原来的主考点：合并后主考点不在考点里 → 422
+        expect_http(422, lambda: item_call(scan.edit_item, page_id, 0, db, {'knowledge_point_ids': [101]}))
+        assert stored_items(connection, page_id)[0]['knowledge_point_ids'] == [101, 102]
+        expect_http(404, lambda: item_call(scan.edit_item, page_id, 5, db, {'answer': 'x'}))
+        expect_http(404, lambda: item_call(scan.dismiss_item, page_id, -1, db))
+        item_call(scan.accept_item, page_id, 1, db)
+        expect_http(409, lambda: item_call(scan.edit_item, page_id, 1, db, {'answer': 'x'}))
+        page = item_call(scan.dismiss_item, page_id, 0, db)
+        assert page['items'][0]['state'] == 'dismissed'
+        expect_http(409, lambda: item_call(scan.accept_item, page_id, 0, db))
+        expect_http(409, lambda: item_call(scan.dismiss_item, page_id, 0, db))
+        page = item_call(scan.restore_item, page_id, 0, db)
+        assert page['items'][0]['state'] == 'open'
+        expect_http(409, lambda: item_call(scan.restore_item, page_id, 0, db))
+        page = run(scan.add_item(page_id, PageRequest(db)))
+    added = page['items'][-1]
+    assert len(page['items']) == 3 and added['seq'] == 2 and added['source'] == 'manual'
+    assert added['verdict'] == 'wrong' and added['state'] == 'open'
+
+
+def test_promote_fills_from_model_and_survives_model_failure():
+    """补成错题：模型补全字段并清洗；模型失败时移动保留、字段为空；做错的题不能补。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    right = scan_model.blank_item(0)
+    right.update(source='model', verdict='right', question_no='3', parsed_question='计算 1+1', wrong_answer='2',
+                 reason='对')
+    fill = {'answer': '2', 'analysis': '一加一', 'knowledge_point_ids': [101, 999], 'primary_knowledge_point_id': 999,
+            'error_types': ['计算错误', '乱写'], 'difficulty': 1}
+    model = FakeModel(fill)
+    with items_patched(model=model):
+        page_id = ready_page(connection, db, [right, draft_item(1)])
+        result = item_call(scan.promote_item, page_id, 0, db)
+        expect_http(409, lambda: item_call(scan.promote_item, page_id, 1, db))
+        expect_http(409, lambda: item_call(scan.promote_item, page_id, 0, db))
+    item = result['page']['items'][0]
+    assert result['fill_error'] is None and len(model.prompts) == 1 and '计算 1+1' in model.prompts[0]
+    assert item['verdict'] == 'wrong' and item['source'] == 'promoted' and item['reason'] == '家长补成错题'
+    assert item['answer'] == '2' and item['analysis'] == '一加一' and item['difficulty'] == 1
+    assert item['knowledge_point_ids'] == [101] and item['primary_knowledge_point_id'] == 101
+    assert item['error_types'] == ['计算错误'] and item['state'] == 'open'
+    failing = FakeModel(HTTPException(502, '文本模型余额不足'))
+    with items_patched(model=failing):
+        other_id = ready_page(connection, db, [dict(right)])
+        result = item_call(scan.promote_item, other_id, 0, db)
+    item = result['page']['items'][0]
+    assert result['fill_error'] == '文本模型余额不足' and len(failing.prompts) == 1
+    assert item['verdict'] == 'wrong' and item['source'] == 'promoted' and item['answer'] == ''
+    assert item['knowledge_point_ids'] == []
+    crashing = FakeModel(RuntimeError('timeout'))
+    with items_patched(model=crashing):
+        third_id = ready_page(connection, db, [dict(right)])
+        result = item_call(scan.promote_item, third_id, 0, db)
+    assert result['fill_error'] == scan.MODEL_FAILED_TEXT and result['page']['items'][0]['source'] == 'promoted'
+
+
+def test_closed_page_rejects_item_operations():
+    """页结束后（或还没 ready），所有逐题操作都是 409，题库和草稿不变。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before = live_questions(connection)
+    right = draft_item(1, verdict='right')
+    accepted = draft_item(2, state='accepted', question_id=1)
+    for status in ('closed', 'analyzing'):
+        with items_patched():
+            page_id = ready_page(connection, db, [draft_item(0), right, accepted], status=status)
+            items_before = page_row(connection, page_id)['items']
+            expect_http(409, lambda: item_call(scan.edit_item, page_id, 0, db, {'answer': 'x'}))
+            expect_http(409, lambda: item_call(scan.accept_item, page_id, 0, db))
+            expect_http(409, lambda: item_call(scan.withdraw_item, page_id, 2, db))
+            expect_http(409, lambda: item_call(scan.dismiss_item, page_id, 0, db))
+            expect_http(409, lambda: item_call(scan.restore_item, page_id, 0, db))
+            expect_http(409, lambda: item_call(scan.promote_item, page_id, 1, db))
+            expect_http(409, lambda: run(scan.accept_all(page_id, PageRequest(db))))
+            expect_http(409, lambda: run(scan.add_item(page_id, PageRequest(db))))
+        assert page_row(connection, page_id)['items'] == items_before
+    assert live_questions(connection) == before
+    assert connection.execute('SELECT deleted FROM question WHERE id=1').fetchone()[0] == 0
+
+
+def test_page_closed_during_accept_drops_question():
+    """录入的保存逻辑跑到一半页被结束：刚写的错题软删除，接口返回 409，草稿不变。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before = live_questions(connection)
+    holder = {}
+
+    async def closing_math(request, texts):
+        """公式校验时顺便把这一页结束掉。"""
+        connection.execute("UPDATE scan_page SET status='closed' WHERE id=?", (holder['page_id'],))
+        connection.commit()
+
+    with items_patched(math=closing_math):
+        holder['page_id'] = ready_page(connection, db, [draft_item(0)])
+        expect_http(409, lambda: item_call(scan.accept_item, holder['page_id'], 0, db))
+    assert live_questions(connection) == before
+    assert stored_items(connection, holder['page_id'])[0]['state'] == 'open'
+
+
+def test_close_leaves_open_items_out_of_library():
+    """一道录入、一道没处理，结束这一页：题库只多 1 道。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    before = live_questions(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0), draft_item(1)])
+        item_call(scan.accept_item, page_id, 0, db)
+        page = run(scan.close_page(page_id, PageRequest(db)))
+    assert page['status'] == 'closed' and live_questions(connection) == before + 1
+    assert [item['state'] for item in page['items']] == ['accepted', 'open']
+
+
 TESTS = [
     test_interpret_health,
     test_health_endpoint_hides_host_details,
@@ -816,6 +1142,18 @@ TESTS = [
     test_concurrent_advance_only_one_runs,
     test_unfinished_and_close,
     test_unknown_page_is_404,
+    test_accept_writes_approved_question_with_page_fields,
+    test_accept_twice_writes_once,
+    test_accept_race_keeps_one_question,
+    test_accept_rejected_by_save_keeps_item_open,
+    test_accept_all_skips_warning_and_unsure,
+    test_accept_all_partial_failure,
+    test_withdraw_soft_deletes,
+    test_edit_dismiss_restore_manual,
+    test_promote_fills_from_model_and_survives_model_failure,
+    test_closed_page_rejects_item_operations,
+    test_page_closed_during_accept_drops_question,
+    test_close_leaves_open_items_out_of_library,
 ]
 
 
