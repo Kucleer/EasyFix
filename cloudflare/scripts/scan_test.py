@@ -162,6 +162,42 @@ def test_clean_items_garbage_and_limit():
     assert len(scan_model.clean_items(many, set(), set())) == scan_model.MAX_ITEMS
 
 
+def test_parse_model_json_repairs_latex_backslashes():
+    """模型把 LaTeX 反斜杠原样写进 JSON 时，\\( 不再让整页失败，\\frac、\\begin 不被读成换页、退格符。"""
+    raw = '{"questions": [{"parsed_question": "计算 \\(\\frac{1}{2}\\times 3\\)，\\begin{vmatrix} a \\end{vmatrix}"}]}'
+    stem = scan_model.parse_model_json(raw)['questions'][0]['parsed_question']
+    assert stem == '计算 \\(\\frac{1}{2}\\times 3\\)，\\begin{vmatrix} a \\end{vmatrix}'
+    # 写对了的（每个反斜杠两个）原样解析
+    good = json.dumps({'a': '\\(x^2\\) \\neq 1'})
+    assert scan_model.parse_model_json(good) == {'a': '\\(x^2\\) \\neq 1'}
+    # 真正的换行、引号、\\u 转义保留；换行后接中文或大写字母不算 LaTeX
+    assert scan_model.parse_model_json('{"a": "第一行\\n第二行 \\"引号\\" \\u4e2d \\nA."}') == {'a': '第一行\n第二行 "引号" 中 \nA.'}
+    # 围栏和前后的说明文字去掉
+    assert scan_model.parse_model_json('好的，结果如下：\n```json\n{"questions": []}\n```\n以上。') == {'questions': []}
+
+
+def test_parse_model_json_failure_carries_hint_into_timings():
+    """解析不出（比如回答被截断）时抛 ModelJsonError，整理这一步把出错位置附近的原文记进 timings。"""
+    try:
+        scan_model.parse_model_json('{"questions": [{"parsed_question": "被截断的题')
+    except scan_model.ModelJsonError as error:
+        assert '共' in error.hint and '被截断' in error.hint
+    else:
+        raise AssertionError('应该抛 ModelJsonError')
+
+    async def analyze(ocr_text, enhanced_text):
+        """模拟 generate_json：解析失败时抛 502，异常链里挂着 ModelJsonError。"""
+        try:
+            scan_model.parse_model_json('{"a": [1, 2')
+        except ValueError as error:
+            raise HTTPException(502, '模型没有返回有效的结构化内容') from error
+
+    timings = {}
+    fields = run(scan_model.step_analyze(analyze, '文字', None, [], 0, True, timings))
+    assert fields['status'] == 'failed' and fields['error'] == '模型没有返回有效的结构化内容'
+    assert '位置' in timings['model_parse_hint']
+
+
 def test_clean_fill():
     """单题补全返回八个字段（含完整题干和孩子的答案），规则同整页清洗。"""
     fill = scan_model.clean_fill({'parsed_question': '完整题干', 'wrong_answer': '3', 'answer': '1', 'analysis': 5,
@@ -542,7 +578,7 @@ class FakeModel:
         self.prompts = []
         self.options = []  # 每次调用传的 max_tokens、temperature
 
-    async def __call__(self, request, prompt, max_tokens=6000, temperature=0.6):
+    async def __call__(self, request, prompt, max_tokens=6000, temperature=0.6, parse=None):
         """记录提示词和参数，并返回（或抛出）预设结果。"""
         reply = self.replies[min(len(self.prompts), len(self.replies) - 1)]
         self.prompts.append(prompt)
@@ -1578,6 +1614,8 @@ def test_regression_script_imports_only_stdlib():
 
 TESTS = [
     test_interpret_health,
+    test_parse_model_json_repairs_latex_backslashes,
+    test_parse_model_json_failure_carries_hint_into_timings,
     test_health_endpoint_hides_host_details,
     test_clean_items_drops_bad_catalog_and_error_types,
     test_clean_items_primary_none_when_several_points_left,

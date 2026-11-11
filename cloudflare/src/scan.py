@@ -28,7 +28,8 @@ from scan_model import (HEALTH_TIMEOUT_SECONDS, HOST_TIMEOUT_SECONDS, MISSING_IM
                         SCAN_MAX_TOKENS, SCAN_TEMPERATURE, STALE_SECONDS, ScanError, blank_item,
                         build_fill_prompt, build_page_prompt, clean_edit, clean_fill, clean_items,
                         describe_model_error, failed_read, interpret_health, merge_fill, next_step,
-                        question_payload, read_with_retries, step_analyze, step_read, step_rescan)
+                        parse_model_json, question_payload, read_with_retries, step_analyze, step_read,
+                        step_rescan)
 from settings import generate_json
 
 router = APIRouter()
@@ -148,7 +149,8 @@ def catalog_point_ids(catalog):
 
 async def call_model(request, prompt):
     """用整页识别的参数（低随机度、较大返回长度）调一次文本模型。"""
-    return await generate_json(request, prompt, max_tokens=SCAN_MAX_TOKENS, temperature=SCAN_TEMPERATURE)
+    return await generate_json(request, prompt, max_tokens=SCAN_MAX_TOKENS, temperature=SCAN_TEMPERATURE,
+                               parse=parse_model_json)
 
 
 def make_analyze(request, db, page):

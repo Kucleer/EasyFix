@@ -6,6 +6,7 @@
 本模块只用标准库，主机上的回归脚本可以直接导入。
 """
 
+import json
 import re
 import time
 
@@ -152,6 +153,7 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         _knowledge_rules(catalog, error_type_names),
         '',
         '文字里看得出不对劲时一定要打 flags 标记，不要硬猜。不要输出 JSON 以外的任何内容。',
+        JSON_BACKSLASH_RULE,
     ]
     return '\n'.join(parts)
 
@@ -179,6 +181,7 @@ def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalo
         '',
         _knowledge_rules(catalog, error_type_names),
         '不要输出 JSON 以外的任何内容。',
+        JSON_BACKSLASH_RULE,
     ]
     return '\n'.join(parts)
 
@@ -397,6 +400,100 @@ async def read_with_retries(fetch, sleep):
     return dict(result, kind='failed', detail=result['detail'] or 'busy')
 
 
+# ---------------------------------------------------------------- 解析模型返回的 JSON
+#
+# 模型常把 LaTeX 的反斜杠原样写进 JSON 字符串：\( 、\frac、\begin。按 JSON 规则，\( 是非法转义
+# （整页解析失败），\f、\b 又会被悄悄读成换页符、退格符（公式被读坏）。所以解析前先把这些反斜杠补成两个。
+
+# 提示词里提醒模型的一句话
+JSON_BACKSLASH_RULE = ('JSON 字符串里的每个反斜杠都要写成两个，'
+                       '例如 \\\\(x^2\\\\)、\\\\frac{1}{2}、\\\\times。')
+# 解析失败时记进 timings 的原文片段，出错位置前后各取这么多字
+PARSE_HINT_CHARS = 80
+_HEX_DIGITS = set('0123456789abcdefABCDEF')
+
+
+class ModelJsonError(ValueError):
+    """模型返回的内容解析不出 JSON；hint 是出错位置附近的原文，方便排查。"""
+
+    def __init__(self, hint):
+        """记录排查用的片段。"""
+        super().__init__(hint)
+        self.hint = hint
+
+
+def repair_backslashes(text):
+    """把 JSON 文本里属于 LaTeX 的单个反斜杠补成两个，正常的 JSON 转义原样保留。
+
+    规则（逐个看反斜杠后面的字符）：
+    - \\\\、\\"、\\/、\\uXXXX：合法转义，原样保留；
+    - \\b \\f \\n \\r \\t 后面紧跟小写字母（\\frac、\\begin、\\neq、\\times）：是 LaTeX 命令，补成两个；
+    - \\b \\f \\n \\r \\t 后面不是小写字母（换行后接中文、空格、标点、大写字母）：当作真的转义字符保留；
+    - 其他（\\(、\\[、\\{、\\Delta、\\,）：JSON 里不合法，补成两个。
+    """
+    result = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char != '\\':
+            result.append(char)
+            index += 1
+            continue
+        if index + 1 >= length:
+            result.append('\\\\')  # 末尾孤零零的反斜杠
+            break
+        following = text[index + 1]
+        after = text[index + 2] if index + 2 < length else ''
+        if following in '\\"/':
+            result.append(char + following)
+        elif following == 'u' and len(text[index + 2:index + 6]) == 4 and set(text[index + 2:index + 6]) <= _HEX_DIGITS:
+            result.append(text[index:index + 6])
+            index += 6
+            continue
+        elif following in 'bfnrt' and not ('a' <= after <= 'z'):
+            result.append(char + following)
+        else:
+            result.append('\\\\' + following)
+        index += 2
+    return ''.join(result)
+
+
+def parse_model_json(text):
+    """把模型的回答解析成 JSON：去掉 ``` 围栏和前后说明文字，补好 LaTeX 反斜杠再解析。
+
+    解析不出时抛 ModelJsonError，hint 里带出错位置、总长度和附近的原文。
+    """
+    content = (text or '').strip()
+    if content.startswith('```'):
+        content = content.split('\n', 1)[1] if '\n' in content else ''
+        content = content.rsplit('```', 1)[0]
+    # 只取第一个 { 或 [ 到最后一个 } 或 ] 之间的部分，去掉模型在前后加的说明
+    starts = [position for position in (content.find('{'), content.find('[')) if position >= 0]
+    end = max(content.rfind('}'), content.rfind(']'))
+    if starts and end > min(starts):
+        content = content[min(starts):end + 1]
+    repaired = repair_backslashes(content)
+    try:
+        return json.loads(repaired)
+    except ValueError as error:
+        position = getattr(error, 'pos', 0) or 0
+        snippet = repaired[max(0, position - PARSE_HINT_CHARS):position + PARSE_HINT_CHARS]
+        raise ModelJsonError('%s；位置 %d / 共 %d 字；附近原文：%s' % (
+            getattr(error, 'msg', str(error)), position, len(repaired), snippet))
+
+
+def find_parse_hint(error):
+    """在异常链（error 本身、__cause__、__context__）里找 ModelJsonError 的 hint，找不到返回 None。"""
+    seen = 0
+    while error is not None and seen < 5:
+        if isinstance(error, ModelJsonError):
+            return error.hint
+        error = error.__cause__ or error.__context__
+        seen += 1
+    return None
+
+
 def describe_model_error(error):
     """模型调用失败时给用户看的一句话，以及排查用的异常类型名。
 
@@ -471,6 +568,9 @@ async def step_analyze(analyze, ocr_text, enhanced_text, previous_items, rescan_
         error_text, error_type = describe_model_error(error)
         if error_type:
             timings['model_error_type'] = error_type
+        parse_hint = find_parse_hint(error)
+        if parse_hint:
+            timings['model_parse_hint'] = parse_hint  # 模型返回的内容解析不出时，记下出错位置附近的原文
         fields = after_analysis_failure(error_text, enhanced_text, previous_items)
         if fields['status'] == 'ready':
             timings['analyze2_error'] = error_text  # 保留第一次结果时，失败原因只记进 timings

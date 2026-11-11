@@ -294,7 +294,7 @@ FAKE_FILLS = {
 }
 
 
-async def fake_generate_json(request, prompt, max_tokens=6000, temperature=0.6):
+async def fake_generate_json(request, prompt, max_tokens=6000, temperature=0.6, parse=None):
     """假的文本模型：整页提示词返回 6 道题，补题提示词返回这一道的完整内容。
 
     6 道题按卷面顺序（seq 0–5）：
@@ -340,7 +340,7 @@ async def fake_generate_json(request, prompt, max_tokens=6000, temperature=0.6):
 def make_http_generate_json(config):
     """按 settings.generate_json 的请求格式，用 urllib 调真实的文本模型；config 来自 --llm-config。"""
 
-    def call_model(prompt, max_tokens, temperature):
+    def call_model(prompt, max_tokens, temperature, parse=None):
         """同步调一次模型，返回解析后的 JSON；失败抛和线上一样的 HTTPException。"""
         if not config.get('api_key') or not config.get('base_url'):
             raise HTTPException(503, '请先配置文本模型')
@@ -383,13 +383,14 @@ def make_http_generate_json(config):
                 content = result['choices'][0]['message']['content'].strip()
             if content.startswith('```'):
                 content = content.split('\n', 1)[1].rsplit('```', 1)[0]
-            return json.loads(content)
-        except (KeyError, IndexError, ValueError, AttributeError):
-            raise HTTPException(502, '模型没有返回有效的结构化内容')
+            return (parse or json.loads)(content)
+        except (KeyError, IndexError, ValueError, AttributeError) as error:
+            raise HTTPException(502, '模型没有返回有效的结构化内容') from error
 
-    async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE):
+    async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE,
+                            parse=None):
         """异步包装：把阻塞的 HTTP 调用放到线程里；可选参数和 settings.generate_json 一致。"""
-        return await asyncio.to_thread(call_model, prompt, max_tokens, temperature)
+        return await asyncio.to_thread(call_model, prompt, max_tokens, temperature, parse)
 
     return generate_json
 

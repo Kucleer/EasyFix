@@ -270,11 +270,10 @@ def parse_model_reply(text, anthropic):
                               if block.get('type') == 'text').strip()
         else:
             content = result['choices'][0]['message']['content'].strip()
-        if content.startswith('```'):
-            content = content.split('\n', 1)[1].rsplit('```', 1)[0]
-        return json.loads(content)
-    except (KeyError, IndexError, ValueError, TypeError, AttributeError):
-        raise ModelError(MODEL_INVALID_TEXT)
+        # 和线上一样：去掉围栏、补好 LaTeX 反斜杠再解析；解析不出时异常链里带出错位置附近的原文
+        return scan_model.parse_model_json(content)
+    except (KeyError, IndexError, ValueError, TypeError, AttributeError) as error:
+        raise ModelError(MODEL_INVALID_TEXT) from error
 
 
 class ModelClient:

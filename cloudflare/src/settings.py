@@ -70,10 +70,12 @@ DEFAULT_MAX_TOKENS = 6000
 DEFAULT_TEMPERATURE = 0.6
 
 
-async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE):
+async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE, parse=None):
     """通过云端异步 HTTP 调用现有文本模型，解析结构化 JSON。
 
-    max_tokens、temperature 可选：不传时和原来完全一样（相似题、学习报告不受影响）。
+    max_tokens、temperature、parse 可选：不传时和原来完全一样（相似题、学习报告不受影响）。
+    parse 是把模型回答（已去掉 ``` 围栏）变成 JSON 的函数，解析不出时抛 ValueError；
+    抛出的 502 异常会挂上原来的异常（from），调用方可以从中取排查信息。
     Anthropic 接口原来不传随机度，所以只有调用方给了不同于默认的值时才传。
     """
     from js import fetch,Object,AbortSignal
@@ -102,6 +104,6 @@ async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperat
         content = ''.join(block.get('text','') for block in result.get('content',[]) if block.get('type')=='text').strip() if anthropic else result['choices'][0]['message']['content'].strip()
         if content.startswith('```'):
             content = content.split('\n', 1)[1].rsplit('```', 1)[0]
-        return json.loads(content)
-    except (KeyError, IndexError, ValueError):
-        raise HTTPException(502, '模型没有返回有效的结构化内容')
+        return (parse or json.loads)(content)
+    except (KeyError, IndexError, ValueError) as error:
+        raise HTTPException(502, '模型没有返回有效的结构化内容') from error
