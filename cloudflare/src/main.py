@@ -8,6 +8,7 @@ from database import Database
 from auth import guard, router as auth_router
 from catalog import router as catalog_router
 from knowledge import router as knowledge_router
+from scan import router as scan_router
 from questions import router as questions_router
 from word_focus import router as word_focus_router
 from words import router as words_router
@@ -41,6 +42,7 @@ app.include_router(starmap_router)
 app.include_router(media_router)
 app.include_router(catalog_router)
 app.include_router(knowledge_router)
+app.include_router(scan_router)
 app.include_router(questions_router)
 app.include_router(word_focus_router)
 app.include_router(words_router)
