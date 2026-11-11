@@ -66,8 +66,16 @@ async def save_llm(request: Request):
     return {'message': 'LLM配置已保存'}
 
 
-async def generate_json(request, prompt):
-    """通过云端异步 HTTP 调用现有文本模型，解析结构化 JSON。"""
+DEFAULT_MAX_TOKENS = 6000
+DEFAULT_TEMPERATURE = 0.6
+
+
+async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE):
+    """通过云端异步 HTTP 调用现有文本模型，解析结构化 JSON。
+
+    max_tokens、temperature 可选：不传时和原来完全一样（相似题、学习报告不受影响）。
+    Anthropic 接口原来不传随机度，所以只有调用方给了不同于默认的值时才传。
+    """
     from js import fetch,Object,AbortSignal
     from pyodide.ffi import to_js
     config = await load(request, 'llm')
@@ -77,11 +85,13 @@ async def generate_json(request, prompt):
     base=config['base_url'].rstrip('/')
     url = base + ('/messages' if base.endswith('/v1') else '/v1/messages') if anthropic else base + '/chat/completions'
     system='你是严谨的学习辅导助手。仅返回有效JSON。数学公式使用带边界的LaTeX，保留反斜杠。'
-    body={'model':config.get('model'),'max_tokens':6000,'messages':[{'role':'user','content':prompt}]}
+    body={'model':config.get('model'),'max_tokens':max_tokens,'messages':[{'role':'user','content':prompt}]}
     headers={'x-api-key':config['api_key'],'anthropic-version':'2023-06-01'} if anthropic else {'Authorization':'Bearer '+config['api_key']}
     headers['Content-Type']='application/json'
-    if anthropic:body['system']=system;body['thinking']={'type':'disabled'}
-    else:body['messages'].insert(0,{'role':'system','content':system});body['temperature']=0.6
+    if anthropic:
+        body['system']=system;body['thinking']={'type':'disabled'}
+        if temperature!=DEFAULT_TEMPERATURE:body['temperature']=temperature
+    else:body['messages'].insert(0,{'role':'system','content':system});body['temperature']=temperature
     options=to_js({'method':'POST','headers':headers,'body':json.dumps(body,ensure_ascii=False)},dict_converter=Object.fromEntries)
     options.signal=AbortSignal.timeout(120000)
     response=await fetch(url,options)

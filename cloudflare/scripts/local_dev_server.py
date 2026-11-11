@@ -32,6 +32,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile  # noqa: E
 from fastapi.responses import FileResponse, Response  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 from knowledge_model import normalize_name_key  # noqa: E402
+from settings import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE  # noqa: E402  模型调用的默认参数，和线上一致
 
 DEFAULT_PORT = 8765
 HOST = '127.0.0.1'
@@ -200,7 +201,11 @@ FAKE_OCR_TEXT = (
     '1. 计算 3/4 × 2/3 = ?  孩子写：1/3\n'
     '2. 计算 1/2 ÷ 1/4 = ?  孩子写：1/8\n'
     '3. 计算 1+1 = ?  孩子写：2\n'
-    '4. 一块地的 5/131 种了玉米，种玉米的面积占全部的几分之几？  孩子写：5/13')
+    '4. 一块地的 5/131 种了玉米，种玉米的面积占全部的几分之几？  孩子写：5/13\n'
+    '5. 计算 2×3 = ?  孩子写：6\n'
+    '6. 计算 10-4 = ?  孩子写：5')
+# 假模型补成错题时故意失败的题号（用来在浏览器里看"补全失败时卡片进入修改状态"）
+FAKE_FILL_FAILS_FOR = '5'
 HOST_KEY_HEADER = 'X-EasyFix-OCR-Key'
 
 
@@ -282,34 +287,60 @@ def catalog_point_ids(prompt):
     return [int(number) for number in re.findall(r'^ {2}(\d+) ', prompt, flags=re.M)]
 
 
-async def fake_generate_json(request, prompt):
-    """假的文本模型：整页提示词返回 3 道题，补题提示词返回补充字段。
+# 假模型补成错题时返回的完整题干和孩子的答案（按题号）
+FAKE_FILLS = {
+    '3': ('计算 \\(1+1\\) 的结果，写出计算过程', '2'),
+    '5': ('计算 \\(2\\times 3\\) 的结果', '6'),
+}
 
-    3 道题是：1 道做错、1 道做错且读图有问题（broken_formula）、1 道做对。
-    考点编号从提示词的清单里取；清单为空时留空。
+
+async def fake_generate_json(request, prompt, max_tokens=6000, temperature=0.6):
+    """假的文本模型：整页提示词返回 6 道题，补题提示词返回这一道的完整内容。
+
+    6 道题按卷面顺序（seq 0–5）：
+    - 第 1、6 题做错，可以直接录入；
+    - 第 2 题做错，但选了两个考点没给主考点，录入时会被保存逻辑拒绝（422），
+      用来在浏览器里看"全部录入停在失败的那道"；
+    - 第 4 题做错且读图有问题（broken_formula），不进"全部录入"；
+    - 第 3、5 题做对，只给题号、题干开头和判断；补成错题时第 3 题能补全，
+      第 5 题（FAKE_FILL_FAILS_FOR）故意失败，用来看"补全失败时卡片进入修改状态"。
+    考点编号从提示词的清单里取；清单为空时留空。max_tokens、temperature 只为和线上的参数一致，这里不用。
     """
     ids = catalog_point_ids(prompt)
     knowledge = {'knowledge_point_ids': ids[:1], 'primary_knowledge_point_id': ids[0] if ids else None}
-    if '<<<OCR' not in prompt:
-        # 单题补全提示词
-        return {'answer': '1/2', 'analysis': '先约分再相乘。', 'error_types': ['计算错误'], 'difficulty': 2,
-                **knowledge}
+    if '要补全的题：' in prompt:
+        # 单题补全提示词：按题号返回这一道的完整内容
+        match = re.search(r'^题号：(\S+)', prompt, flags=re.M)
+        question_no = match.group(1) if match else ''
+        if question_no == FAKE_FILL_FAILS_FOR:
+            raise HTTPException(502, '模型没有返回有效的结构化内容')
+        stem, child_answer = FAKE_FILLS.get(question_no, ('（假模型）完整题干', ''))
+        return {'parsed_question': stem, 'wrong_answer': child_answer, 'answer': '见解析',
+                'analysis': '假模型补全的解析。', 'error_types': ['计算错误'], 'difficulty': 2, **knowledge}
     return {'questions': [
         {'question_no': '1', 'parsed_question': '计算 \\(\\frac{3}{4}\\times\\frac{2}{3}\\)', 'wrong_answer': '1/3',
          'verdict': 'wrong', 'reason': '应为 1/2', 'flags': [], 'answer': '1/2', 'analysis': '先约分再相乘。',
          'error_types': ['计算错误'], 'difficulty': 2, **knowledge},
+        {'question_no': '2', 'parsed_question': '计算 \\(\\frac{1}{2}\\div\\frac{1}{4}\\)', 'wrong_answer': '1/8',
+         'verdict': 'wrong', 'reason': '应为 2', 'flags': [], 'answer': '2', 'analysis': '除以一个数等于乘它的倒数。',
+         'error_types': ['概念错误'], 'difficulty': 3,
+         # 两个考点、没有主考点：录入时会被拒绝
+         'knowledge_point_ids': ids[:2], 'primary_knowledge_point_id': None},
+        {'question_no': '3', 'parsed_question': '计算 1+1', 'verdict': 'right'},
         {'question_no': '4', 'parsed_question': '一块地的 \\(\\frac{5}{131}\\) 种了玉米', 'wrong_answer': '5/13',
          'verdict': 'wrong', 'reason': '分母像是读错了', 'flags': ['broken_formula'], 'answer': '5/13',
          'analysis': '按原图核对分数。', 'error_types': ['审题不清'], 'difficulty': 3, **knowledge},
-        {'question_no': '3', 'parsed_question': '计算 1+1', 'wrong_answer': '2', 'verdict': 'right',
-         'reason': '孩子写 2，和计算结果一致', 'flags': []},
+        {'question_no': '5', 'parsed_question': '计算 2×3', 'verdict': 'right'},
+        {'question_no': '6', 'parsed_question': '计算 \\(10-4\\)', 'wrong_answer': '5', 'verdict': 'wrong',
+         'reason': '应为 6', 'flags': [], 'answer': '6', 'analysis': '十减四等于六。',
+         'error_types': ['计算错误'], 'difficulty': 1, **knowledge},
     ]}
 
 
 def make_http_generate_json(config):
     """按 settings.generate_json 的请求格式，用 urllib 调真实的文本模型；config 来自 --llm-config。"""
 
-    def call_model(prompt):
+    def call_model(prompt, max_tokens, temperature):
         """同步调一次模型，返回解析后的 JSON；失败抛和线上一样的 HTTPException。"""
         if not config.get('api_key') or not config.get('base_url'):
             raise HTTPException(503, '请先配置文本模型')
@@ -320,16 +351,18 @@ def make_http_generate_json(config):
         else:
             url = base + '/chat/completions'
         system = '你是严谨的学习辅导助手。仅返回有效JSON。数学公式使用带边界的LaTeX，保留反斜杠。'
-        body = {'model': config.get('model'), 'max_tokens': 6000, 'messages': [{'role': 'user', 'content': prompt}]}
+        body = {'model': config.get('model'), 'max_tokens': max_tokens, 'messages': [{'role': 'user', 'content': prompt}]}
         headers = ({'x-api-key': config['api_key'], 'anthropic-version': '2023-06-01'} if anthropic
                    else {'Authorization': 'Bearer ' + config['api_key']})
         headers['Content-Type'] = 'application/json'
         if anthropic:
             body['system'] = system
             body['thinking'] = {'type': 'disabled'}
+            if temperature != DEFAULT_TEMPERATURE:
+                body['temperature'] = temperature  # 和线上一样：Anthropic 只在给了非默认值时才传
         else:
             body['messages'].insert(0, {'role': 'system', 'content': system})
-            body['temperature'] = 0.6
+            body['temperature'] = temperature
         request = urllib.request.Request(url, data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
                                          method='POST', headers=headers)
         try:
@@ -354,9 +387,9 @@ def make_http_generate_json(config):
         except (KeyError, IndexError, ValueError, AttributeError):
             raise HTTPException(502, '模型没有返回有效的结构化内容')
 
-    async def generate_json(request, prompt):
-        """异步包装：把阻塞的 HTTP 调用放到线程里。"""
-        return await asyncio.to_thread(call_model, prompt)
+    async def generate_json(request, prompt, max_tokens=DEFAULT_MAX_TOKENS, temperature=DEFAULT_TEMPERATURE):
+        """异步包装：把阻塞的 HTTP 调用放到线程里；可选参数和 settings.generate_json 一致。"""
+        return await asyncio.to_thread(call_model, prompt, max_tokens, temperature)
 
     return generate_json
 

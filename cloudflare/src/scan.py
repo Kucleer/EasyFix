@@ -24,10 +24,11 @@ from intake import load_catalog, load_error_type_names, read_payload
 from intake_model import IMAGE_KEY_PATTERN, is_plain_int
 from question_scope import current_student_id
 from questions import save as save_question, stamp_now
-from scan_model import (ACCEPT_ALL_BATCH, BUSY_RETRIES, BUSY_WAIT_SECONDS, HEALTH_TIMEOUT_SECONDS,
-                        HOST_TIMEOUT_SECONDS, STALE_SECONDS, ScanError, accept_all_seqs, blank_item,
+from scan_model import (HEALTH_TIMEOUT_SECONDS, HOST_TIMEOUT_SECONDS, MISSING_IMAGE_TEXT, MODEL_FAILED_TEXT,
+                        SCAN_MAX_TOKENS, SCAN_TEMPERATURE, STALE_SECONDS, ScanError, blank_item,
                         build_fill_prompt, build_page_prompt, clean_edit, clean_fill, clean_items,
-                        interpret_health, interpret_ocr, needs_rescan, next_step, question_payload)
+                        describe_model_error, failed_read, interpret_health, merge_fill, next_step,
+                        question_payload, read_with_retries, step_analyze, step_read, step_rescan)
 from settings import generate_json
 
 router = APIRouter()
@@ -36,8 +37,6 @@ sleep = asyncio.sleep
 # 每一步认领时写入的状态
 CLAIM_STATUS = {'read': 'reading', 'analyze': 'analyzing', 'rescan': 'rescanning'}
 UNFINISHED_LIMIT = 5
-MISSING_IMAGE_TEXT = '照片找不到了'
-MODEL_FAILED_TEXT = '文本模型请求失败，请检查模型配置和余额'
 PAGE_CLOSED_TEXT = '这一页已经结束了，请刷新'
 ITEM_CHANGED_TEXT = '这道题刚被别的操作改过，请刷新'
 EMPTY_QUESTION_TEXT = '题干不能为空'
@@ -47,11 +46,6 @@ PROMOTED_REASON = '家长补成错题'
 def now_seconds():
     """当前时间，整数秒（step_started_at 用）。"""
     return int(time.time())
-
-
-def elapsed_ms(started):
-    """从 started（time.time() 的值）到现在过了多少毫秒。"""
-    return int((time.time() - started) * 1000)
 
 
 # ---------------------------------------------------------------- 健康检查
@@ -113,100 +107,92 @@ async def finish_step(db, page, claimed_status, started_at, fields, timings):
                  [*data.values(), page['id'], claimed_status, started_at])
 
 
-# ---------------------------------------------------------------- 调主机
+# ---------------------------------------------------------------- 调主机和模型
 
 
-async def call_host(env, content, content_type, mode):
-    """把图片发给主机识别；主机忙时等一会儿重试，重试完仍忙按失败处理。返回 interpret_ocr 的结果。"""
-    for attempt in range(BUSY_RETRIES + 1):
-        status, body = await ocr_client.fetch_ocr(env, content, content_type, mode, HOST_TIMEOUT_SECONDS[mode])
-        result = interpret_ocr(status, body)
-        if result['kind'] != 'busy':
-            return result
-        if attempt < BUSY_RETRIES:
-            await sleep(BUSY_WAIT_SECONDS)
-    return dict(result, kind='failed', detail=result['detail'] or 'busy')
+def make_read_text(env, page):
+    """做一个读图函数 read_text(mode)：从 R2 取照片交给主机识别，返回 interpret_ocr 格式的结果。
+
+    照片不见了时不调主机，直接返回"照片找不到了"的失败结果。
+    """
+
+    async def read_text(mode):
+        """按 mode（normal / enhanced）读一次图；主机忙时按约定等待重试。"""
+        image = await ocr_client.read_image(env, page['image'])
+        if image is None:
+            return failed_read(MISSING_IMAGE_TEXT, MISSING_IMAGE_TEXT)
+        content, content_type = image
+
+        async def fetch():
+            """调一次主机的 /ocr。"""
+            return await ocr_client.fetch_ocr(env, content, content_type, mode, HOST_TIMEOUT_SECONDS[mode])
+
+        # 等待用模块里的 sleep（测试时会被换成假的），所以每次调用时再取
+        return await read_with_retries(fetch, lambda seconds: sleep(seconds))
+
+    return read_text
 
 
-async def read_page_text(env, page, mode):
-    """从 R2 取照片交给主机识别；照片不见了时返回 None，否则返回 interpret_ocr 的结果。"""
-    image = await ocr_client.read_image(env, page['image'])
-    if image is None:
-        return None
-    content, content_type = image
-    return await call_host(env, content, content_type, mode)
+async def load_prompt_context(db, page):
+    """读这一页学科的名称、考点清单、错因名称，整页整理和补成错题都要用。"""
+    subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (page['subject_id'],))
+    catalog = await load_catalog(db, page['subject_id'], page['grade'], page['semester'])
+    error_type_names = await load_error_type_names(db, page['subject_id'])
+    return (subject['name'] if subject else ''), catalog, error_type_names
+
+
+def catalog_point_ids(catalog):
+    """考点清单里所有考点的编号。"""
+    return {point['id'] for group in catalog for point in group['points']}
+
+
+async def call_model(request, prompt):
+    """用整页识别的参数（低随机度、较大返回长度）调一次文本模型。"""
+    return await generate_json(request, prompt, max_tokens=SCAN_MAX_TOKENS, temperature=SCAN_TEMPERATURE)
+
+
+def make_analyze(request, db, page):
+    """做一个整理函数 analyze(读图文字, 重扫文字)：调一次文本模型，返回清洗后的题目；模型失败时抛异常。"""
+
+    async def analyze(ocr_text, enhanced_text):
+        """拼提示词、调模型、清洗结果。"""
+        subject_name, catalog, error_type_names = await load_prompt_context(db, page)
+        prompt = build_page_prompt(subject_name, page['grade'], page['semester'], ocr_text, enhanced_text,
+                                   catalog, sorted(error_type_names))
+        raw = await call_model(request, prompt)
+        return clean_items(raw, catalog_point_ids(catalog), error_type_names)
+
+    return analyze
 
 
 # ---------------------------------------------------------------- 三个步骤
+#
+# 每一步做什么、结束后转到哪个状态，都由 scan_model 里的 step_* 决定（回归脚本走的也是同一套），
+# 这里只负责把读图、调模型的函数交给它，再把结果写回这一页。
 
 
 async def run_read(request, db, page, started_at):
     """读图：成功转 analyzing 并存下文字；失败转 failed，用户看提示文字，主机细节记进 timings。"""
-    clock = time.time()
-    result = await read_page_text(request.scope['env'], page, 'normal')
     timings = json.loads(page['timings'] or '{}')
-    timings['read_ms'] = elapsed_ms(clock)
-    if result is not None and result['kind'] == 'ok':
-        if result['elapsed_ms'] is not None:
-            timings['host_read_ms'] = result['elapsed_ms']
-        fields = {'status': 'analyzing', 'ocr_text': result['text'], 'error': None}
-    elif result is None:
-        fields = {'status': 'failed', 'error': MISSING_IMAGE_TEXT}
-    else:
-        timings['host_detail'] = result['detail']
-        fields = {'status': 'failed', 'error': result['user_text']}
+    fields = await step_read(make_read_text(request.scope['env'], page), timings)
     await finish_step(db, page, 'reading', started_at, fields, timings)
 
 
 async def run_analyze(request, db, page, started_at):
     """整理：调一次文本模型；成功存题目草稿，需要重扫转 rescanning，否则 ready；失败转 failed，读图文字保留。"""
-    clock = time.time()
-    subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (page['subject_id'],))
-    catalog = await load_catalog(db, page['subject_id'], page['grade'], page['semester'])
-    error_type_names = await load_error_type_names(db, page['subject_id'])
-    prompt = build_page_prompt(subject['name'] if subject else '', page['grade'], page['semester'],
-                               page['ocr_text'], page['ocr_text_enhanced'], catalog, sorted(error_type_names))
     timings = json.loads(page['timings'] or '{}')
-    # 重扫后的第二次整理单独记用时
-    timing_key = 'analyze2_ms' if page['ocr_text_enhanced'] else 'analyze_ms'
-    error_text = None
-    try:
-        raw = await generate_json(request, prompt)
-    except HTTPException as error:
-        error_text = error.detail
-    except Exception:
-        # 生产环境里网络超时等会抛运行时异常，统一给一句模型失败的提示
-        error_text = MODEL_FAILED_TEXT
-    if error_text is not None:
-        if page['ocr_text_enhanced'] and json.loads(page['items'] or '[]'):
-            # 重扫后的第二次整理失败：已有第一次的结果，直接 ready 并保留它，失败原因只记进 timings
-            timings['analyze2_error'] = error_text
-            fields = {'status': 'ready', 'error': None}
-        else:
-            fields = {'status': 'failed', 'error': error_text}
-    else:
-        catalog_ids = {point['id'] for group in catalog for point in group['points']}
-        items = clean_items(raw, catalog_ids, error_type_names)
-        rescan = needs_rescan(items, page['rescan_used'], rescan_enabled(request.scope['env']))
-        fields = {'status': 'rescanning' if rescan else 'ready', 'error': None,
-                  'items': json.dumps(items, ensure_ascii=False)}
-    timings[timing_key] = elapsed_ms(clock)
+    fields = await step_analyze(make_analyze(request, db, page), page['ocr_text'], page['ocr_text_enhanced'],
+                                json.loads(page['items'] or '[]'), page['rescan_used'],
+                                rescan_enabled(request.scope['env']), timings)
+    if 'items' in fields:
+        fields['items'] = json.dumps(fields['items'], ensure_ascii=False)
     await finish_step(db, page, 'analyzing', started_at, fields, timings)
 
 
 async def run_rescan(request, db, page, started_at):
     """强化重扫：成功转 analyzing 并存下重扫文字；失败直接 ready，保留第一次的题目草稿。"""
-    clock = time.time()
-    result = await read_page_text(request.scope['env'], page, 'enhanced')
     timings = json.loads(page['timings'] or '{}')
-    timings['rescan_ms'] = elapsed_ms(clock)
-    if result is not None and result['kind'] == 'ok':
-        if result['elapsed_ms'] is not None:
-            timings['host_rescan_ms'] = result['elapsed_ms']
-        fields = {'status': 'analyzing', 'ocr_text_enhanced': result['text']}
-    else:
-        timings['host_detail'] = result['detail'] if result is not None else MISSING_IMAGE_TEXT
-        fields = {'status': 'ready'}
+    fields = await step_rescan(make_read_text(request.scope['env'], page), timings)
     await finish_step(db, page, 'rescanning', started_at, fields, timings)
 
 
@@ -432,9 +418,11 @@ async def restore_item(page_id: int, seq: int, request: Request):
 
 @router.post('/api/scan/pages/{page_id}/items/{seq}/promote')
 async def promote_item(page_id: int, seq: int, request: Request):
-    """补成错题：把模型认为做对的一道移到主列表，再调一次模型补答案、解析、考点、错因、难度。
+    """补成错题：把模型认为做对的一道移到主列表，再调一次模型补全这一道。
 
-    先写入移动（source、verdict、reason），模型失败时不回滚移动，返回 fill_error 让前端进入修改状态。
+    模型拿到整页文字和这道题的题号、题干开头，返回完整题干、孩子的答案、答案、解析、考点、错因、难度。
+    先写入移动（source、verdict、reason），模型失败时不回滚移动，返回 fill_error 让前端进入修改状态；
+    失败的异常类型名记进这一页的 timings.model_error_type，方便排查。
     """
     db = Database(request.scope['env'].DB)
     student_id = current_student_id(request)
@@ -444,25 +432,27 @@ async def promote_item(page_id: int, seq: int, request: Request):
     moved = dict(item, source='promoted', verdict='wrong', reason=PROMOTED_REASON)
     if not await write_item(db, page_id, seq, 'open', moved):
         await raise_write_conflict(db, page_id, student_id)
-    subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (page['subject_id'],))
-    catalog = await load_catalog(db, page['subject_id'], page['grade'], page['semester'])
-    error_type_names = await load_error_type_names(db, page['subject_id'])
-    prompt = build_fill_prompt(subject['name'] if subject else '', page['grade'], moved, catalog,
-                               sorted(error_type_names))
+    subject_name, catalog, error_type_names = await load_prompt_context(db, page)
+    prompt = build_fill_prompt(subject_name, page['grade'], moved, page['ocr_text'], page['ocr_text_enhanced'],
+                               catalog, sorted(error_type_names))
     fill_error = None
     try:
-        raw = await generate_json(request, prompt)
-    except HTTPException as error:
-        fill_error = error.detail
-    except Exception:
-        # 生产环境里网络超时等会抛运行时异常，统一给一句模型失败的提示
-        fill_error = MODEL_FAILED_TEXT
+        raw = await call_model(request, prompt)
+    except Exception as error:
+        fill_error, error_type = describe_model_error(error)
+        if error_type:
+            await record_model_error_type(db, page_id, error_type)
     if fill_error is None:
-        catalog_ids = {point['id'] for group in catalog for point in group['points']}
-        filled = dict(moved, **clean_fill(raw, catalog_ids, error_type_names))
+        filled = merge_fill(moved, clean_fill(raw, catalog_point_ids(catalog), error_type_names))
         # 补全结果也用条件写：这期间这道题被录入或去掉了就不再覆盖
         await write_item(db, page_id, seq, 'open', filled)
     return {'page': page_view(await load_page(db, page_id, student_id)), 'fill_error': fill_error}
+
+
+async def record_model_error_type(db, page_id, error_type):
+    """把补成错题时模型失败的异常类型名记进这一页的 timings（只改这一个键，不影响草稿）。"""
+    await db.run("UPDATE scan_page SET timings=json_set(COALESCE(timings,'{}'), '$.model_error_type', ?) "
+                 'WHERE id=? AND deleted=0', (error_type, page_id))
 
 
 @router.post('/api/scan/pages/{page_id}/items/{seq}/accept')
@@ -472,30 +462,6 @@ async def accept_item(page_id: int, seq: int, request: Request):
     student_id = current_student_id(request)
     await accept_one(request, db, page_id, student_id, seq)
     return page_view(await load_page(db, page_id, student_id))
-
-
-@router.post('/api/scan/pages/{page_id}/accept-all')
-async def accept_all(page_id: int, request: Request):
-    """全部录入：对"做错了、没提示、未处理"的题逐道录入，每道独立成败。
-
-    一次请求最多录 ACCEPT_ALL_BATCH 道（免费计划限制单次请求的数据库查询次数），
-    remaining 是这批做完后仍符合条件、还没录入的题数，前端大于 0 时再调一次。
-    注意：这一批里失败的题仍是 open，会计入 remaining，前端遇到失败应先停下处理。
-    """
-    db = Database(request.scope['env'].DB)
-    student_id = current_student_id(request)
-    page = await load_page(db, page_id, student_id)
-    if page['status'] != 'ready':
-        raise HTTPException(409, PAGE_CLOSED_TEXT)
-    results = []
-    for seq in accept_all_seqs(json.loads(page['items'] or '[]'))[:ACCEPT_ALL_BATCH]:
-        try:
-            await accept_one(request, db, page_id, student_id, seq)
-            results.append({'seq': seq, 'ok': True, 'detail': None})
-        except HTTPException as error:
-            results.append({'seq': seq, 'ok': False, 'detail': error.detail})
-    view = page_view(await load_page(db, page_id, student_id))
-    return {'results': results, 'remaining': len(accept_all_seqs(view['items'])), 'page': view}
 
 
 @router.post('/api/scan/pages/{page_id}/items/{seq}/withdraw')

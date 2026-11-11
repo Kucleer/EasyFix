@@ -122,10 +122,16 @@ def test_clean_items_primary_none_when_several_points_left():
 
 
 def test_clean_items_right_items_drop_answer_fields():
-    """做对的题清空答案、解析、考点、错因。"""
+    """做对的题清空答案、解析、考点、错因；题干只留前 40 个字（模型给了完整题干也截短）。"""
     [item] = scan_model.clean_items({'questions': [{'parsed_question': 'a', 'verdict': 'right', 'answer': '1',
                                      'knowledge_point_ids': [101]}]}, {101}, set())
     assert item['answer'] == '' and item['knowledge_point_ids'] == [] and item['verdict'] == 'right'
+    long_stem = '一' * 30 + '二' * 30
+    right, wrong = scan_model.clean_items({'questions': [
+        {'parsed_question': long_stem, 'verdict': 'right'},
+        {'parsed_question': long_stem, 'verdict': 'wrong'}]}, set(), set())
+    assert right['parsed_question'] == '一' * 30 + '二' * 10 and len(right['parsed_question']) == 40
+    assert wrong['parsed_question'] == long_stem  # 做错的题保留完整题干
 
 
 def test_clean_items_bad_types_mark_unsure():
@@ -157,13 +163,26 @@ def test_clean_items_garbage_and_limit():
 
 
 def test_clean_fill():
-    """单题补全只返回六个字段，规则同整页清洗。"""
-    fill = scan_model.clean_fill({'answer': '1', 'analysis': 5, 'knowledge_point_ids': [101, 7],
-                                  'primary_knowledge_point_id': 7, 'error_types': ['计算错误', 'x'],
-                                  'difficulty': 0, 'extra': 'ignored'}, {101}, {'计算错误'})
-    assert fill == {'answer': '1', 'analysis': '', 'knowledge_point_ids': [101],
-                    'primary_knowledge_point_id': 101, 'error_types': ['计算错误'], 'difficulty': 3}
-    assert scan_model.clean_fill(None, {101}, set())['knowledge_point_ids'] == []
+    """单题补全返回八个字段（含完整题干和孩子的答案），规则同整页清洗。"""
+    fill = scan_model.clean_fill({'parsed_question': '完整题干', 'wrong_answer': '3', 'answer': '1', 'analysis': 5,
+                                  'knowledge_point_ids': [101, 7], 'primary_knowledge_point_id': 7,
+                                  'error_types': ['计算错误', 'x'], 'difficulty': 0, 'extra': 'ignored'},
+                                 {101}, {'计算错误'})
+    assert fill == {'parsed_question': '完整题干', 'wrong_answer': '3', 'answer': '1', 'analysis': '',
+                    'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101, 'error_types': ['计算错误'],
+                    'difficulty': 3}
+    empty = scan_model.clean_fill(None, {101}, set())
+    assert empty['knowledge_point_ids'] == [] and empty['parsed_question'] == '' and empty['wrong_answer'] == ''
+    assert scan_model.clean_fill({'parsed_question': ['x'], 'difficulty': 5}, set(), set())['parsed_question'] == ''
+
+
+def test_merge_fill():
+    """补全结果合进题目：空的题干、孩子的答案沿用原来的，其余以补全为准。"""
+    item = {**scan_model.blank_item(0), 'question_no': '3', 'parsed_question': '题干开头', 'wrong_answer': '2'}
+    full = scan_model.merge_fill(item, {'parsed_question': '完整的题干', 'wrong_answer': '5', 'answer': '1'})
+    assert full['parsed_question'] == '完整的题干' and full['wrong_answer'] == '5' and full['answer'] == '1'
+    kept = scan_model.merge_fill(item, {'parsed_question': '  ', 'wrong_answer': '', 'answer': '1'})
+    assert kept['parsed_question'] == '题干开头' and kept['wrong_answer'] == '2' and kept['question_no'] == '3'
 
 
 def test_needs_rescan():
@@ -197,31 +216,16 @@ def test_next_step():
     page = lambda **kw: {'status': 'uploaded', 'step_started_at': None, 'ocr_text': None, **kw}
     assert scan_model.next_step(page(), now) == 'read'
     assert scan_model.next_step(page(status='reading', step_started_at=now - 10), now) == 'working'
-    assert scan_model.next_step(page(status='reading', step_started_at=now - 151), now) == 'read'
+    # 卡住判定是 180 秒：正好 180 秒仍算有人在做，超过才允许重做
+    assert scan_model.STALE_SECONDS == 180
+    assert scan_model.next_step(page(status='reading', step_started_at=now - 180), now) == 'working'
+    assert scan_model.next_step(page(status='reading', step_started_at=now - 181), now) == 'read'
     assert scan_model.next_step(page(status='analyzing', ocr_text='t'), now) == 'analyze'
     assert scan_model.next_step(page(status='rescanning', ocr_text='t'), now) == 'rescan'
     assert scan_model.next_step(page(status='failed'), now) == 'read'
     assert scan_model.next_step(page(status='failed', ocr_text='t'), now) == 'analyze'
     assert scan_model.next_step(page(status='ready'), now) is None
     assert scan_model.next_step(page(status='closed'), now) is None
-
-
-def test_accept_all_and_warning():
-    """全部录入只含未处理、做错、没有提示的题。"""
-    items = [
-        {'seq': 0, 'state': 'open', 'verdict': 'wrong', 'flags': [], 'edited': False},
-        {'seq': 1, 'state': 'open', 'verdict': 'wrong', 'flags': ['merged'], 'edited': False},
-        {'seq': 2, 'state': 'open', 'verdict': 'wrong', 'flags': ['merged'], 'edited': True},
-        {'seq': 3, 'state': 'open', 'verdict': 'unsure', 'flags': [], 'edited': False},
-        {'seq': 4, 'state': 'accepted', 'verdict': 'wrong', 'flags': [], 'edited': False},
-        {'seq': 5, 'state': 'dismissed', 'verdict': 'wrong', 'flags': [], 'edited': False},
-        {'seq': 6, 'state': 'open', 'verdict': 'right', 'flags': [], 'edited': False},
-        # 手工加的题：没保存过的不算，保存过的算
-        {'seq': 7, 'state': 'open', 'verdict': 'wrong', 'flags': [], 'edited': False, 'source': 'manual'},
-        {'seq': 8, 'state': 'open', 'verdict': 'wrong', 'flags': [], 'edited': True, 'source': 'manual'},
-    ]
-    assert scan_model.accept_all_seqs(items) == [0, 2, 8]
-    assert scan_model.has_warning(items[1]) is True and scan_model.has_warning(items[2]) is False
 
 
 def test_clean_edit():
@@ -257,13 +261,12 @@ def test_question_payload():
 
 
 def test_changes_library():
-    """只有录入、撤回、全部录入三类路径会改动错题库。"""
+    """只有录入一道、撤回两类路径会改动错题库（全部录入已没有单独的接口）。"""
     assert scan_model.changes_library('POST', '/api/scan/pages/3/items/2/accept') is True
-    assert scan_model.changes_library('POST', '/api/scan/pages/3/accept-all') is True
     assert scan_model.changes_library('POST', '/api/scan/pages/3/items/2/withdraw') is True
     for path in ['/api/scan/pages', '/api/scan/pages/3/advance', '/api/scan/pages/3/items/2/dismiss',
                  '/api/scan/pages/3/items/2/restore', '/api/scan/pages/3/items/2/promote',
-                 '/api/scan/pages/3/items', '/api/scan/pages/3/close', '/api/scan/pages/x/accept-all',
+                 '/api/scan/pages/3/items', '/api/scan/pages/3/close', '/api/scan/pages/3/accept-all',
                  '/api/scan/pages/3/items/2/accept/extra']:
         assert scan_model.changes_library('POST', path) is False
     assert scan_model.changes_library('PUT', '/api/scan/pages/3/items/2') is False
@@ -277,20 +280,150 @@ def test_build_page_prompt():
     for rule in ['不许猜孩子写了什么', '0.5 和 1/2 不算错', '没有作答', '按做错', 'questions']:
         assert rule in prompt, rule
     assert '分段重新读取' not in prompt
-    # 做对的题也要完整题干（补成错题时要用），只是不给答案、解析等
-    assert '完整题干' in prompt and '不超过 40' not in prompt and '题干开头' not in prompt
+    # 做对的题只要题号、题干开头（不超过 40 个字）和判断，不要完整题干（设计 6.2、决定 16）
+    assert '不超过 40 个字' in prompt and '题干开头' in prompt and '不要完整题干' in prompt
+    right_rule = next(line for line in prompt.split('\n') if line.startswith('- verdict 为 right'))
+    assert 'question_no' in right_rule and 'verdict' in right_rule
     both = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', '重扫文字XYZ', catalog, ['计算错误'])
     assert '重扫文字XYZ' in both and '分段重新读取' in both and '对照着用' in both
 
 
 def test_build_fill_prompt():
-    """单题补全提示词只含这一道题和要返回的字段。"""
-    item = {**scan_model.blank_item(2), 'question_no': '5', 'parsed_question': '题干QQQ', 'wrong_answer': '甲'}
+    """单题补全提示词含整页文字（有重扫文字时两份）、这道题的题号和题干开头，以及要返回的八个字段。"""
+    item = {**scan_model.blank_item(2), 'question_no': '5', 'parsed_question': '题干QQQ', 'wrong_answer': ''}
     catalog = [{'id': 1, 'name': '代数', 'points': [{'id': 101, 'name': '方程'}]}]
-    prompt = scan_model.build_fill_prompt('数学', 6, item, catalog, ['计算错误'])
-    assert '题干QQQ' in prompt and '101' in prompt and '计算错误' in prompt
-    for field in ['answer', 'analysis', 'knowledge_point_ids', 'primary_knowledge_point_id', 'error_types', 'difficulty']:
-        assert field in prompt
+    prompt = scan_model.build_fill_prompt('数学', 6, item, '整页文字PAGE', None, catalog, ['计算错误'])
+    assert '整页文字PAGE' in prompt and '题号：5' in prompt and '题干QQQ' in prompt
+    assert '101' in prompt and '计算错误' in prompt and '分段重新读取' not in prompt
+    for field in ['parsed_question', 'wrong_answer', 'answer', 'analysis', 'knowledge_point_ids',
+                  'primary_knowledge_point_id', 'error_types', 'difficulty']:
+        assert field in prompt, field
+    both = scan_model.build_fill_prompt('数学', 6, item, '整页文字PAGE', '重扫文字XYZ', catalog, ['计算错误'])
+    assert '整页文字PAGE' in both and '重扫文字XYZ' in both
+
+
+# ---------------------------------------------------------------- 识别顺序 run_page（后端和回归脚本共用）
+
+
+def read_ok(text, elapsed_ms=3000):
+    """一次成功的读图结果（interpret_ocr 格式）。"""
+    return {'kind': 'ok', 'text': text, 'elapsed_ms': elapsed_ms, 'user_text': '', 'detail': ''}
+
+
+def read_failed(detail='主机出错'):
+    """一次失败的读图结果（interpret_ocr 格式）。"""
+    return {'kind': 'failed', 'text': '', 'elapsed_ms': None, 'user_text': '读图没成功', 'detail': detail}
+
+
+class SequenceFakes:
+    """run_page 用的假读图和假整理：按顺序给出预设结果（异常就抛出），并记录调用。"""
+
+    def __init__(self, normal=None, enhanced=None, analyses=()):
+        self.reads = {'normal': normal or read_ok('第一遍'), 'enhanced': enhanced or read_ok('重扫', 8000)}
+        self.analyses = list(analyses)
+        self.calls = []
+
+    async def read_text(self, mode):
+        """记录一次读图并返回预设结果。"""
+        self.calls.append(('read', mode))
+        return self.reads[mode]
+
+    async def analyze(self, ocr_text, enhanced_text):
+        """记录一次整理（带两份文字）并返回或抛出预设结果。"""
+        self.calls.append(('analyze', ocr_text, enhanced_text))
+        reply = self.analyses.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+FLAGGED = [{'seq': 0, 'verdict': 'wrong', 'flags': ['merged']}]
+CLEAN = [{'seq': 0, 'verdict': 'wrong', 'flags': []}]
+
+
+def test_run_page_without_rescan():
+    """没有读图异常：读一次、整理一次就 ready。"""
+    fakes = SequenceFakes(analyses=[CLEAN])
+    result = run(scan_model.run_page(fakes.read_text, fakes.analyze, True))
+    assert fakes.calls == [('read', 'normal'), ('analyze', '第一遍', None)]
+    assert result['status'] == 'ready' and result['items'] == CLEAN and result['error'] is None
+    assert result['ocr_text'] == '第一遍' and result['ocr_text_enhanced'] is None and result['rescan_used'] == 0
+    assert result['timings']['host_read_ms'] == 3000 and 'read_ms' in result['timings']
+    assert 'analyze_ms' in result['timings'] and 'rescan_ms' not in result['timings']
+
+
+def test_run_page_with_rescan():
+    """有读图异常：重扫一次，两份文字一起再整理；第二次仍有异常也不再重扫。开关关掉时不重扫。"""
+    fakes = SequenceFakes(analyses=[FLAGGED, FLAGGED])
+    result = run(scan_model.run_page(fakes.read_text, fakes.analyze, True))
+    assert fakes.calls == [('read', 'normal'), ('analyze', '第一遍', None), ('read', 'enhanced'),
+                           ('analyze', '第一遍', '重扫')]
+    assert result['status'] == 'ready' and result['rescan_used'] == 1 and result['ocr_text_enhanced'] == '重扫'
+    for key in ('read_ms', 'analyze_ms', 'rescan_ms', 'analyze2_ms', 'host_read_ms', 'host_rescan_ms'):
+        assert key in result['timings'], key
+    off = SequenceFakes(analyses=[FLAGGED])
+    result = run(scan_model.run_page(off.read_text, off.analyze, False))
+    assert off.calls == [('read', 'normal'), ('analyze', '第一遍', None)] and result['rescan_used'] == 0
+
+
+def test_run_page_rescan_read_fails():
+    """重扫读图失败：保留第一次的结果，直接 ready，主机细节记进 timings。"""
+    fakes = SequenceFakes(enhanced=read_failed('切条失败'), analyses=[FLAGGED])
+    result = run(scan_model.run_page(fakes.read_text, fakes.analyze, True))
+    assert fakes.calls == [('read', 'normal'), ('analyze', '第一遍', None), ('read', 'enhanced')]
+    assert result['status'] == 'ready' and result['items'] == FLAGGED and result['rescan_used'] == 1
+    assert result['timings']['host_detail'] == '切条失败' and result['ocr_text_enhanced'] is None
+
+
+def test_run_page_second_analysis_fails():
+    """重扫后的第二次整理失败：保留第一次的结果，失败原因记进 timings。"""
+    fakes = SequenceFakes(analyses=[FLAGGED, HTTPException(502, '模型没有返回有效的结构化内容')])
+    result = run(scan_model.run_page(fakes.read_text, fakes.analyze, True))
+    assert result['status'] == 'ready' and result['items'] == FLAGGED and result['error'] is None
+    assert result['timings']['analyze2_error'] == '模型没有返回有效的结构化内容'
+    assert result['ocr_text_enhanced'] == '重扫'
+
+
+def test_run_page_first_read_fails():
+    """第一次读图失败：页面 failed，不调模型，用户看"读图没成功"，主机细节记进 timings。"""
+    fakes = SequenceFakes(normal=read_failed('Ollama 连不上'))
+    result = run(scan_model.run_page(fakes.read_text, fakes.analyze, True))
+    assert fakes.calls == [('read', 'normal')]
+    assert result['status'] == 'failed' and result['error'] == '读图没成功' and result['items'] == []
+    assert result['timings']['host_detail'] == 'Ollama 连不上' and result['ocr_text'] is None
+
+
+def test_run_page_model_fails():
+    """第一次整理失败：页面 failed，读图文字保留；带提示文字的用提示文字，运行时异常给统一提示并记类型名。"""
+    fakes = SequenceFakes(analyses=[HTTPException(503, '请先配置文本模型')])
+    result = run(scan_model.run_page(fakes.read_text, fakes.analyze, True))
+    assert result['status'] == 'failed' and result['error'] == '请先配置文本模型' and result['ocr_text'] == '第一遍'
+    assert 'model_error_type' not in result['timings'] and 'analyze_ms' in result['timings']
+    crashing = SequenceFakes(analyses=[ConnectionError('reset')])
+    result = run(scan_model.run_page(crashing.read_text, crashing.analyze, True))
+    assert result['status'] == 'failed' and result['error'] == scan_model.MODEL_FAILED_TEXT
+    assert result['timings']['model_error_type'] == 'ConnectionError'
+
+
+def test_read_with_retries():
+    """主机忙时等 2 秒重试，最多 3 次；仍忙按失败处理。"""
+    busy = (503, {'ok': False, 'contract': 1, 'code': 'busy'})
+    replies = [busy, busy, (200, {'ok': True, 'contract': 1, 'text': '文字', 'elapsed_ms': 5})]
+    waits = []
+
+    async def fake_sleep(seconds):
+        """只记录等待时长。"""
+        waits.append(seconds)
+
+    async def fetch():
+        """按顺序返回预设结果。"""
+        return replies.pop(0) if len(replies) > 1 else replies[0]
+
+    assert run(scan_model.read_with_retries(fetch, fake_sleep))['kind'] == 'ok' and waits == [2, 2]
+    replies[:] = [busy]
+    waits.clear()
+    result = run(scan_model.read_with_retries(fetch, fake_sleep))
+    assert result['kind'] == 'failed' and waits == [2, 2, 2]
 
 
 # ---------------------------------------------------------------- 任务 3：建页与分步推进
@@ -407,11 +540,13 @@ class FakeModel:
     def __init__(self, *replies):
         self.replies = list(replies) or [model_result()]
         self.prompts = []
+        self.options = []  # 每次调用传的 max_tokens、temperature
 
-    async def __call__(self, request, prompt):
-        """记录提示词并返回（或抛出）预设结果。"""
+    async def __call__(self, request, prompt, max_tokens=6000, temperature=0.6):
+        """记录提示词和参数，并返回（或抛出）预设结果。"""
         reply = self.replies[min(len(self.prompts), len(self.replies) - 1)]
         self.prompts.append(prompt)
+        self.options.append({'max_tokens': max_tokens, 'temperature': temperature})
         if isinstance(reply, Exception):
             raise reply
         return reply
@@ -526,6 +661,8 @@ def test_advance_happy_path_without_rescan():
     assert 'read_ms' in page['timings'] and 'analyze_ms' in page['timings']
     assert page['timings']['host_read_ms'] == 4000 and 'ocr_text' not in page and page['error'] is None
     assert host.calls == {'normal': 1, 'enhanced': 0} and len(model.prompts) == 1
+    # 整理用低随机度、较大的返回长度（设计 6.2）
+    assert model.options == [{'max_tokens': 8000, 'temperature': 0.2}]
     # 提示词里有读图文字、考点清单和错因清单
     assert FIRST_TEXT in model.prompts[0] and '101' in model.prompts[0] and '计算错误' in model.prompts[0]
     row = page_row(connection, page_id)
@@ -700,6 +837,19 @@ def test_model_failure_retry_does_not_reread():
         page = advance(db, page_id)['page']
     assert page['status'] == 'ready' and page['error'] is None and len(page['items']) == 3
     assert host.calls['normal'] == 1 and len(model.prompts) == 2
+    assert 'model_error_type' not in failed['timings']  # 带提示文字的失败不记类型名
+
+
+def test_model_runtime_error_records_type():
+    """模型调用抛出运行时异常（如网络超时）：提示统一的模型失败文字，异常类型名记进 timings。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with scan_patched(FakeHost(), FakeModel(TimeoutError('slow'))):
+        page_id = new_page(db)['id']
+        advance(db, page_id)
+        page = advance(db, page_id)['page']
+    assert page['status'] == 'failed' and page['error'] == scan.MODEL_FAILED_TEXT
+    assert page['timings']['model_error_type'] == 'TimeoutError' and 'slow' not in json.dumps(page['timings'])
 
 
 def test_read_failure_retry_rereads():
@@ -725,7 +875,7 @@ def test_missing_image_fails_cleanly():
 
 
 def test_concurrent_advance_only_one_runs():
-    """同一页同一时刻只跑一个推进：正在做的返回 busy；卡住超过 150 秒可以重做；并发只有一个认领成功。"""
+    """同一页同一时刻只跑一个推进：正在做的返回 busy；卡住超过 180 秒可以重做；并发只有一个认领成功。"""
     connection = build_scan_database()
     db = SQLiteDB(connection)
     host = FakeHost()
@@ -735,7 +885,7 @@ def test_concurrent_advance_only_one_runs():
         connection.commit()
         result = advance(db, page_id)
         assert result['busy'] is True and result['page']['status'] == 'reading' and host.calls['normal'] == 0
-        connection.execute('UPDATE scan_page SET step_started_at=? WHERE id=?', (NOW - 151, page_id))
+        connection.execute('UPDATE scan_page SET step_started_at=? WHERE id=?', (NOW - 181, page_id))
         connection.commit()
         result = advance(db, page_id)
         assert result['busy'] is False and result['page']['status'] == 'analyzing' and host.calls['normal'] == 1
@@ -938,7 +1088,7 @@ def test_accept_rejected_by_save_keeps_item_open():
 
 
 def test_accept_rejects_empty_question():
-    """题干为空（或只有空白）的题不能录入：422"题干不能为空"，题库不变，草稿仍 open；全部录入也跳过没保存过的手工题。"""
+    """题干为空（或只有空白）的题不能录入：422"题干不能为空"，题库不变，草稿仍 open。"""
     connection = build_scan_database()
     db = SQLiteDB(connection)
     before, top = live_questions(connection), max_question_id(connection)
@@ -951,50 +1101,8 @@ def test_accept_rejects_empty_question():
                 assert error.status_code == 422 and error.detail == '题干不能为空'
             else:
                 raise AssertionError('空题干应被拒绝')
-        result = run(scan.accept_all(page_id, PageRequest(db)))
-    # 第 0 道是模型来源，会被全部录入选中但被拒；第 1 道是没保存过的手工题，不在候选里
-    assert [(entry['seq'], entry['ok'], entry['detail']) for entry in result['results']] ==         [(0, False, '题干不能为空')]
     assert live_questions(connection) == before and max_question_id(connection) == top
     assert [item['state'] for item in stored_items(connection, page_id)] == ['open', 'open']
-
-
-def test_accept_all_skips_warning_and_unsure():
-    """全部录入只录"做错了、没提示（或有提示但改过）、未处理"的题，其余不动。"""
-    connection = build_scan_database()
-    db = SQLiteDB(connection)
-    items = [
-        draft_item(0),
-        draft_item(1, flags=['broken_formula']),
-        draft_item(2, flags=['merged'], edited=True),
-        draft_item(3, verdict='unsure'),
-        draft_item(4, verdict='right'),
-        draft_item(5, state='dismissed'),
-    ]
-    with items_patched():
-        page_id = ready_page(connection, db, items)
-        result = run(scan.accept_all(page_id, PageRequest(db)))
-    assert [(entry['seq'], entry['ok']) for entry in result['results']] == [(0, True), (2, True)]
-    states = [item['state'] for item in result['page']['items']]
-    assert states == ['accepted', 'open', 'accepted', 'open', 'open', 'dismissed']
-    assert result['remaining'] == 0
-
-
-def test_accept_all_partial_failure():
-    """两道候选，第二道被保存逻辑拒绝：第一道成功入库，第二道带说明。"""
-    connection = build_scan_database()
-    db = SQLiteDB(connection)
-    before = live_questions(connection)
-    items = [draft_item(0), draft_item(1, knowledge_point_ids=[101, 102], primary_knowledge_point_id=None)]
-    with items_patched():
-        page_id = ready_page(connection, db, items)
-        result = run(scan.accept_all(page_id, PageRequest(db)))
-    first, second = result['results']
-    assert first == {'seq': 0, 'ok': True, 'detail': None}
-    assert second['seq'] == 1 and second['ok'] is False and second['detail']
-    assert live_questions(connection) == before + 1
-    assert [item['state'] for item in result['page']['items']] == ['accepted', 'open']
-    # 失败的那道仍是 open、仍符合条件，计入 remaining
-    assert result['remaining'] == 1
 
 
 class CountingDB(SQLiteDB):
@@ -1025,33 +1133,6 @@ class CountingDB(SQLiteDB):
         self.calls += 1
         await asyncio.sleep(0)
         return await super().batch(statements)
-
-
-def test_accept_all_batches_within_query_budget():
-    """全部录入一次最多录 ACCEPT_ALL_BATCH 道，一次请求的数据库调用（含公式校验）不超过 40；再调一次录完剩下的。"""
-    connection = build_scan_database()
-    db = CountingDB(connection)
-    math_calls = []
-
-    async def counting_math(request, texts):
-        """公式校验替身：只计数（生产环境里它是一次子请求）。"""
-        math_calls.append(1)
-
-    total = scan_model.ACCEPT_ALL_BATCH + 2
-    with items_patched(math=counting_math):
-        page_id = ready_page(connection, db, [draft_item(seq) for seq in range(total)])
-        db.calls, math_calls[:] = 0, []
-        first = run(scan.accept_all(page_id, PageRequest(db)))
-        first_cost = db.calls + len(math_calls)
-        db.calls, math_calls[:] = 0, []
-        second = run(scan.accept_all(page_id, PageRequest(db)))
-        second_cost = db.calls + len(math_calls)
-    assert [entry['seq'] for entry in first['results']] == list(range(scan_model.ACCEPT_ALL_BATCH))
-    assert all(entry['ok'] for entry in first['results'] + second['results'])
-    assert first['remaining'] == 2 and first_cost <= 40, first_cost
-    assert [entry['seq'] for entry in second['results']] == [total - 2, total - 1]
-    assert second['remaining'] == 0 and second_cost <= 40, second_cost
-    assert all(item['state'] == 'accepted' for item in second['page']['items'])
 
 
 def test_concurrent_withdraw_acts_once():
@@ -1178,24 +1259,33 @@ def test_edit_dismiss_restore_manual():
 
 
 def test_promote_fills_from_model_and_survives_model_failure():
-    """补成错题：模型补全字段并清洗；模型失败时移动保留、字段为空；做错的题不能补。"""
+    """补成错题：模型拿整页文字补全完整题干、孩子的答案等并清洗；模型失败时移动保留、字段为空；做错的题不能补。"""
     connection = build_scan_database()
     db = SQLiteDB(connection)
     right = scan_model.blank_item(0)
-    right.update(source='model', verdict='right', question_no='3', parsed_question='计算 1+1', wrong_answer='2',
-                 reason='对')
-    fill = {'answer': '2', 'analysis': '一加一', 'knowledge_point_ids': [101, 999], 'primary_knowledge_point_id': 999,
+    # 模型判对的题只有题号、题干开头和判断
+    right.update(source='model', verdict='right', question_no='3', parsed_question='计算 1+1')
+    fill = {'parsed_question': '计算 1+1 的结果，并写出过程', 'wrong_answer': '3', 'answer': '2', 'analysis': '一加一',
+            'knowledge_point_ids': [101, 999], 'primary_knowledge_point_id': 999,
             'error_types': ['计算错误', '乱写'], 'difficulty': 1}
     model = FakeModel(fill)
     with items_patched(model=model):
         page_id = ready_page(connection, db, [right, draft_item(1)])
+        connection.execute('UPDATE scan_page SET ocr_text=?,ocr_text_enhanced=? WHERE id=?',
+                           (FIRST_TEXT, ENHANCED_TEXT, page_id))
+        connection.commit()
         # 没补成错题之前不能录入
         expect_http(409, lambda: item_call(scan.accept_item, page_id, 0, db))
         result = item_call(scan.promote_item, page_id, 0, db)
         expect_http(409, lambda: item_call(scan.promote_item, page_id, 1, db))
         expect_http(409, lambda: item_call(scan.promote_item, page_id, 0, db))
     item = result['page']['items'][0]
-    assert result['fill_error'] is None and len(model.prompts) == 1 and '计算 1+1' in model.prompts[0]
+    assert result['fill_error'] is None and len(model.prompts) == 1
+    # 提示词里有整页文字（两份）、题号和题干开头；用整页识别的模型参数
+    prompt = model.prompts[0]
+    assert FIRST_TEXT in prompt and ENHANCED_TEXT in prompt and '题号：3' in prompt and '计算 1+1' in prompt
+    assert model.options == [{'max_tokens': 8000, 'temperature': 0.2}]
+    assert item['parsed_question'] == '计算 1+1 的结果，并写出过程' and item['wrong_answer'] == '3'
     assert item['verdict'] == 'wrong' and item['source'] == 'promoted' and item['reason'] == '家长补成错题'
     assert item['answer'] == '2' and item['analysis'] == '一加一' and item['difficulty'] == 1
     assert item['knowledge_point_ids'] == [101] and item['primary_knowledge_point_id'] == 101
@@ -1207,12 +1297,15 @@ def test_promote_fills_from_model_and_survives_model_failure():
     item = result['page']['items'][0]
     assert result['fill_error'] == '文本模型余额不足' and len(failing.prompts) == 1
     assert item['verdict'] == 'wrong' and item['source'] == 'promoted' and item['answer'] == ''
-    assert item['knowledge_point_ids'] == []
+    assert item['knowledge_point_ids'] == [] and item['parsed_question'] == '计算 1+1'
+    assert 'model_error_type' not in result['page']['timings']
     crashing = FakeModel(RuntimeError('timeout'))
     with items_patched(model=crashing):
         third_id = ready_page(connection, db, [dict(right)])
         result = item_call(scan.promote_item, third_id, 0, db)
     assert result['fill_error'] == scan.MODEL_FAILED_TEXT and result['page']['items'][0]['source'] == 'promoted'
+    # 运行时异常只把类型名记进 timings，不记异常内容
+    assert result['page']['timings'] == {'model_error_type': 'RuntimeError'}
 
 
 def test_closed_page_rejects_item_operations():
@@ -1232,7 +1325,6 @@ def test_closed_page_rejects_item_operations():
             expect_http(409, lambda: item_call(scan.dismiss_item, page_id, 0, db))
             expect_http(409, lambda: item_call(scan.restore_item, page_id, 0, db))
             expect_http(409, lambda: item_call(scan.promote_item, page_id, 1, db))
-            expect_http(409, lambda: run(scan.accept_all(page_id, PageRequest(db))))
             expect_http(409, lambda: run(scan.add_item(page_id, PageRequest(db))))
         assert page_row(connection, page_id)['items'] == items_before
     assert live_questions(connection) == before
@@ -1317,7 +1409,8 @@ def test_guard_clears_cache_only_when_scan_changes_library():
     assert count_invalidations('PUT', '/api/scan/pages/1/items/0') == 0
     assert count_invalidations('POST', '/api/scan/pages/1/items/0/accept') == 1
     assert count_invalidations('POST', '/api/scan/pages/1/items/0/withdraw') == 1
-    assert count_invalidations('POST', '/api/scan/pages/1/accept-all') == 1
+    # 全部录入已经没有单独的接口（页面逐道调录入一道），旧路径也不清缓存
+    assert count_invalidations('POST', '/api/scan/pages/1/accept-all') == 0
     assert count_invalidations('POST', '/api/questions') == 1
 
 
@@ -1359,7 +1452,7 @@ def test_regression_script_runs_with_fakes_and_refuses_repo_paths():
             assert all(row['状态'] == 'ready' for row in rows), rows
             assert sorted(path.name for path in out.glob('*.json')) == ['a.png.json', 'b.png.json']
             saved_page = json.loads((out / 'a.png.json').read_text(encoding='utf-8'))
-            assert saved_page['ocr_text'] and len(saved_page['items']) == 3
+            assert saved_page['ocr_text'] and len(saved_page['items']) == 6
             assert (out / '对照表.md').exists()
             # 一张坏图（空文件）不拖垮整批：记 error 行，汇总和对照表照常写出
             (images / 'c_bad.png').write_bytes(b'')
@@ -1400,12 +1493,19 @@ TESTS = [
     test_needs_rescan,
     test_interpret_ocr,
     test_next_step,
-    test_accept_all_and_warning,
     test_clean_edit,
     test_question_payload,
     test_changes_library,
     test_build_page_prompt,
     test_build_fill_prompt,
+    test_merge_fill,
+    test_run_page_without_rescan,
+    test_run_page_with_rescan,
+    test_run_page_rescan_read_fails,
+    test_run_page_second_analysis_fails,
+    test_run_page_first_read_fails,
+    test_run_page_model_fails,
+    test_read_with_retries,
     test_migration_0014_only_adds_scan_page,
     test_create_page_validates_image_and_subject,
     test_advance_happy_path_without_rescan,
@@ -1417,6 +1517,7 @@ TESTS = [
     test_busy_host_retries_then_fails,
     test_host_garbage_and_contract_mismatch,
     test_model_failure_retry_does_not_reread,
+    test_model_runtime_error_records_type,
     test_read_failure_retry_rereads,
     test_missing_image_fails_cleanly,
     test_concurrent_advance_only_one_runs,
@@ -1427,8 +1528,6 @@ TESTS = [
     test_accept_race_keeps_one_question,
     test_accept_rejected_by_save_keeps_item_open,
     test_accept_rejects_empty_question,
-    test_accept_all_skips_warning_and_unsure,
-    test_accept_all_partial_failure,
     test_withdraw_soft_deletes,
     test_edit_dismiss_restore_manual,
     test_promote_fills_from_model_and_survives_model_failure,
@@ -1436,7 +1535,6 @@ TESTS = [
     test_page_closed_during_accept_drops_question,
     test_close_leaves_open_items_out_of_library,
     test_guard_clears_cache_only_when_scan_changes_library,
-    test_accept_all_batches_within_query_budget,
     test_concurrent_withdraw_acts_once,
     test_withdraw_on_page_closed_midway_is_409,
     test_stale_withdraw_keeps_new_question_linked,

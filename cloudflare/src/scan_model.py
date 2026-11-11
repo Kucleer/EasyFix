@@ -1,6 +1,13 @@
-"""整页识别录入的纯逻辑（不碰数据库和网络）。"""
+"""整页识别录入的纯逻辑（不碰数据库和网络）。
+
+识别流程（读图 → 整理 → 需要时重扫一次 → 再整理）的先后顺序和判断也写在这里：
+后端每个请求只做其中一步（step_read / step_analyze / step_rescan），
+回归脚本用 run_page 一口气走完；两边用的是同一套步骤函数，读图和调模型由外面传进来。
+本模块只用标准库，主机上的回归脚本可以直接导入。
+"""
 
 import re
+import time
 
 CONTRACT_VERSION = 1
 HEALTH_TIMEOUT_SECONDS = 3
@@ -16,16 +23,24 @@ FLAGS = {
     'figure_needed': '这题有图，请对照原图补条件',
 }
 ITEM_STATES = ('open', 'accepted', 'dismissed')
-STALE_SECONDS = 150          # 一步超过这么久没结束，视为卡住，允许重做
-HOST_TIMEOUT_SECONDS = {'normal': 70, 'enhanced': 130}
+# 几个时限的关系（设计第 7 节）：主机单次最多 110 秒 < 后端调主机 120 秒、调模型 120 秒
+# < 页面等一步 150 秒 < 判定卡住 180 秒，正常的慢步骤不会被误判成卡住
+STALE_SECONDS = 180          # 一步超过这么久没结束，视为卡住，允许重做
+HOST_TIMEOUT_SECONDS = {'normal': 120, 'enhanced': 120}
 BUSY_RETRIES = 3
 BUSY_WAIT_SECONDS = 2
 WRONG_EVIDENCE = '页面识别，家长确认'
 MAX_ITEMS = 60
-# "全部录入"一次请求最多录几道。免费计划一次请求最多 50 次 D1 查询：
-# 实测录一道约 10 次查询加 1 次公式校验，再加读页两次，3 道约 35 次，留出余量
-ACCEPT_ALL_BATCH = 3
 DEFAULT_DIFFICULTY = 3
+# 模型判对的题只留题干开头，最多这么多个字（设计 6.2）
+RIGHT_STEM_CHARS = 40
+# 整页整理和单题补全调模型的参数：随机度低一些，返回长度上限大一些（设计 6.2）
+SCAN_MAX_TOKENS = 8000
+SCAN_TEMPERATURE = 0.2
+MODEL_FAILED_TEXT = '文本模型请求失败，请检查模型配置和余额'
+MISSING_IMAGE_TEXT = '照片找不到了'
+# run_page 最多走几步（正常最多 5 步），防止意外的死循环
+MAX_STEPS = 8
 INCOMPLETE_REASON = '模型返回的内容不完整，请对照原图'
 NO_VERDICT_REASON = '模型没有给出明确判断，请对照原图'
 
@@ -36,7 +51,7 @@ EDIT_TEXT_FIELDS = ('question_no', 'parsed_question', 'wrong_answer', 'answer', 
 FIELD_LABELS = {'question_no': '题号', 'parsed_question': '题干', 'wrong_answer': '孩子的答案',
                 'answer': '正确答案', 'analysis': '解析'}
 
-_CHANGES_LIBRARY_PATH = re.compile(r'/api/scan/pages/\d+/(items/\d+/(accept|withdraw)|accept-all)')
+_CHANGES_LIBRARY_PATH = re.compile(r'/api/scan/pages/\d+/items/\d+/(accept|withdraw)')
 
 
 class ScanError(ValueError):
@@ -85,17 +100,9 @@ def _knowledge_rules(catalog, error_type_names):
     )
 
 
-def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, catalog, error_type_names):
-    """拼整页整理的提示词：要求模型逐题判断对错并返回 {"questions": [...]}。"""
-    parts = [
-        '你是一位中小学老师，要把一张作业或试卷照片读出来的文字整理成逐题的结构化结果。',
-        _scope_line(subject_name, grade),
-        '',
-        '下面是整页读图得到的文字（OCR）：',
-        '<<<OCR',
-        ocr_text or '',
-        'OCR>>>',
-    ]
+def _ocr_block(ocr_text, enhanced_text):
+    """整页读图文字的提示词片段（有重扫文字时两份都给），整页整理和单题补全共用。"""
+    parts = ['下面是整页读图得到的文字（OCR）：', '<<<OCR', ocr_text or '', 'OCR>>>']
     if enhanced_text:
         parts += [
             '',
@@ -105,11 +112,21 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
             enhanced_text,
             'OCR_ENHANCED>>>',
         ]
-    parts += [
+    return parts
+
+
+def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, catalog, error_type_names):
+    """拼整页整理的提示词：要求模型逐题判断对错并返回 {"questions": [...]}。"""
+    parts = [
+        '你是一位中小学老师，要把一张作业或试卷照片读出来的文字整理成逐题的结构化结果。',
+        _scope_line(subject_name, grade),
+        '',
+        *_ocr_block(ocr_text, enhanced_text),
         '',
         '请把这一页的每一道题都列出来，按卷面顺序，只返回 JSON：{"questions": [ ... ]}。每道题的字段：',
         '- question_no：卷面上印的题号，照原样。',
-        '- parsed_question：完整题干。数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。',
+        '- parsed_question：完整题干（判为 right 的题例外，见下）。'
+        '数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。',
         '- wrong_answer：孩子写的答案，读不出就留空字符串。',
         '- verdict：wrong（做错了）、right（做对了）或 unsure（拿不准）。',
         '- reason：一句话判断理由，例如"孩子写 x²+3，应为 x³−3"。',
@@ -120,8 +137,9 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         'figure_needed（题目依赖图形或表格，但文字里没有相应条件）。',
         '- verdict 为 wrong 或 unsure 的题，还要给：answer（正确答案）、analysis（解析）、'
         'knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
-        '- verdict 为 right 的题只给 question_no、parsed_question（完整题干）、'
-        'wrong_answer、verdict、reason，不用给答案、解析、考点、错因和难度。',
+        '- verdict 为 right 的题只给三个字段：question_no、parsed_question（只写题干开头，不超过 40 个字，'
+        '不要完整题干）、verdict。不要给孩子的答案、判断理由、答案、解析、考点、错因和难度，'
+        '这样整页返回得快，也不会超出长度。',
         '',
         '判断对错的规则：先自己把每道题做一遍，再和孩子的作答比对。',
         '1. 孩子的作答读得出、和你算的不一样：wrong。',
@@ -138,18 +156,26 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
     return '\n'.join(parts)
 
 
-def build_fill_prompt(subject_name, grade, item, catalog, error_type_names):
-    """拼单题补全的提示词：只针对这一道，返回答案、解析、考点、错因、难度。"""
+def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalog, error_type_names):
+    """拼单题补全的提示词：给整页文字和这道题的题号、题干开头，只补全这一道（设计 8.4）。"""
     parts = [
-        '你是一位中小学老师。下面这道题是从试卷照片里读出来的，请只针对这一道题补全信息。',
+        '你是一位中小学老师。下面是一张作业或试卷照片读出来的整页文字。'
+        '家长认为其中有一道题孩子做错了，请在整页文字里找到这道题，只补全这一道题的信息。',
         _scope_line(subject_name, grade),
         '',
-        '题号：%s' % (item.get('question_no') or ''),
-        '题干：%s' % (item.get('parsed_question') or ''),
-        '孩子的答案：%s' % (item.get('wrong_answer') or '（读不出）'),
+        *_ocr_block(ocr_text, enhanced_text),
         '',
-        '只返回 JSON，字段：answer（正确答案）、analysis（解析）、knowledge_point_ids、'
-        'primary_knowledge_point_id、error_types、difficulty。数学公式用 LaTeX：行内 \\(...\\)，独立 \\[...\\]。',
+        '要补全的题：',
+        '题号：%s' % (item.get('question_no') or '（没有题号）'),
+        '题干开头：%s' % (item.get('parsed_question') or '（没有）'),
+        '',
+        '只返回这一道题的 JSON（一个对象），字段：',
+        '- parsed_question：完整题干。',
+        '- wrong_answer：孩子写的答案，读不出就留空字符串，不许猜。',
+        '- answer：正确答案。',
+        '- analysis：解析。',
+        '- knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
+        '数学公式用 LaTeX：行内 \\(...\\)，独立 \\[...\\]。',
         '',
         _knowledge_rules(catalog, error_type_names),
         '不要输出 JSON 以外的任何内容。',
@@ -245,8 +271,10 @@ def _clean_item(raw, seq, catalog_ids, error_type_names):
     elif item['verdict'] == 'unsure' and verdict not in VERDICTS and not item['reason']:
         item['reason'] = NO_VERDICT_REASON
     if item['verdict'] == 'right':
-        # 做对的题不带答案、解析、考点、错因，难度取默认值
+        # 做对的题不带答案、解析、考点、错因，难度取默认值；
+        # 题干只留开头（模型没照做、给了完整题干时这里截短），补成错题时再补全
         item['answer'] = item['analysis'] = ''
+        item['parsed_question'] = item['parsed_question'][:RIGHT_STEM_CHARS]
         return item
     item['knowledge_point_ids'], item['primary_knowledge_point_id'] = _clean_knowledge(raw, catalog_ids)
     item['error_types'] = _clean_error_types(raw.get('error_types'), error_type_names)
@@ -269,18 +297,35 @@ def clean_items(raw, catalog_ids, error_type_names):
     return items
 
 
+def _text_or_empty(raw, field):
+    """取一个文字字段：是字符串就原样返回，否则（缺失、类型不对）返回空串。"""
+    value = raw.get(field)
+    return value if isinstance(value, str) else ''
+
+
 def clean_fill(raw, catalog_ids, error_type_names):
-    """清洗单题补全的结果，只返回六个字段，规则同 clean_items。"""
+    """清洗单题补全的结果，返回八个字段（完整题干、孩子的答案、答案、解析、考点、主考点、错因、难度），规则同 clean_items。"""
     raw = raw if isinstance(raw, dict) else {}
     ids, primary = _clean_knowledge(raw, catalog_ids)
     return {
-        'answer': raw['answer'] if isinstance(raw.get('answer'), str) else '',
-        'analysis': raw['analysis'] if isinstance(raw.get('analysis'), str) else '',
+        'parsed_question': _text_or_empty(raw, 'parsed_question'),
+        'wrong_answer': _text_or_empty(raw, 'wrong_answer'),
+        'answer': _text_or_empty(raw, 'answer'),
+        'analysis': _text_or_empty(raw, 'analysis'),
         'knowledge_point_ids': ids,
         'primary_knowledge_point_id': primary,
         'error_types': _clean_error_types(raw.get('error_types'), error_type_names),
         'difficulty': _clean_difficulty(raw.get('difficulty')),
     }
+
+
+def merge_fill(item, fill):
+    """把补全结果合进这道题：模型没给（空的）题干、孩子的答案沿用原来的，其余字段以补全结果为准。"""
+    merged = dict(item, **fill)
+    for field in ('parsed_question', 'wrong_answer'):
+        if not fill.get(field, '').strip():
+            merged[field] = item.get(field, '')
+    return merged
 
 
 # ---------------------------------------------------------------- 流程判断
@@ -332,17 +377,146 @@ def next_step(page, now_seconds):
     return 'analyze'
 
 
-def has_warning(item):
-    """带读图异常标记且没被人改过，就算有提示。"""
-    return bool(item.get('flags')) and not item.get('edited')
+def failed_read(user_text, detail=''):
+    """一个"读图失败"的结果，格式同 interpret_ocr（照片找不到等不经过主机的失败用）。"""
+    return {'kind': 'failed', 'text': '', 'elapsed_ms': None, 'user_text': user_text, 'detail': detail}
 
 
-def accept_all_seqs(items):
-    """"全部录入"包含的题：未处理、判断为做错、没有提示的；手工加的题要保存过（改过）才算。"""
-    return [item['seq'] for item in items
-            if item.get('state') == 'open' and item.get('verdict') == 'wrong' and not has_warning(item)
-            # 手工加的空白题没填过内容，不能跟着"全部录入"存成空题
-            and not (item.get('source') == 'manual' and not item.get('edited'))]
+async def read_with_retries(fetch, sleep):
+    """调一次主机读图：fetch() 返回 (状态码, JSON)；主机忙时等一会儿重试，重试完仍忙按失败处理。
+
+    返回 interpret_ocr 的结果。后端和回归脚本共用，sleep 由调用方传入（测试时可换成假的）。
+    """
+    for attempt in range(BUSY_RETRIES + 1):
+        status, body = await fetch()
+        result = interpret_ocr(status, body)
+        if result['kind'] != 'busy':
+            return result
+        if attempt < BUSY_RETRIES:
+            await sleep(BUSY_WAIT_SECONDS)
+    return dict(result, kind='failed', detail=result['detail'] or 'busy')
+
+
+def describe_model_error(error):
+    """模型调用失败时给用户看的一句话，以及排查用的异常类型名。
+
+    带 detail 文字的（接口层的 HTTPException、回归脚本的模型错误）用它的文字，类型名返回 None；
+    其他运行时异常（网络超时等）统一给一句模型失败的提示，并返回异常类型名记进 timings。
+    """
+    detail = getattr(error, 'detail', None)
+    if isinstance(detail, str) and detail:
+        return detail, None
+    return MODEL_FAILED_TEXT, type(error).__name__
+
+
+def _elapsed_ms(started):
+    """从 started（time.monotonic() 的值）到现在过了多少毫秒。"""
+    return int((time.monotonic() - started) * 1000)
+
+
+# ---------------------------------------------------------------- 识别的三个步骤（后端和回归脚本共用）
+#
+# 每个步骤：调外面传进来的读图 / 整理函数，把用时和排查信息写进 timings（原地修改），
+# 返回这一步结束后要写回这一页的字段（至少有 status）。步骤本身不碰数据库。
+
+
+def after_read(result):
+    """读图之后：成功转 analyzing 并存下文字；失败转 failed，用户看提示文字。"""
+    if result['kind'] == 'ok':
+        return {'status': 'analyzing', 'ocr_text': result['text'], 'error': None}
+    return {'status': 'failed', 'error': result['user_text']}
+
+
+def after_analysis(items, rescan_used, rescan_enabled):
+    """整理成功之后：存题目草稿；需要重扫转 rescanning，否则 ready。"""
+    rescan = needs_rescan(items, rescan_used, rescan_enabled)
+    return {'status': 'rescanning' if rescan else 'ready', 'error': None, 'items': items}
+
+
+def after_analysis_failure(error_text, enhanced_text, previous_items):
+    """整理失败之后：重扫后的第二次整理失败、且已有第一次的结果时，保留它直接 ready；否则转 failed。"""
+    if enhanced_text and previous_items:
+        return {'status': 'ready', 'error': None}
+    return {'status': 'failed', 'error': error_text}
+
+
+def after_rescan(result):
+    """重扫之后：成功转 analyzing 并存下重扫文字；失败直接 ready，保留第一次的题目草稿。"""
+    if result['kind'] == 'ok':
+        return {'status': 'analyzing', 'ocr_text_enhanced': result['text']}
+    return {'status': 'ready'}
+
+
+async def step_read(read_text, timings):
+    """读图一步：read_text('normal') 返回 interpret_ocr 格式的结果。"""
+    clock = time.monotonic()
+    result = await read_text('normal')
+    timings['read_ms'] = _elapsed_ms(clock)
+    if result['kind'] == 'ok':
+        if result['elapsed_ms'] is not None:
+            timings['host_read_ms'] = result['elapsed_ms']
+    else:
+        timings['host_detail'] = result['detail']  # 主机细节只记进 timings，不给用户看
+    return after_read(result)
+
+
+async def step_analyze(analyze, ocr_text, enhanced_text, previous_items, rescan_used, rescan_enabled, timings):
+    """整理一步：analyze(读图文字, 重扫文字) 返回清洗后的题目；模型失败时抛异常。"""
+    clock = time.monotonic()
+    # 重扫后的第二次整理单独记用时
+    timing_key = 'analyze2_ms' if enhanced_text else 'analyze_ms'
+    try:
+        items = await analyze(ocr_text, enhanced_text)
+    except Exception as error:
+        error_text, error_type = describe_model_error(error)
+        if error_type:
+            timings['model_error_type'] = error_type
+        fields = after_analysis_failure(error_text, enhanced_text, previous_items)
+        if fields['status'] == 'ready':
+            timings['analyze2_error'] = error_text  # 保留第一次结果时，失败原因只记进 timings
+    else:
+        fields = after_analysis(items, rescan_used, rescan_enabled)
+    timings[timing_key] = _elapsed_ms(clock)
+    return fields
+
+
+async def step_rescan(read_text, timings):
+    """强化重扫一步：read_text('enhanced') 返回 interpret_ocr 格式的结果。"""
+    clock = time.monotonic()
+    result = await read_text('enhanced')
+    timings['rescan_ms'] = _elapsed_ms(clock)
+    if result['kind'] == 'ok':
+        if result['elapsed_ms'] is not None:
+            timings['host_rescan_ms'] = result['elapsed_ms']
+    else:
+        timings['host_detail'] = result['detail']
+    return after_rescan(result)
+
+
+async def run_page(read_text, analyze, rescan_enabled):
+    """把一页从头走到底（回归脚本用）：读图 → 整理 → 需要时重扫一次 → 再整理。
+
+    read_text(mode) 返回 interpret_ocr 格式的结果；analyze(读图文字, 重扫文字) 返回清洗后的题目，
+    模型失败时抛异常。每一步做什么由 next_step 决定，和后端逐请求推进时完全一样。
+    返回 {'status','items','ocr_text','ocr_text_enhanced','rescan_used','timings','error'}。
+    """
+    page = {'status': 'uploaded', 'step_started_at': None, 'items': [], 'ocr_text': None,
+            'ocr_text_enhanced': None, 'rescan_used': 0, 'timings': {}, 'error': None}
+    for _ in range(MAX_STEPS):
+        if page['status'] in ('ready', 'failed'):
+            break
+        step = next_step(page, 0)
+        if step == 'read':
+            fields = await step_read(read_text, page['timings'])
+        elif step == 'analyze':
+            fields = await step_analyze(analyze, page['ocr_text'], page['ocr_text_enhanced'], page['items'],
+                                        page['rescan_used'], rescan_enabled, page['timings'])
+        else:
+            page['rescan_used'] = 1  # 和后端认领重扫时一样：开始重扫就记下，之后不再重扫
+            fields = await step_rescan(read_text, page['timings'])
+        page.update(fields)
+    return {key: page[key] for key in ('status', 'items', 'ocr_text', 'ocr_text_enhanced', 'rescan_used',
+                                       'timings', 'error')}
 
 
 # ---------------------------------------------------------------- 编辑与入库
@@ -401,5 +575,5 @@ def question_payload(page, item):
 
 
 def changes_library(method, path):
-    """这个请求会不会改动错题库（只有录入、撤回、全部录入会）。"""
+    """这个请求会不会改动错题库（只有录入一道、撤回会；"全部录入"是页面逐道调录入一道）。"""
     return method == 'POST' and _CHANGES_LIBRARY_PATH.fullmatch(path) is not None

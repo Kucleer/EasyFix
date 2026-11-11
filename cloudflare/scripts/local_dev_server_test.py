@@ -267,35 +267,48 @@ def test_scan_health_with_fake():
     assert response.json() == {'available': True}, response.json()
 
 
+def advance_to_ready(client, page):
+    """反复推进一页，直到 ready（最多 6 次），返回最新的页。"""
+    for _ in range(6):
+        if page['status'] == 'ready':
+            break
+        response = client.post('/api/scan/pages/%d/advance' % page['id'])
+        assert response.status_code == 200, response.text
+        page = response.json()['page']
+    return page
+
+
 def test_scan_flow_with_fakes():
-    """上传一张图、建页、推进到 ready（含一次重扫），录入、全部录入不重复、结束。"""
+    """上传一张图、建页、推进到 ready（含一次重扫），逐道录入（含一道被拒）、重复录入不重复写、结束。"""
     client, _ = make_client()
     image = client.post('/api/upload/file', files={'file': ('page.jpg', b'fake-page', 'image/jpeg')}).json()['path']
     created = client.post('/api/scan/pages', json={'image': image, 'subject_id': 1, 'grade': 6, 'semester': 1})
     assert created.status_code == 201, created.text
     page_id = created.json()['id']
-    page = created.json()
-    for _ in range(6):
-        if page['status'] == 'ready':
-            break
-        response = client.post('/api/scan/pages/%d/advance' % page_id)
-        assert response.status_code == 200, response.text
-        page = response.json()['page']
+    page = advance_to_ready(client, created.json())
     assert page['status'] == 'ready', page
-    # 2 道做错的（其中 1 道带读图提示）、1 道做对的；考点来自本机目录
+    # 4 道做错的（其中 1 道带读图提示）、2 道做对的；考点来自本机目录
     wrong = [item for item in page['items'] if item['verdict'] == 'wrong']
-    assert len(page['items']) == 3 and len(wrong) == 2, page['items']
+    right = [item for item in page['items'] if item['verdict'] == 'right']
+    assert len(page['items']) == 6 and len(wrong) == 4 and len(right) == 2, page['items']
     assert all(item['knowledge_point_ids'] for item in wrong), wrong
+    # 做对的题只有题号、题干开头和判断
+    assert all(item['answer'] == '' and len(item['parsed_question']) <= 40 for item in right), right
     assert page['rescan_used'] == 1
     before = len(question_items_all(client))
     accepted = client.post('/api/scan/pages/%d/items/0/accept' % page_id)
     assert accepted.status_code == 200, accepted.text
     assert len(question_items_all(client)) == before + 1
-    # 带提示的那道不在"全部录入"里；第 1 道已录入，不会重复
-    result = client.post('/api/scan/pages/%d/accept-all' % page_id).json()
-    assert result['results'] == [] and result['remaining'] == 0, result
+    # 再录一次同一道不重复写
+    assert client.post('/api/scan/pages/%d/items/0/accept' % page_id).status_code == 200
     assert len(question_items_all(client)) == before + 1
-    assert client.post('/api/scan/pages/%d/items/1/accept' % page_id).status_code == 200
+    # 第 2 题选了两个考点没给主考点：保存逻辑拒绝（422），题库不变
+    rejected = client.post('/api/scan/pages/%d/items/1/accept' % page_id)
+    assert rejected.status_code == 422 and rejected.json()['detail'], rejected.text
+    assert len(question_items_all(client)) == before + 1
+    # 全部录入已经没有单独的接口（页面逐道调录入一道）
+    assert client.post('/api/scan/pages/%d/accept-all' % page_id).status_code in (404, 405)
+    assert client.post('/api/scan/pages/%d/items/5/accept' % page_id).status_code == 200
     assert len(question_items_all(client)) == before + 2
     closed = client.post('/api/scan/pages/%d/close' % page_id)
     assert closed.status_code == 200 and closed.json()['status'] == 'closed', closed.text
@@ -308,21 +321,23 @@ def question_items_all(client):
 
 
 def test_scan_promote_uses_fake_fill():
-    """补成错题：假模型返回补充字段，考点来自提示词里的清单。"""
+    """补成错题：假模型补全完整题干和其他字段；第 5 题故意补全失败，移动保留并返回 fill_error。"""
     client, _ = make_client()
     image = client.post('/api/upload/file', files={'file': ('page.jpg', b'fake-page', 'image/jpeg')}).json()['path']
-    page_id = client.post('/api/scan/pages', json={'image': image, 'subject_id': 1, 'grade': 6,
-                                                   'semester': 1}).json()['id']
-    page = {'status': 'uploaded'}
-    for _ in range(6):
-        page = client.post('/api/scan/pages/%d/advance' % page_id).json()['page']
-        if page['status'] == 'ready':
-            break
+    created = client.post('/api/scan/pages', json={'image': image, 'subject_id': 1, 'grade': 6, 'semester': 1})
+    page = advance_to_ready(client, created.json())
+    page_id = page['id']
     promoted = client.post('/api/scan/pages/%d/items/2/promote' % page_id)
     assert promoted.status_code == 200, promoted.text
     body = promoted.json()
     item = body['page']['items'][2]
     assert body['fill_error'] is None and item['verdict'] == 'wrong' and item['answer'] and item['knowledge_point_ids']
+    assert item['parsed_question'] == local_dev_server.FAKE_FILLS['3'][0] and item['wrong_answer'] == '2'
+    failed = client.post('/api/scan/pages/%d/items/4/promote' % page_id)
+    assert failed.status_code == 200, failed.text
+    body = failed.json()
+    item = body['page']['items'][4]
+    assert body['fill_error'] and item['verdict'] == 'wrong' and item['source'] == 'promoted' and item['answer'] == ''
 
 
 def test_scan_missing_image_fails_cleanly():

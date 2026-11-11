@@ -3,6 +3,9 @@
 所有函数都不抛异常：绑定或口令缺失、连不上、超时、返回非 JSON 时，
 调用方只会拿到 (0, None) 或 (状态码, None)。js / pyodide 只在函数内导入，
 这样本模块在普通 CPython（测试、本地开发服务）下也能导入。
+
+捕获到异常时打印一行排查日志（进 Worker 日志），只有请求路径和异常类型名，
+不打印请求头、口令和响应内容。
 """
 
 import json
@@ -10,6 +13,11 @@ import json
 OCR_BINDING = 'OCR_HOST'
 KEY_SECRET = 'OCR_SHARED_KEY'
 BASE_URL = 'http://ocr-host'
+
+
+def log_failure(path, error):
+    """打印一行排查日志：路径和异常类型名，不含任何请求或响应内容。"""
+    print('ocr_client %s failed: %s' % (path, type(error).__name__))
 
 
 async def _request(env, path, method, headers, body, timeout_seconds):
@@ -34,7 +42,8 @@ async def _request(env, path, method, headers, body, timeout_seconds):
         except ValueError:
             return status, None
         return status, parsed if isinstance(parsed, dict) else None
-    except Exception:
+    except Exception as error:
+        log_failure(path, error)
         return 0, None
 
 
@@ -48,7 +57,8 @@ async def fetch_ocr(env, content, content_type, mode, timeout_seconds):
     try:
         from pyodide.ffi import to_js
         body = to_js(content)
-    except Exception:
+    except Exception as error:
+        log_failure('/ocr', error)
         return 0, None
     return await _request(env, '/ocr?mode=' + str(mode), 'POST',
                           {'Content-Type': content_type}, body, timeout_seconds)
@@ -66,5 +76,6 @@ async def read_image(env, key):
         if content_type == 'image/jpg':
             content_type = 'image/jpeg'
         return content, content_type
-    except Exception:
+    except Exception as error:
+        log_failure('r2-image', error)  # 不打印存储路径，路径里可能带原文件名
         return None
