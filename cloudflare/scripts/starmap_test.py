@@ -116,9 +116,106 @@ def test_migration_is_rerunnable():
         db.execute(sql)
 
 
+# ---------------------------------------------------------------- 任务 2：掌握度纯函数
+
+
+def ev(kind, at, adjust=None):
+    """测试用事件：错题、练习做对、手动调整。"""
+    return {'kind': kind, 'at': at, 'seq': {'wrong': 0, 'right': 1, 'adjust': 2}[kind], 'adjust': adjust}
+
+
+def test_leaf_example_from_spec():
+    """设计 4.2 的例子：0.5 → 错 0.35 → 错 0.2 → 对 0.35 → 对 0.5 → 再对（最近 3 次全对）→ 1。"""
+    from mastery_model import leaf_mastery
+    events = [ev('wrong', '1'), ev('wrong', '2'), ev('right', '3'), ev('right', '4')]
+    assert abs(leaf_mastery(events) - 0.5) < 1e-9
+    assert leaf_mastery(events + [ev('right', '5')]) == 1
+
+
+def test_leaf_floor_and_no_events():
+    """没有事件时是起点 0.5；连续做错停在下限 0.15。"""
+    from mastery_model import leaf_mastery
+    assert leaf_mastery([]) == 0.5
+    assert abs(leaf_mastery([ev('wrong', str(i)) for i in range(6)]) - 0.15) < 1e-9
+
+
+def test_leaf_mastered_then_wrong():
+    """掌握后再做错，从 1 扣 0.15。"""
+    from mastery_model import leaf_mastery
+    events = [ev('right', '1'), ev('right', '2'), ev('right', '3'), ev('wrong', '4')]
+    assert abs(leaf_mastery(events) - 0.85) < 1e-9
+
+
+def test_adjustments():
+    """手动调整按幅度加减；不算进最近 3 次。"""
+    from mastery_model import leaf_mastery
+    assert abs(leaf_mastery([ev('adjust', '1', 'up_large')]) - 0.85) < 1e-9
+    assert leaf_mastery([ev('adjust', '1', 'set_mastered')]) == 1
+    assert leaf_mastery([ev('right', '1'), ev('right', '2'), ev('adjust', '3', 'down_small'), ev('right', '4')]) == 1
+
+
+def test_adjust_only_point_counts_as_learned():
+    """只有一条"降低一点"的考点：0.5 − 0.15 = 0.35。"""
+    from mastery_model import leaf_mastery
+    assert abs(leaf_mastery([ev('adjust', '1', 'down_small')]) - 0.35) < 1e-9
+
+
+def test_same_time_wrong_before_right():
+    """同一时刻的错题排在练习结果前面。"""
+    from mastery_model import sort_events
+    events = sort_events([ev('right', '2026-11-01'), ev('wrong', '2026-11-01')])
+    assert [e['kind'] for e in events] == ['wrong', 'right']
+
+
+def test_upper_rules():
+    """上层星：N=3×考点数（上限 30），至少 N 次、九成对、没有没学的子考点才掌握；否则封顶 0.99。"""
+    from mastery_model import upper_mastery
+    rights = [ev('right', '%02d' % i) for i in range(9)]
+    assert upper_mastery([1, 1, 1], rights, 3, False) == 1
+    assert upper_mastery([1, 1, 1], rights[:8], 3, False) == 0.99
+    assert upper_mastery([1, 1, 1], rights, 3, True) == 0.99
+    eight_of_nine = rights[:8] + [ev('wrong', '99')]
+    assert upper_mastery([1, 1, 0.85], eight_of_nine, 3, False) < 1
+    assert abs(upper_mastery([0.5, 0.3], [], 2, False) - 0.4) < 1e-9
+    assert upper_mastery([1] * 11, [ev('right', '%02d' % i) for i in range(30)], 11, False) == 1
+
+
+def test_status_and_recent():
+    """状态分档；最近结果只看对错、从旧到新。"""
+    from mastery_model import status_of, recent_results
+    assert [status_of(v) for v in (None, 0.15, 0.4, 0.7, 0.99, 1)] == [
+        'unlearned', 'weak', 'fair', 'good', 'good', 'mastered']
+    assert recent_results([ev('wrong', '1'), ev('adjust', '2', 'up_small'), ev('right', '3')]) == ['wrong', 'right']
+
+
+def test_vocab_progress():
+    """词汇比例与阶段；空单词本不报错。"""
+    from mastery_model import vocab_progress
+    assert vocab_progress(0, 0) == {'ratio': 0, 'stage': 0}
+    assert vocab_progress(334, 970)['stage'] == 1
+    assert vocab_progress(970, 970) == {'ratio': 1, 'stage': 4}
+
+
+def test_lighting():
+    """第一次没有记录时不播放；之后播放新掌握的，掉出掌握的从已看集合里去掉。"""
+    from mastery_model import lighting
+    assert lighting({1, 2}, None) == (set(), {1, 2})
+    assert lighting({1, 2, 3}, {1, 4}) == ({2, 3}, {1})
+
+
 TESTS = [
     test_migration_adds_tables_and_column,
     test_migration_is_rerunnable,
+    test_leaf_example_from_spec,
+    test_leaf_floor_and_no_events,
+    test_leaf_mastered_then_wrong,
+    test_adjustments,
+    test_adjust_only_point_counts_as_learned,
+    test_same_time_wrong_before_right,
+    test_upper_rules,
+    test_status_and_recent,
+    test_vocab_progress,
+    test_lighting,
 ]
 
 
