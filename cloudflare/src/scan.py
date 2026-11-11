@@ -153,7 +153,17 @@ async def call_model(request, prompt):
                                parse=parse_model_json)
 
 
-def make_analyze(request, db, page):
+def count_model_point_ids(raw):
+    """模型原始回答里一共给了多少个考点编号（不管有没有效），回答不是预期结构时算 0。"""
+    questions = raw.get('questions') if isinstance(raw, dict) else None
+    total = 0
+    for question in questions if isinstance(questions, list) else []:
+        ids = question.get('knowledge_point_ids') if isinstance(question, dict) else None
+        total += len(ids) if isinstance(ids, list) else 0
+    return total
+
+
+def make_analyze(request, db, page, timings=None):
     """做一个整理函数 analyze(读图文字, 重扫文字)：调一次文本模型，返回清洗后的题目；模型失败时抛异常。"""
 
     async def analyze(ocr_text, enhanced_text):
@@ -162,7 +172,12 @@ def make_analyze(request, db, page):
         prompt = build_page_prompt(subject_name, page['grade'], page['semester'], ocr_text, enhanced_text,
                                    catalog, sorted(error_type_names))
         raw = await call_model(request, prompt)
-        return clean_items(raw, catalog_point_ids(catalog), error_type_names)
+        items = clean_items(raw, catalog_point_ids(catalog), error_type_names)
+        if timings is not None:
+            # 排查用：模型给了多少个考点编号、清洗后留下多少个（只记数量，不记内容）
+            timings['kp_from_model'] = count_model_point_ids(raw)
+            timings['kp_kept'] = sum(len(item['knowledge_point_ids']) for item in items)
+        return items
 
     return analyze
 
@@ -183,7 +198,7 @@ async def run_read(request, db, page, started_at):
 async def run_analyze(request, db, page, started_at):
     """整理：调一次文本模型；成功存题目草稿，需要重扫转 rescanning，否则 ready；失败转 failed，读图文字保留。"""
     timings = json.loads(page['timings'] or '{}')
-    fields = await step_analyze(make_analyze(request, db, page), page['ocr_text'], page['ocr_text_enhanced'],
+    fields = await step_analyze(make_analyze(request, db, page, timings), page['ocr_text'], page['ocr_text_enhanced'],
                                 json.loads(page['items'] or '[]'), page['rescan_used'],
                                 rescan_enabled(request.scope['env']), timings)
     if 'items' in fields:
@@ -294,16 +309,27 @@ async def load_ready_item(db, page_id, student_id, seq):
     return page, items[seq]
 
 
+def item_path(seq, field=None):
+    """草稿第 seq 项（或它的某个字段）的 JSON 路径，如 $[4]、$[4].state。
+
+    路径在这里拼好再作为参数传给数据库，不在 SQL 里用 '$[' || ? || ']' 拼：
+    D1 把数字参数当小数绑定，SQL 里拼出来是 $[4.0]，不是合法路径，会直接报错。
+    """
+    path = '$[%d]' % int(seq)
+    return path + '.' + field if field else path
+
+
 async def write_item(db, page_id, seq, expected_state, item):
     """把草稿第 seq 项整体换成 item；只有页面仍是 ready、这一项仍是 expected_state 时才写。
 
     返回是否写成功。没写成功说明页已结束，或这一项刚被别的请求改了状态。
     """
     row = await db.first(
-        "UPDATE scan_page SET items=json_set(items, '$[' || ? || ']', json(?)), updated_at=? "
-        "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, '$[' || ? || '].state')=? "
+        "UPDATE scan_page SET items=json_set(items, ?, json(?)), updated_at=? "
+        "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, ?)=? "
         'RETURNING id',
-        (seq, json.dumps(item, ensure_ascii=False), stamp_now(), page_id, seq, expected_state))
+        (item_path(seq), json.dumps(item, ensure_ascii=False), stamp_now(), page_id, item_path(seq, 'state'),
+         expected_state))
     return row is not None
 
 
@@ -484,14 +510,15 @@ async def withdraw_item(page_id: int, seq: int, request: Request):
     await db.batch([
         ('UPDATE question SET deleted=1 WHERE id=? AND deleted=0 AND EXISTS('
          "SELECT 1 FROM scan_page WHERE id=? AND deleted=0 AND status='ready' "
-         "AND json_extract(items, '$[' || ? || '].state')='accepted' "
-         "AND json_extract(items, '$[' || ? || '].question_id')=?)",
-         (question_id, page_id, seq, seq, question_id)),
-        ("UPDATE scan_page SET items=json_set(items, '$[' || ? || ']', json(?)), updated_at=? "
-         "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, '$[' || ? || '].state')='accepted' "
+         "AND json_extract(items, ?)='accepted' "
+         "AND json_extract(items, ?)=?)",
+         (question_id, page_id, item_path(seq, 'state'), item_path(seq, 'question_id'), question_id)),
+        ("UPDATE scan_page SET items=json_set(items, ?, json(?)), updated_at=? "
+         "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, ?)='accepted' "
          # 还要指向读到的那道题：期间被别人撤回又重新录入（换了新题）时不能把新题的草稿改回 open
-         "AND json_extract(items, '$[' || ? || '].question_id') IS ?",
-         (seq, json.dumps(reopened, ensure_ascii=False), stamp_now(), page_id, seq, seq, question_id)),
+         "AND json_extract(items, ?) IS ?",
+         (item_path(seq), json.dumps(reopened, ensure_ascii=False), stamp_now(), page_id,
+          item_path(seq, 'state'), item_path(seq, 'question_id'), question_id)),
     ])
     page = await load_page(db, page_id, student_id)
     current = json.loads(page['items'] or '[]')[seq]

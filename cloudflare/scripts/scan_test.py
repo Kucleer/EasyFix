@@ -111,6 +111,16 @@ def test_clean_items_drops_bad_catalog_and_error_types():
     assert item['flags'] == ['broken_formula']
 
 
+def test_clean_items_accepts_string_and_float_point_ids():
+    """模型把考点编号写成字符串或 101.0 时照样认；bool、非数字、清单外的编号仍然丢掉。"""
+    raw = {'questions': [{'parsed_question': '题', 'verdict': 'wrong',
+                          'knowledge_point_ids': ['102', 101.0, True, 'x', ' 103 ', 999],
+                          'primary_knowledge_point_id': '102'}]}
+    [item] = scan_model.clean_items(raw, {101, 102, 103}, set())
+    assert item['knowledge_point_ids'] == [102, 101, 103]
+    assert item['primary_knowledge_point_id'] == 102
+
+
 def test_clean_items_primary_none_when_several_points_left():
     """主考点无效且剩多个考点时为 None；有效时保留。"""
     raw = {'questions': [{'parsed_question': 'a', 'verdict': 'wrong', 'knowledge_point_ids': [101, 102],
@@ -1294,6 +1304,41 @@ def test_edit_dismiss_restore_manual():
     assert added['verdict'] == 'wrong' and added['state'] == 'open'
 
 
+class FloatBindingDB(SQLiteDB):
+    """模拟 D1：整数参数一律按小数绑定（D1 把 JavaScript 数字当 REAL）。
+
+    用它跑逐题操作，能抓住在 SQL 里用 '$[' || ? || ']' 拼 JSON 路径的写法——那样会拼出 $[4.0]，D1 上直接报错。
+    """
+
+    @staticmethod
+    def bind(parameters):
+        """bool 转 0/1，其余整数转小数。"""
+        return tuple(int(value) if isinstance(value, bool) else float(value) if isinstance(value, int) else value
+                     for value in parameters)
+
+
+def test_item_operations_work_when_integers_bind_as_reals():
+    """D1 把整数参数绑成小数时，修改、去掉、恢复、补成错题、录入、撤回都照常工作。"""
+    connection = build_scan_database()
+    db = FloatBindingDB(connection)
+    before = live_questions(connection)
+    right = scan_model.blank_item(2)
+    right.update(source='model', verdict='right', question_no='3', parsed_question='计算 1+1')
+    model = FakeModel({'parsed_question': '计算 1+1', 'answer': '2'})
+    with items_patched(model=model):
+        page_id = ready_page(connection, SQLiteDB(connection), [draft_item(0), draft_item(1), right])
+        item_call(scan.edit_item, page_id, 0, db, {'answer': '新答案'})
+        item_call(scan.dismiss_item, page_id, 1, db)
+        item_call(scan.restore_item, page_id, 1, db)
+        result = item_call(scan.promote_item, page_id, 2, db)
+        assert result['fill_error'] is None and result['page']['items'][2]['answer'] == '2'
+        page = item_call(scan.accept_item, page_id, 0, db)
+        assert page['items'][0]['state'] == 'accepted' and page['items'][0]['answer'] == '新答案'
+        page = item_call(scan.withdraw_item, page_id, 0, db)
+        assert page['items'][0]['state'] == 'open' and page['items'][0]['question_id'] is None
+    assert live_questions(connection) == before  # 录入后又撤回，题库不变
+
+
 def test_promote_fills_from_model_and_survives_model_failure():
     """补成错题：模型拿整页文字补全完整题干、孩子的答案等并清洗；模型失败时移动保留、字段为空；做错的题不能补。"""
     connection = build_scan_database()
@@ -1616,8 +1661,10 @@ TESTS = [
     test_interpret_health,
     test_parse_model_json_repairs_latex_backslashes,
     test_parse_model_json_failure_carries_hint_into_timings,
+    test_item_operations_work_when_integers_bind_as_reals,
     test_health_endpoint_hides_host_details,
     test_clean_items_drops_bad_catalog_and_error_types,
+    test_clean_items_accepts_string_and_float_point_ids,
     test_clean_items_primary_none_when_several_points_left,
     test_clean_items_right_items_drop_answer_fields,
     test_clean_items_bad_types_mark_unsure,

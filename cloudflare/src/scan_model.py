@@ -202,20 +202,35 @@ def _number_text(value):
     return None
 
 
+def _model_id(value):
+    """模型给的考点编号转成整数：认整数、值为整数的小数（101.0）和纯数字字符串（"101"），其他返回 None。
+
+    模型常把编号写成字符串；只认整数的话，整页的考点会被全部丢掉。
+    """
+    if _is_int(value):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
 def _clean_ids(raw_ids, catalog_ids):
-    """考点编号：只留在清单里的整数，去重保序。"""
+    """考点编号：只留在清单里的编号（转成整数），去重保序。"""
     result = []
     for value in raw_ids if isinstance(raw_ids, list) else []:
-        if _is_int(value) and value in catalog_ids and value not in result:
-            result.append(value)
+        point_id = _model_id(value)
+        if point_id is not None and point_id in catalog_ids and point_id not in result:
+            result.append(point_id)
     return result
 
 
 def _clean_knowledge(raw, catalog_ids):
     """清洗考点和主考点：主考点无效时，只剩一个考点就用它，否则为空。"""
     ids = _clean_ids(raw.get('knowledge_point_ids'), catalog_ids)
-    primary = raw.get('primary_knowledge_point_id')
-    if not (_is_int(primary) and primary in ids):
+    primary = _model_id(raw.get('primary_knowledge_point_id'))
+    if primary not in ids:
         primary = ids[0] if len(ids) == 1 else None
     return ids, primary
 
