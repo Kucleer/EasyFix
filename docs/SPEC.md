@@ -5,8 +5,10 @@
 | 项目名称 | EasyFix 错题整理系统 |
 |---------|---------------------|
 | 当前版本 | v1.0.8 |
-| 文档更新 | 2026-04-03 |
+| 文档更新 | 2026-11-10（第一、二章及部署相关内容按 Cloudflare 正式环境更新） |
 | 文档状态 | 进行中 |
+
+> 第三至九章的表结构、接口与页面细节写于 v1.0.8（2026-04），之后新增的阅读理解、学习报告、学习分析、词组默写等功能未逐项补入。当前接口清单以 `docs/cloudflare-api-checklist.md` 和 `cloudflare/src/` 为准，数据库结构以 D1 及 `cloudflare/migrations/` 为准。
 
 ---
 
@@ -14,7 +16,7 @@
 
 ### 1.1 项目简介
 
-EasyFix 是一款面向学生的本地错题整理软件，主要功能包括：错题图片上传与OCR识别、错题归档整理、多维度统计分析、以及基于LLM的相似题目智能推荐。
+EasyFix 是一款面向学生的错题整理应用，运行在 Cloudflare 上（正式入口 https://easyfix-bl2.pages.dev ，需访问密码登录）。主要功能包括：错题录入与归档整理、两级知识点、单词与词组默写、阅读理解、练习集与 PDF 打印、多维度统计分析、学习报告、激励系统，以及基于 LLM 的相似题目智能推荐。
 
 ### 1.2 目标用户
 
@@ -24,7 +26,7 @@ EasyFix 是一款面向学生的本地错题整理软件，主要功能包括：
 
 ### 1.3 核心价值
 
-- **便捷录入**：拍照上传，OCR自动识别题目
+- **便捷录入**：上传原图并填写题目，或由 Agent 识别图片后结构化入库
 - **智能整理**：按学科、年级、知识点自动归类
 - **统计分析**：多维度了解错题分布，针对性复习
 - **相似推荐**：AI生成同类型练习题，举一反三
@@ -37,71 +39,45 @@ EasyFix 是一款面向学生的本地错题整理软件，主要功能包括：
 
 | 层级 | 技术选型 | 说明 |
 |------|---------|------|
-| 前端 | Vue 3 + Element Plus | SPA单页应用 |
-| 后端 | Python FastAPI | ASGI高性能框架 |
-| 数据库 | MySQL 8.0 | 关系型数据库 |
-| OCR | PaddleOCR | 本地离线OCR识别 |
-| LLM | Anthropic Claude API / MiniMax | 相似题生成 |
-| 文件存储 | 本地文件系统 | 按年月分目录存储 |
+| 前端 | Vue 3 + Vite + Element Plus + Pinia + ECharts + KaTeX | SPA 单页应用，发布到 Cloudflare Pages |
+| 网关 | Pages `_worker.js` | 会话校验、静态资源、R2 附件直读、API 转发 |
+| 后端 | Cloudflare Python Worker + FastAPI | 异步访问 D1，不开放 workers.dev |
+| 数据库 | Cloudflare D1 | SQLite 方言，结构变更通过迁移文件追加 |
+| 文件存储 | 私有 Cloudflare R2 | 原图、PDF、单词音频 |
+| PDF | 内部 Worker + Browser Run | KaTeX 公式校验与排版，按内容指纹复用 |
+| LLM | MiniMax / OpenAI / Anthropic | 相似题、学习报告、阅读短文、词组重点标注 |
+
+OCR 服务已下线：图片不再自动识别，由 Agent 识别后结构化入库。
 
 ### 2.2 项目目录结构
 
 ```
 EasyFix/
-├── backend/                    # 后端项目
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py            # FastAPI入口
-│   │   ├── config.py          # 配置管理
-│   │   ├── database.py        # 数据库连接
-│   │   ├── models/            # ORM模型
-│   │   │   ├── question.py    # 错题表
-│   │   │   ├── tag.py         # 标签表
-│   │   │   ├── subject.py     # 学科表
-│   │   │   ├── error_book.py  # 错题本表
-│   │   │   ├── similar_question.py  # 相似题表
-│   │   │   ├── knowledge_point.py  # 知识点表
-│   │   │   └── operation_log.py     # 操作日志表
-│   │   ├── schemas/           # Pydantic模型
-│   │   ├── routers/           # API路由
-│   │   │   ├── question.py    # 错题CRUD
-│   │   │   ├── upload.py      # 图片上传+OCR
-│   │   │   ├── stats.py       # 统计
-│   │   │   ├── similar.py     # 相似题目
-│   │   │   ├── subject.py     # 学科管理
-│   │   │   ├── tag.py         # 标签管理
-│   │   │   ├── error_book.py  # 错题本管理
-│   │   │   ├── knowledge_point.py  # 知识点管理
-│   │   │   └── config.py      # 系统配置
-│   │   └── services/          # 业务逻辑
-│   │       ├── ocr.py         # PaddleOCR服务
-│   │       ├── llm.py         # LLM API服务
-│   │       └── logger.py      # 日志服务
-│   └── requirements.txt
-├── frontend/                   # 前端项目 Vue3
-│   ├── src/
-│   │   ├── api/               # API调用
-│   │   ├── views/             # 页面组件
-│   │   │   ├── Home.vue       # 首页
-│   │   │   ├── Questions.vue  # 错题列表
-│   │   │   ├── Upload.vue     # 上传页面
-│   │   │   ├── Stats.vue      # 统计页面
-│   │   │   ├── Settings.vue   # 设置页面
-│   │   │   └── Management.vue  # 管理中心
-│   │   ├── router/            # 路由配置
-│   │   └── main.js
-│   └── package.json
-├── uploads/                    # 上传文件存储
-│   └── images/
-│       └── {year}/
-│           └── {month}/
-│               └── {uuid}_{filename}
+├── cloudflare/                 # 正式环境代码
+│   ├── src/                   # 后端 Python Worker（FastAPI + D1）
+│   ├── pages/                 # Pages 网关 _worker.js 与配置
+│   ├── pdf/                   # 内部 PDF Worker
+│   ├── migrations/            # D1 追加迁移
+│   ├── scripts/               # 知识点、词组规则的工具与测试
+│   ├── tools/cli.cjs          # 固定版本 Wrangler 包装器
+│   └── wrangler.jsonc         # 后端 Worker 配置
+├── frontend/                   # 前端项目 Vue 3
+│   └── src/
+│       ├── api/               # API 调用
+│       ├── views/             # 页面组件
+│       ├── composables/       # 默写判分等组合函数
+│       ├── stores/            # Pinia 状态
+│       └── router/            # 路由配置
+├── shared/                     # 前端与 PDF 共用的公式文本处理
+├── backend/                    # 切换前的本地 FastAPI 版本（仅作参考）
+│   └── scripts/               # 含仍在使用的云端构建、密钥、导出工具
 ├── docs/                       # 文档目录
-│   └── SPEC.md                # 本文档
-├── CHANGELOG.md               # 变更日志
-├── VERSION                    # 版本号文件
-└── README.md
+├── AGENTS.md / CLAUDE.md       # 开发与协作说明
+├── CHANGELOG.md                # 变更日志
+└── VERSION                     # 版本号文件
 ```
+
+部署、备份与发布记录见 `docs/cloudflare-migration-status.md`。
 
 ---
 
@@ -177,7 +153,7 @@ EasyFix/
 | subject_id | INTEGER | FK → subject.id | 学科 |
 | original_image | VARCHAR(500) | | 单个原图路径（兼容旧数据） |
 | original_images | TEXT | | JSON数组，多个图片路径 |
-| original_text | TEXT | | OCR识别的原始题目文本 |
+| original_text | TEXT | | 原始题目文本 |
 | parsed_question | TEXT | | 解析后的题目（结构化） |
 | answer | TEXT | | 答案 |
 | analysis | TEXT | | 解析 |
@@ -320,9 +296,8 @@ EasyFix/
 
 ### 4.1 基础信息
 
-- **Base URL**: `http://{host}:{port}/api`
-- **默认端口**: 3000
-- **认证方式**: 无（本地应用）
+- **Base URL**: `https://easyfix-bl2.pages.dev/api`
+- **认证方式**: 浏览器使用访问密码登录后的 HttpOnly 会话 Cookie；Agent 使用 `Authorization: Bearer <ACCESS_TOKEN>`。未登录访问 `/api/`、`/uploads/` 返回 401
 - **请求格式**: JSON
 - **响应格式**: JSON
 
@@ -453,35 +428,31 @@ POST /api/questions/batch
 
 ### 4.3 上传模块
 
+上传只保存原图，不做识别。图片写入私有 R2，对象键为 `{year}/{month}/{uuid}_{filename}`，登录后通过 `/uploads/<键>` 读取。
+
 #### 4.3.1 上传单张图片
 
 ```
-POST /api/upload/image
+POST /api/upload/file
 Content-Type: multipart/form-data
 ```
 
 **表单字段**:
-- `file`: 图片文件
+- `file`: 图片文件（jpg / png / webp，不超过 10MB）
 
 **响应**:
 ```json
 {
-  "image_path": "2026/03/xxx.png",
-  "ocr_result": {
-    "full_text": "识别出的完整文本",
-    "blocks": [
-      {"text": "block1", "bbox": [x,y,w,h]},
-      {"text": "block2", "bbox": [x,y,w,h]}
-    ],
-    "provider": "paddleocr"
-  }
+  "path": "2026/11/1a2b3c4d_photo.jpg",
+  "original_filename": "photo.jpg",
+  "size": 161237
 }
 ```
 
 #### 4.3.2 批量上传图片
 
 ```
-POST /api/upload/batch
+POST /api/upload/batch-simple
 Content-Type: multipart/form-data
 ```
 
@@ -495,7 +466,7 @@ POST /api/upload/to-error-book/{error_book_id}
 Content-Type: multipart/form-data
 ```
 
-**说明**: 图片保留在错题本中用于对比，不进行OCR识别
+**说明**: 图片保留在错题本中用于对比
 
 ### 4.4 单词本模块
 
@@ -1114,6 +1085,11 @@ POST /api/practice-sets/batch-delete
 | /settings | Settings | 系统设置 |
 | /words | Words | 单词本 |
 | /practice-sets | PracticeSets | 练习集 |
+| /reading | Reading | 阅读理解 |
+| /reading-test/:id | ReadingTest | 阅读答题 |
+| /learning-reports | LearningReports | 学习报告 |
+| /learning-analysis | LearningAnalysis | 学习分析 |
+| /motivation | Motivation | 激励系统 |
 
 ### 5.2 错题列表页 (Questions.vue)
 
@@ -1178,7 +1154,6 @@ const types = ['', 'success', 'warning', 'warning', 'danger', 'danger']
 **功能特性**:
 - 拖拽/点击上传图片
 - 批量上传多张图片
-- OCR识别结果展示
 - 图片预览
 - 保存后显示预览
 
@@ -1191,9 +1166,8 @@ Upload.vue
 │   │   ├── multiple=true (多文件)
 │   │   └── accept="image/*"
 │   └── 上传提示文字
-├── OCR结果展示区
-│   ├── 图片缩略图
-│   └── 识别文本
+├── 原图预览区
+│   └── 图片缩略图
 ├── 错题信息表单
 │   ├── el-select (选择错题本)
 │   ├── el-select (选择学科)
@@ -1233,7 +1207,7 @@ Upload.vue
 
 **功能特性**:
 - LLM API配置（API Key、Base URL、模型选择）
-- 保存配置到 `config/llm.json`
+- 通过 `/api/config/llm` 保存，接口返回时密钥脱敏
 
 ### 5.7 单词本页面 (Words.vue)
 
@@ -1241,7 +1215,7 @@ Upload.vue
 - 单词列表展示（支持分页、筛选，默认每页20条）
 - 多条件筛选：关键词、年级、学期、标签
 - 单词CRUD管理（创建、编辑、删除）
-- 多种导入方式：文本粘贴、文件上传、图片OCR识别
+- 多种导入方式：文本粘贴、文件上传
 - 在线复习：默写英文、选择题两种题型
 - 多选复习：支持勾选单词后进行专项复习
 - PDF打印：生成单词默写PDF
@@ -1252,7 +1226,6 @@ Upload.vue
 **导入方式**:
 1. **文本粘贴**: 每行一个单词，格式：英文 中文（用空格分隔）
 2. **文件上传**: 支持 .txt 或 .csv 文件
-3. **图片识别**: 上传单词图片，自动OCR识别提取文字
 
 **复习题型**:
 | 题型 | 说明 |
@@ -1350,30 +1323,21 @@ db.commit()
 
 ## 八、配置管理
 
-### 8.1 LLM配置文件
+### 8.1 LLM 与应用配置
 
-**路径**: `backend/config/llm.json`
+LLM 配置（API Key、Base URL、模型）和应用配置（默认年级、学期）通过设置页读写，对应接口 `/api/config/llm`、`/api/config/app`，保存在 D1 `runtime_config` 表；尚未保存过时使用部署时写入的 `LLM_CONFIG`、`APP_CONFIG`。
 
-**结构**:
-```json
-{
-  "api_key": "your-api-key",
-  "base_url": "https://api.minimax.chat",
-  "model": "MiniMax-Text-01"
-}
-```
+### 8.2 密钥与运行开关
 
-### 8.2 系统配置
+| 名称 | 位置 | 说明 |
+|------|------|------|
+| `ACCESS_PASSWORD` | 后端 Worker 密钥 | 浏览器登录密码 |
+| `SESSION_SECRET` | 后端 Worker 与 Pages 密钥 | 会话签名，两边必须一致 |
+| `ACCESS_TOKEN` | 后端 Worker 与 Pages 密钥 | Agent 的 Bearer 令牌 |
+| `MIGRATION_READY` | 后端 Worker 配置 | 正常为 `true`，部署时不要关闭 |
+| `write_maintenance` | D1 `runtime_config` 表 | 停写维护开关，开启后非只读请求返回 503 |
 
-**路径**: `backend/.env`
-
-**变量**:
-```
-ANTHROPIC_API_KEY=xxx
-DATABASE_URL=mysql://user:pass@localhost:3306/easyfix
-UPLOAD_DIR=./uploads
-MAX_UPLOAD_SIZE=10485760  # 10MB
-```
+密钥不写入仓库，本机副本在被忽略的 `tmp/cloudflare-config/`。资源绑定（D1 `DB`、R2 `IMAGES`、PDF 服务 `PDF`）见 `cloudflare/wrangler.jsonc`。
 
 ---
 
@@ -1711,12 +1675,9 @@ MAX_UPLOAD_SIZE=10485760  # 10MB
 
 ## 十、待办事项
 
-- [ ] 批量导入错题功能
 - [ ] 错题复习提醒
-- [ ] 导出功能（PDF/Excel）
+- [ ] 导出 Excel
 - [ ] 多语言支持
-- [ ] 用户认证与权限管理
-- [ ] 数据备份与恢复
 
 ---
 

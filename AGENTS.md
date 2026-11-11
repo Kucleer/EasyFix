@@ -2,93 +2,80 @@
 
 ## 项目简介
 
-EasyFix：学生错题整理应用。Vue 3 + Vite 前端，Python FastAPI 后端，默认 SQLite，可切换 MySQL。
+EasyFix：学生错题整理应用。前端 Vue 3 + Vite，后端为 Cloudflare Python Worker（FastAPI + D1），附件在私有 R2，正式入口 https://easyfix-bl2.pages.dev （2026-11-09 切换）。
 
-完整架构参考见 `CLAUDE.md`，本文件仅记录实操要点。
+架构与模块说明见 `CLAUDE.md`，本文件只记录实操要点。部署、密钥位置、备份与发布记录见 `docs/cloudflare-migration-status.md`。
 
-## 开发命令
+## 开发与验证
 
-项目无测试套件、无 linter、无 typecheck、无 CI、无 pre-commit hook。
+项目没有 linter、typecheck、CI 和 pre-commit hook，只有几组可直接运行的测试。以下命令均在仓库根目录执行。
 
 ```bash
-# 后端（从仓库根目录执行）
-cd backend
-pip install -r requirements.txt
-python -m app.main              # 启动服务，默认端口 :8000
-# 或：uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# 后端
+python -m compileall -q cloudflare/src                    # 语法检查
+python cloudflare/scripts/phrase_focus_test.py            # 词组重点规则
+python cloudflare/scripts/knowledge_invariants_test.py    # 两级知识点不变量
 
-# 前端（从仓库根目录执行）
-cd frontend
-npm install
-npm run dev                     # 启动开发服务器 :5173，自动代理 /api 和 /uploads 到 :8000
-npm run build                   # 生产构建，输出到 dist/
+# 前端
+node --test frontend/src/composables/dictation.test.mjs   # 默写判分
+python backend/scripts/prepare_cloudflare_frontend.py     # 生产构建，输出到 tmp/cloudflare-pages-build
 ```
+
+- 前端依赖在 `frontend/`（`npm install`），构建需要 Node.js 22.12 或更高版本。
+- Wrangler 固定 4.158.0：先执行 `npm install --prefix cloudflare`，之后一律通过 `node cloudflare/tools/cli.cjs <命令>` 调用，授权与日志保存在被忽略的 `tmp/cloudflare-config`。
+- 本机 `npm run dev`（Vite）在检测到 `backend/config/cloudflare-cutover.json` 的切换完成标记时，会把页面请求跳转到云端入口。这是切换保护，不要为了本地调试去解除旧库只读。
 
 ## 关键事实
 
-- **建表方式**：后端启动时通过 `Base.metadata.create_all()` 自动建表，无迁移系统。修改表结构需删除 `backend/easyfix.db`（SQLite）或手动重建表（MySQL）。
-- **后端路由数量**：`backend/app/main.py:46-60` 注册了 15 个路由。`CLAUDE.md` 写的 11 个已过时，缺少 `learning_report`、`motivation`、`error_type`、`reading`。
-- **前端路由数量**：`frontend/src/router/index.js` 定义了 13 条路由。`CLAUDE.md` 写的 8 条已过时，缺少 `/reading`、`/reading-test/:id`、`/learning-reports`、`/motivation`、`/learning-analysis`。
-- **软删除**：所有新模型必须包含 `deleted` 字段，禁止硬删除。
-- **配置加载**：`backend/.env` 通过 pydantic-settings 加载，详见 `backend/app/config.py`。`backend/config/` 下的 `llm.json` 通过 `/api/config` 接口运行时覆盖。
-- **文件上传路径**：`backend/uploads/images/{year}/{month}/{uuid}_{filename}`。Vite 开发服务器代理 `/uploads`，生产环境由 FastAPI 直接提供静态文件。
-- **访问密码**：Settings/Management 页面密码为 `32167`，硬编码在 `backend/app/access_config.py`。
-- **MCP 服务**：`.mcp.json` 配置了 MySQL（localhost:3306/easyfix）、browser、playwright。
-- **导航菜单**：`frontend/src/App.vue` 桌面分组侧栏与手机底部导航，覆盖学习、练习、成长记录及管理配置。
-- **前端 API 层**：`frontend/src/api/` 下有 5 个模块（question、word、learning_report、motivation、learning_analysis），其余 API 直接在组件内调用。
+- **生产代码**：后端在 `cloudflare/src/`，Pages 网关在 `cloudflare/pages/_worker.js`，PDF 在 `cloudflare/pdf/`。`backend/app/` 是切换前的本地版本，修改它不会影响云端。
+- **数据库**：D1 `easyfix`。结构变更只追加 `cloudflare/migrations/NNNN_*.sql`，不得重放旧快照覆盖云端数据；执行前先用 `export_remote_cloudflare.py` 导出备份。
+- **软删除**：所有表包含 `deleted` 字段，禁止硬删除，查询必须过滤 `deleted=0`。
+- **登录与鉴权**：浏览器用访问密码登录，得到 HttpOnly 会话 Cookie；Agent 用 `Authorization: Bearer <ACCESS_TOKEN>`。密码、`SESSION_SECRET`、`ACCESS_TOKEN` 都是 Worker / Pages 密钥，本机副本在 `tmp/cloudflare-config/`，不写入仓库。
+- **写入开关**：`MIGRATION_READY=true` 为正常状态，部署时不要关闭。停写维护用 D1 `runtime_config.write_maintenance`，开启后所有非只读请求（含 Bearer）返回 503。
+- **附件**：上传走 `POST /api/upload/file`（单张，10MB 以内的 jpg/png/webp）或 `POST /api/upload/batch-simple`，对象键为 `{year}/{month}/{uuid}_{filename}`，通过 `/uploads/<键>` 登录后读取。
+- **应用与 LLM 配置**：通过 `/api/config/app`、`/api/config/llm` 读写；LLM 只在主动请求分析、报告、相似题、短文或词组标注时调用。
+- **前端 API 层**：`frontend/src/api/http.js` 对 GET 做去重和短时内存缓存，成功写入后清空；新接口注意缓存时长规则。
+- **导航**：`frontend/src/App.vue` 是桌面分组侧栏加手机底部导航。
+- **MCP**：`.mcp.json` 里的 MySQL 服务指向切换前的本地库，与生产无关，不要用它读写业务数据。
 
-## 新增后端路由步骤
+## 新增后端接口步骤
 
-1. 在 `backend/app/routers/<name>.py` 创建路由
-2. 在 `backend/app/main.py` 添加 import 并调用 `app.include_router()`
-3. 在 `backend/app/routers/__init__.py` 添加导出
-4. 在 `backend/app/schemas/` 创建 Pydantic 请求/响应模型
-5. 在 `backend/app/models/` 创建或更新 ORM 模型，必须包含 `deleted` 字段
+1. 在 `cloudflare/src/` 对应模块里添加路由；新模块需在 `cloudflare/src/main.py` 里 import 并 `app.include_router()`。
+2. 用 `database.py` 的 `Database` 访问 D1，多条写入放进同一个 batch；涉及题目知识点的写入沿用 `questions.py` 里已有的写法（`write_guard` 条件与 `question_knowledge_point` 关联同批写入）。
+3. 需要新表或新列时追加迁移文件，表必须带 `deleted` 字段。
+4. 统计类接口用 SQL 聚合，避免逐记录查询。
+5. 在 `docs/cloudflare-api-checklist.md` 补上新接口。
 
 ## 新增前端页面步骤
 
-1. 在 `frontend/src/views/<Name>.vue` 创建页面组件
-2. 在 `frontend/src/router/index.js` 添加路由配置
-3. 在 `frontend/src/App.vue` 分组导航添加链接
-4. API 调用写在 `frontend/src/api/` 下，使用 axios
-
-## 代码规范
+1. 在 `frontend/src/views/<Name>.vue` 创建页面组件。
+2. 在 `frontend/src/router/index.js` 添加路由。
+3. 在 `frontend/src/App.vue` 的分组导航里添加入口。
+4. API 调用写在 `frontend/src/api/` 下，使用带缓存的 axios 实例。
 
 ## 分支与发布流程
 
-- 每次修改先创建独立的 `codex/` 分支，避免直接在主分支开发。
-- 仅提交本次任务相关文件，保留工作区已有修改，不提交敏感数据及生成目录。
-- 完成构建与必要验证后，将修改分支合并到 `main`，推送远端，再部署 Cloudflare。
-- 前端使用 `python backend/scripts/prepare_cloudflare_frontend.py` 构建，按 `docs/cloudflare-migration-status.md` 的日常部署命令发布 Pages；后端有变更时才部署 Worker。
-- 部署后核对正式入口与发布状态，记录提交及部署结果。
+- 每次修改先创建独立分支（如 `codex/`、`claude/` 前缀），不直接在 `main` 上开发。
+- 只提交本次任务相关文件，保留工作区已有修改，不提交敏感数据和生成目录。
+- 完成构建与必要验证后，把分支合并到 `main` 并推送远端，再部署 Cloudflare。
+- 前端按 `docs/cloudflare-migration-status.md` 的日常部署命令发布 Pages；后端有变更时才部署 Worker；PDF 模板未变时不重发 PDF Worker。
+- 部署后核对正式入口与发布状态，把提交、Worker 版本、Pages 部署和未验证的范围记入 `docs/cloudflare-migration-status.md`。
+
+## 代码规范
 
 - 后端：全部 `snake_case`，函数前写中文文档字符串。
 - 前端：Vue 3 Composition API + `<script setup>`，UI 组件用 Element Plus。
-- 数据库：只做软删除，查询时必须加 `deleted=False` 过滤。
-- 状态管理：应用默认年级/学期使用 `stores/appConfig`，其他业务状态主要在组件内管理。
-
-## OCR 下线
-
-- OCR 服务、图片识别接口与识别配置已移除；单词保留文本及 TXT/CSV 导入。
-- 原图附件使用 `/api/upload/file`、`/api/upload/batch-simple`，Agent 结构化入库继续保留。
-- 历史 OCR 日志与旧配置文件保留，但旧配置不再加载。
+- 状态管理：默认年级/学期用 `stores/appConfig`，其他业务状态主要在组件内管理。
 
 ## 数学公式与 Agent 入库
 
-- 图片由 Agent 识别后直接入库；新数学题的正文、答案、解析均使用带边界的 LaTeX：行内 `\(...\)`，独立公式 `\[...\]`。
-- 次方必须带花括号，如 `x^{2026}`；分数使用 `\frac{a}{b}`。不写排版 HTML，不批量转换历史 `1/2` 等普通文本。
-- 录题只通过 `tools/easyfix-intake/` 的技能和小工具提交，规范见该目录的 `SKILL.md`；不直接写数据库。
-- 原图缺字或裁切时不补猜；未展示年级、学期或学生作答时不推断。保留原图关联；不因题型复杂而将学生错误类型强行标为“计算”。
-- 具体规范、备份及部署命令见 `docs/math-formula-implementation-plan.md`。两张授权图片的可重复导入脚本为 `backend/scripts/import_math_formula_photos.py`，不传 `--apply` 仅预检。
-
-## Cloudflare 正式环境（2026-11-09 已切换）
-
-- 正式入口：https://easyfix-bl2.pages.dev；云端代码在 `cloudflare/src/`，生产数据源为 D1 / R2。
-- 旧 PostgreSQL 已冻结为默认只读，只供切换前数据恢复。不要通过旧本地脚本或 MySQL MCP 写生产数据。
-- 旧本地 Vue 页面会跳转云端；本地调试需要先理解 `backend/config/cloudflare-cutover.json` 的切换保护，不能直接解除生产旧库只读。
-- 保持 Workers 免费计划；统计优先代码和 SQL 聚合，避免逐记录查询、重复 AI 调用与重复生成 PDF。
-- 新数据库变更追加 `cloudflare/migrations/`，不得重放旧快照覆盖云端新数据；继续遵守软删除和公式校验规范。
-- 部署、验证证据、密钥位置与恢复限制见 `docs/cloudflare-migration-status.md`。`tmp/`、`backups/` 含敏感数据，不得发布或提交。
+- OCR 已下线：图片由 Agent 识别后结构化入库，单词保留文本和 TXT/CSV 导入。
+- 录入孩子作业或卷子的错题，只通过 `tools/easyfix-intake/` 的技能和小工具提交（录入接口 `/api/intake/...`），规范见该目录的 `SKILL.md`；不直接写数据库、不写一次性导入脚本，也不要用 `backend/scripts/` 下的旧导入脚本。技能安装在 `~/.claude/skills/easyfix-intake/` 与 `~/.agents/skills/easyfix-intake/`，接口地址与口令在 `~/.easyfix/intake.json`。
+- 新数学题的正文、答案、解析均使用带边界的 LaTeX：行内 `\(...\)`，独立公式 `\[...\]`。次方必须带花括号，如 `x^{2026}`；分数用 `\frac{a}{b}`。不写排版 HTML，不批量转换历史 `1/2` 等普通文本。
+- 接口会用 KaTeX 校验公式；写入后回读核对反斜杠、题干、答案、解析。批量写入前先导出 D1 备份。
+- 原图缺字或裁切时不补猜；未展示年级、学期或学生作答时不推断。不因题型复杂而把学生错误类型强行标为"计算"。
+- 知识点使用两级目录：写入时带 `knowledge_point_ids`、`primary_knowledge_point_id`，修改分类时带读取到的 `knowledge_revision`，规格见 `docs/knowledge-hierarchy-final-plan.md`。
+- 公式书写规范的来由见 `docs/math-formula-implementation-plan.md`；该文档里的 PostgreSQL 备份与本地部署部分已不适用。
 
 ## 词组默写与重点标注
 
