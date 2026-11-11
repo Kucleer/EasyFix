@@ -202,3 +202,4 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 2026-11-11 晚：修公式显示（清洗时给裸公式加边界）、"不是错题"改为红色描边按钮并直接滑出、界面"孩子"改为"学生"。部署 Worker `fa75dcfe`、Pages `e2f6e886`。此前 Worker 部署连续 4 次被 Cloudflare 以错误 10021（"binding DB of type d1 failed to generate"）拒绝，配置未变、D1 正常，约 10 分钟后重试成功。
 - 2026-11-11 晚：合并手机默写修复（分支 `fix/mobile-dictation-keyboard`，提交 `51b19f8f`：点方格时让隐藏输入框真正获得焦点以弹出软键盘，并兼容安卓键盘读不到按键字母的情况）到 `feature/page-scan-intake`，一起构建前端发布 Pages `ce0740e3`。后端未变（Worker `fa75dcfe`）。尚未在真手机（微信 / iPhone）上验证。
 - 2026-11-11 晚：公式组件 `MathText` 竖直方向不再滚动（去掉分数旁边带上下箭头的小滚动条），发布 Pages `856f1f9a`。
+- 2026-11-11 晚：按调优记录第 5 节的测量结果关掉重扫：Worker 密钥 `SCAN_RESCAN=off`（用密钥而不是配置文件里的变量，避免部署时覆盖控制台里的普通变量）。实测一页读图 12.8 秒 + 整理 7.6 秒，不再重扫。要恢复重扫，删掉这个密钥即可。
