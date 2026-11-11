@@ -606,6 +606,93 @@ def test_retag_rejects_bad_mapping():
         raise AssertionError('没有报错：%r' % bad)
 
 
+# ---------------------------------------------------------------- 整体审阅后的修复
+
+
+def test_leaf_no_green_without_three_rights():
+    """不靠"最近 3 次全对"或"直接设为掌握"，加加减减最多到 0.99，不算掌握。"""
+    from mastery_model import leaf_mastery
+    mixed = [ev(k, '%02d' % i) for i, k in enumerate(['right', 'right', 'wrong', 'right', 'right', 'wrong', 'right', 'right'])]
+    assert leaf_mastery(mixed) < 1
+    assert leaf_mastery([ev('right', '1'), ev('adjust', '2', 'up_large')]) < 1
+    assert leaf_mastery([ev('adjust', '1', 'up_large'), ev('adjust', '2', 'up_small')]) < 1
+
+
+def test_upper_requires_learned_children_good():
+    """模块要变绿，已学的子考点都要至少"较好"（0.7）；练习集中在一个考点上不够。"""
+    from mastery_model import upper_mastery
+    rights = [ev('right', '%02d' % i) for i in range(9)]
+    assert upper_mastery([0.5, 0.5, 1], rights, 3, False) < 1
+    assert upper_mastery([0.7, 0.85, 1], rights, 3, False) == 1
+
+
+def retag_fixture():
+    """有正式目录、0013 和三道英语题、一道数学题的库。"""
+    c = build_database_with_catalog()
+    c.executescript(SEED_0013.read_text(encoding='utf-8'))
+    for qid, subject_id in ((1, 2), (2, 2), (3, 2), (4, 1)):
+        c.execute('INSERT INTO question(id,subject_id,original_text,parsed_question,review_count,correct_count,'
+                  "error_count,deleted,created_at,updated_at,knowledge_revision) VALUES(?,?,'题','题',0,0,0,0,"
+                  "'2026-10-01','2026-10-01',0)", (qid, subject_id))
+    link_by_code(c, 1, 'E6-TEN-01', 1)
+    link_by_code(c, 2, 'E6-PRO-01', 1)
+    link_by_code(c, 4, 'M6-RAT-07', 1)
+    c.commit()
+    return c
+
+
+def live_links(c, qid):
+    """一道题当前未删除的考点关联：[(编号, 是否主考点)]。"""
+    return sorted(tuple(r) for r in c.execute(
+        'SELECT k.code, l.is_primary FROM question_knowledge_point l JOIN knowledge_point k ON k.id=l.knowledge_point_id '
+        'WHERE l.question_id=? AND l.deleted=0', (qid,)).fetchall())
+
+
+def test_retag_rerun_with_changed_mapping():
+    """映射改过后可以重新执行：A → B → A，结果和第一次 A 一样，主考点可以换。"""
+    from starmap_retag import build_retag_sql
+    c = retag_fixture()
+    a = [{'question_id': 1, 'point_codes': ['EG-TEN-01'], 'primary_code': 'EG-TEN-01'},
+         {'question_id': 2, 'point_codes': ['EG-PRO-01', 'EG-PRO-02'], 'primary_code': 'EG-PRO-02'},
+         {'question_id': 3, 'point_codes': [], 'primary_code': None}]
+    b = [{'question_id': 1, 'point_codes': ['EG-TEN-01', 'EG-TEN-03'], 'primary_code': 'EG-TEN-03'},
+         {'question_id': 2, 'point_codes': ['EG-PRO-01'], 'primary_code': 'EG-PRO-01'},
+         {'question_id': 3, 'point_codes': ['EG-NOU-01'], 'primary_code': 'EG-NOU-01'}]
+    c.executescript(build_retag_sql(a))
+    first = [live_links(c, q) for q in (1, 2, 3)]
+    c.executescript(build_retag_sql(b))
+    assert live_links(c, 1) == [('EG-TEN-01', 0), ('EG-TEN-03', 1)] and live_links(c, 3) == [('EG-NOU-01', 1)]
+    c.executescript(build_retag_sql(a))
+    assert [live_links(c, q) for q in (1, 2, 3)] == first
+
+
+def test_retag_never_touches_non_english_questions():
+    """映射里混进了数学题：数学题的关联和考点文字都不变。"""
+    from starmap_retag import build_retag_sql
+    c = retag_fixture()
+    mapping = [{'question_id': 1, 'point_codes': ['EG-TEN-01'], 'primary_code': 'EG-TEN-01'},
+               {'question_id': 2, 'point_codes': ['EG-PRO-01'], 'primary_code': 'EG-PRO-01'},
+               {'question_id': 4, 'point_codes': [], 'primary_code': None}]
+    c.execute("UPDATE question SET knowledge_point='有理数加减' WHERE id=4")
+    c.commit()
+    c.executescript(build_retag_sql(mapping))
+    assert live_links(c, 4) == [('M6-RAT-07', 1)]
+    assert c.execute('SELECT knowledge_point FROM question WHERE id=4').fetchone()[0] == '有理数加减'
+
+
+def test_retag_stops_when_an_english_question_is_missing():
+    """映射漏了一道还挂着旧英语考点的题：执行时报错停下，而不是悄悄删掉它的考点。"""
+    from starmap_retag import build_retag_sql
+    c = retag_fixture()
+    mapping = [{'question_id': 1, 'point_codes': ['EG-TEN-01'], 'primary_code': 'EG-TEN-01'}]   # 漏了第 2 题
+    try:
+        c.executescript(build_retag_sql(mapping))
+    except sqlite3.DatabaseError:
+        c.rollback()
+        return
+    raise AssertionError('漏题时没有报错')
+
+
 TESTS = [
     test_migration_adds_tables_and_column,
     test_migration_is_rerunnable,
@@ -634,6 +721,11 @@ TESTS = [
     test_seed_builder_rejects_unknown_code,
     test_retag_replaces_english_links,
     test_retag_rejects_bad_mapping,
+    test_leaf_no_green_without_three_rights,
+    test_upper_requires_learned_children_good,
+    test_retag_rerun_with_changed_mapping,
+    test_retag_never_touches_non_english_questions,
+    test_retag_stops_when_an_english_question_is_missing,
 ]
 
 

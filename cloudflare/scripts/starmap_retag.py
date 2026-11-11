@@ -5,7 +5,7 @@
      {"question_id": 124, "point_codes": [], "primary_code": null}]      # 空列表 = 词汇类，不进语法星空
 输出一个 SQL 文件，所有语句重复执行结果不变（版本号除外）：
     1. 每道映射里的题：软删除不在新列表里的关联，补上新关联，设置主考点，更新旧的考点文字字段；
-    2. 软删除所有仍指向旧英语考点（E6- 开头）的关联，再软删除旧英语考点（先二级后一级）；
+    2. 软删除旧英语考点（E6- 开头，先二级后一级）；映射漏了还挂着旧考点的题时，数据库会报错停下；
     3. 递增考点目录版本和数据版本。
 运行：python cloudflare/scripts/starmap_retag.py tmp/starmap/retag.json tmp/starmap/retag.sql
 """
@@ -49,41 +49,51 @@ def check_mapping(mapping):
             raise ValueError('第 %d 题没有考点，主考点应为空' % entry['question_id'])
 
 
+ENGLISH = "(SELECT id FROM subject WHERE name='英语' AND deleted=0)"
+
+
 def question_sql(entry):
-    """一道题的重新打标语句。"""
+    """一道题的重新打标语句。每条语句都只作用于英语题（数学题混进映射也不会被改动）。
+
+    写法沿用 knowledge.link_statements：先清掉主考点标记，再软删除不要的关联，
+    已有的关联用 ON CONFLICT 恢复（关联表的 (题, 考点) 唯一，含已删除的行），最后单独设主考点。
+    """
     qid, codes, primary = entry['question_id'], entry.get('point_codes') or [], entry.get('primary_code')
     code_list = ','.join(quote(code) for code in codes) or "''"
+    english = 'EXISTS (SELECT 1 FROM question q WHERE q.id=%d AND q.deleted=0 AND q.subject_id=%s)' % (qid, ENGLISH)
     lines = [
-        # 软删除不在新列表里的关联（重复执行时已经写入的新关联会保留）
+        'UPDATE question_knowledge_point SET is_primary=0,updated_at=CURRENT_TIMESTAMP '
+        'WHERE question_id=%d AND is_primary=1 AND %s;' % (qid, english),
         'UPDATE question_knowledge_point SET deleted=1,updated_at=CURRENT_TIMESTAMP WHERE question_id=%d AND deleted=0 '
-        'AND knowledge_point_id NOT IN (SELECT id FROM knowledge_point WHERE deleted=0 AND code IN (%s));'
-        % (qid, code_list)]
+        'AND knowledge_point_id NOT IN (SELECT id FROM knowledge_point WHERE deleted=0 AND code IN (%s)) AND %s;'
+        % (qid, code_list, english)]
     for code in codes:
         lines.append(
             "INSERT INTO question_knowledge_point(question_id,knowledge_point_id,is_primary,source,deleted,created_at,"
-            "updated_at) SELECT %d,k.id,%d,'retag',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM knowledge_point k "
-            'WHERE k.code=%s AND k.deleted=0 AND EXISTS (SELECT 1 FROM question q WHERE q.id=%d AND q.deleted=0) '
-            'AND NOT EXISTS (SELECT 1 FROM question_knowledge_point l WHERE l.question_id=%d AND '
-            'l.knowledge_point_id=k.id AND l.deleted=0);' % (qid, 1 if code == primary else 0, quote(code), qid, qid))
-    if codes:
-        lines.append('UPDATE question_knowledge_point SET is_primary=CASE WHEN knowledge_point_id=(SELECT id FROM '
-                     'knowledge_point WHERE code=%s AND deleted=0) THEN 1 ELSE 0 END WHERE question_id=%d AND deleted=0;'
-                     % (quote(primary), qid))
+            "updated_at) SELECT %d,k.id,0,'retag',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM knowledge_point k "
+            'WHERE k.code=%s AND k.deleted=0 AND %s '
+            'ON CONFLICT(question_id,knowledge_point_id) DO UPDATE SET deleted=0,is_primary=0,'
+            'updated_at=excluded.updated_at;' % (qid, quote(code), english))
+    if primary:
+        lines.append('UPDATE question_knowledge_point SET is_primary=1,updated_at=CURRENT_TIMESTAMP WHERE question_id=%d '
+                     'AND deleted=0 AND knowledge_point_id=(SELECT id FROM knowledge_point WHERE code=%s AND deleted=0) '
+                     'AND %s;' % (qid, quote(primary), english))
     name = ('(SELECT name FROM knowledge_point WHERE code=%s AND deleted=0)' % quote(primary)) if primary else 'NULL'
     lines.append('UPDATE question SET knowledge_point=%s,knowledge_revision=COALESCE(knowledge_revision,0)+1 '
-                 'WHERE id=%d;' % (name, qid))
+                 'WHERE id=%d AND deleted=0 AND subject_id=%s;' % (name, qid, ENGLISH))
     return '\n'.join(lines)
 
 
 def build_retag_sql(mapping):
-    """生成完整的重新打标 SQL；映射不合格时抛 ValueError。"""
+    """生成完整的重新打标 SQL；映射不合格时抛 ValueError。
+
+    不会替映射漏掉的题删除旧关联：只要还有未删除的英语题挂着旧考点，
+    软删除旧考点那一步会被数据库触发器（KP_INUSE）拒绝，整件事停下来，而不是悄悄丢掉考点。
+    """
     check_mapping(mapping)
     parts = ['-- 英语错题重新打标，由 cloudflare/scripts/starmap_retag.py 生成。', '']
     parts += [question_sql(entry) for entry in mapping]
-    old = "SELECT id FROM knowledge_point WHERE code LIKE '%s%%'" % OLD_PREFIX
-    parts += ['', '-- 旧英语考点：先软删除剩下的关联，再软删除考点（先二级后一级，满足触发器）',
-              'UPDATE question_knowledge_point SET deleted=1,updated_at=CURRENT_TIMESTAMP WHERE deleted=0 AND '
-              'knowledge_point_id IN (%s);' % old,
+    parts += ['', '-- 旧英语考点：先二级后一级软删除；还有题挂着旧考点时触发器会报错停下',
               "UPDATE knowledge_point SET deleted=1,updated_at=CURRENT_TIMESTAMP WHERE code LIKE '%s%%' AND level=2 "
               'AND deleted=0;' % OLD_PREFIX,
               "UPDATE knowledge_point SET deleted=1,updated_at=CURRENT_TIMESTAMP WHERE code LIKE '%s%%' AND level=1 "

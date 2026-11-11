@@ -38,7 +38,7 @@
 
 <script setup>
 // 知识星空页：全屏深色关系图，红黄绿表示掌握程度
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import StarCanvas from '@/components/starmap/StarCanvas.vue'
 import { colorOf, statusText } from '@/components/starmap/starmapColors.js'
 import { starmapApi, loadStarmapSubjects } from '@/api/starmap'
@@ -60,6 +60,8 @@ const toastText = ref('')
 const toastVisible = ref(false)
 const loadError = ref('')
 const lit = ref([])   // 这次播放点亮时刻新掌握的考点
+let timers = []       // 点亮时刻的计时器，换学科或离开页面时清掉
+let pendingSeen = null  // 正在播放、还没记下的 { subjectId, ids }
 
 const subjectName = computed(() => subjects.value.find(s => s.id === subjectId.value)?.name || '')
 const background = computed(() => (subjectName.value === '英语' ? SENTENCES : FORMULAS))
@@ -102,37 +104,55 @@ async function load() {
     // 要点亮的考点先画成"较好"的黄绿色，播放点亮时刻时再变成绿色
     const pending = new Set(body.to_play || [])
     data.value = { ...body, nodes: body.nodes.map(n => (pending.has(n.id) ? { ...n, value: 0.85 } : n)) }
-    if (body.to_play?.length) setTimeout(() => playMoment(body.to_play), 800)
+    if (body.to_play?.length) timers.push(setTimeout(() => playMoment(body.to_play), 800))
   } catch (error) {
     loadError.value = error.response?.data?.detail || '星空暂时打不开，请稍后再试'
   }
 }
 
+// 记下已看过的点亮考点（用播放开始时的学科，不受之后切换学科影响）
+async function flushSeen() {
+  const record = pendingSeen
+  pendingSeen = null
+  if (!record) return
+  try {
+    await starmapApi.markSeen(record.subjectId, record.ids)
+  } catch {
+    // 记录失败下次还会再播放一次，不打扰孩子
+  }
+}
+
+// 停掉正在播放的点亮时刻；没记下的已看记录马上补记
+function stopMoment() {
+  timers.forEach(clearTimeout)
+  timers = []
+  toastVisible.value = false
+  flushSeen()
+}
+
 // 点亮时刻：依次点亮，屏幕中间提示，播放完记下已看
 function playMoment(ids) {
+  pendingSeen = { subjectId: subjectId.value, ids }
   toastText.value = `点亮了 ${ids.length} 颗星`
   toastVisible.value = true
-  ids.forEach((id, index) => setTimeout(() => {
+  ids.forEach((id, index) => timers.push(setTimeout(() => {
     canvasRef.value?.light([id])
     lit.value = [...lit.value, id]
-  }, index * 450))
-  setTimeout(() => { toastVisible.value = false }, 3200)
-  setTimeout(async () => {
-    try {
-      await starmapApi.markSeen(subjectId.value, ids)
-    } catch {
-      // 记录失败下次还会再播放一次，不打扰孩子
-    }
-  }, ids.length * 450 + 1500)
+  }, index * 450)))
+  timers.push(setTimeout(() => { toastVisible.value = false }, 3200))
+  timers.push(setTimeout(flushSeen, ids.length * 450 + 1500))
 }
 
 function choose(id) {
   if (id === subjectId.value) return
+  stopMoment()
   subjectId.value = id
   data.value = null
   onHover(null, null)   // 换学科时收起上一科悬停的名称
   load()
 }
+
+onBeforeUnmount(stopMoment)
 
 onMounted(async () => {
   try {

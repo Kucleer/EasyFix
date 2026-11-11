@@ -15,15 +15,16 @@ LEAF_N = 3           # 最底层考点：最近 3 次全对就是掌握
 UPPER_FACTOR = 3     # 上层星：N = 3 × 覆盖的底层考点数
 UPPER_CAP = 30       # 上层星的 N 最多 30
 UPPER_RATIO = 0.9    # 上层星：最近 N 次里至少九成做对
-UPPER_MAX = 0.99     # 上层星不满足掌握条件时的最高值
+UPPER_MAX = 0.99     # 不满足掌握条件时的最高值（底层和上层都一样）
+UPPER_CHILD_MIN = 0.7  # 上层星要掌握，已学的子考点都要至少"较好"
 # 手动调整的幅度；set_mastered 直接设为 1
 ADJUST = {'up_small': 0.15, 'up_large': 0.35, 'down_small': -0.15, 'set_mastered': None}
 VOCAB_STAGES = (0.25, 0.5, 0.75, 1.0)
 
 
 def clamp(value):
-    """把掌握度限制在 [FLOOR, 1]。"""
-    return max(FLOOR, min(1.0, value))
+    """把加减后的掌握度限制在 [FLOOR, 0.99]：只有"最近 3 次全对"或"直接设为掌握"才能到 1。"""
+    return max(FLOOR, min(UPPER_MAX, value))
 
 
 def sort_events(events):
@@ -55,11 +56,13 @@ def leaf_mastery(events):
 
 
 def upper_mastery(child_values, events, leaf_count, has_unlearned):
-    """上层星的掌握度：子考点平均值；满足"至少 N 次、九成对、没有没学的子考点"时为 1，否则最高 0.99。"""
+    """上层星的掌握度：子考点平均值；满足"至少 N 次、九成对、没有没学的子考点、
+    已学子考点都至少较好"时为 1，否则最高 0.99。"""
     average = sum(child_values) / len(child_values) if child_values else START
     window = min(UPPER_FACTOR * leaf_count, UPPER_CAP)
     answers = answer_events(sort_events(events))
-    if window and len(answers) >= window and not has_unlearned:
+    weak_child = any(value < UPPER_CHILD_MIN for value in child_values)
+    if window and len(answers) >= window and not has_unlearned and not weak_child:
         recent = answers[-window:]
         if sum(event['kind'] == 'right' for event in recent) / window >= UPPER_RATIO:
             return 1.0
