@@ -1414,70 +1414,166 @@ def test_guard_clears_cache_only_when_scan_changes_library():
     assert count_invalidations('POST', '/api/questions') == 1
 
 
-def make_tiny_png(color):
-    """生成一张 1x1 的最小 PNG（不依赖 Pillow）。"""
-    import struct
-    import zlib
+class FakeRegressionHost:
+    """回归脚本用的假识别主机：按图片内容返回文字；内容是 BOOM 时抛异常（模拟一张坏图），记录调用。"""
 
-    def chunk(kind, data):
-        body = kind + data
-        return struct.pack('>I', len(data)) + body + struct.pack('>I', zlib.crc32(body) & 0xFFFFFFFF)
+    def __init__(self, healthy=True):
+        self.healthy = healthy
+        self.calls = []
 
-    header = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
-    pixel = b'\x00' + bytes([color, color, color])
-    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) + chunk(b'IDAT', zlib.compress(pixel)) + chunk(b'IEND', b'')
+    def health(self):
+        """返回健康检查结果。"""
+        return (200, {'ok': True, 'contract': 1}) if self.healthy else (0, None)
+
+    def ocr(self, content, content_type, mode):
+        """按图片内容返回读图结果。"""
+        self.calls.append((content, content_type, mode))
+        if content == b'BOOM':
+            raise RuntimeError('图片坏了')
+        text = '%s-%s' % (content.decode('ascii'), mode)
+        return 200, {'ok': True, 'contract': 1, 'mode': mode, 'text': text, 'elapsed_ms': 7}
 
 
-def test_regression_script_runs_with_fakes_and_refuses_repo_paths():
-    """回归脚本用假主机假模型跑两张图：两行汇总、两个 JSON、都 ready；图片目录在仓库里则拒绝。"""
+def fake_regression_model(prompt):
+    """回归脚本用的假模型：带 FLAG 的页第一次整理打读图异常标记，重扫后不再打；还给一道做对的题。"""
+    flagged = 'FLAG' in prompt and 'OCR_ENHANCED' not in prompt
+    return {'questions': [
+        {'question_no': '1', 'parsed_question': '计算 1+2', 'wrong_answer': '4', 'verdict': 'wrong',
+         'reason': '应为 3', 'flags': ['merged'] if flagged else [], 'answer': '3', 'analysis': '相加',
+         'knowledge_point_ids': [], 'error_types': ['计算错误'], 'difficulty': 2},
+        {'question_no': '2', 'parsed_question': '计算 2+2', 'verdict': 'right'},
+    ]}
+
+
+def test_regression_script_runs_standalone_with_fakes():
+    """回归脚本：注入假主机假模型（不联网）跑三张图，一张坏图不拖垮整批；结果文件齐全；不打印口令。"""
     import csv
     import tempfile
     import scan_regression
 
-    # 脚本会替换 scan 模块里的依赖，跑完要还原，免得影响别的测试
-    saved = (scan.Database, scan.ocr_client, scan.generate_json)
-    try:
-        with tempfile.TemporaryDirectory(prefix='easyfix_scan_test_') as temp_dir:
-            temp = pathlib.Path(temp_dir)
-            images, out = temp / 'images', temp / 'out'
-            images.mkdir()
-            (images / 'a.png').write_bytes(make_tiny_png(10))
-            (images / 'b.png').write_bytes(make_tiny_png(200))
-            with contextlib.redirect_stdout(io.StringIO()):
-                code = scan_regression.main(['--images', str(images), '--out', str(out)])
-            assert code == 0, code
-            with open(out / 'summary.csv', encoding='utf-8-sig', newline='') as file:
-                rows = list(csv.DictReader(file))
-            assert len(rows) == 2, rows
-            assert all(row['状态'] == 'ready' for row in rows), rows
-            assert sorted(path.name for path in out.glob('*.json')) == ['a.png.json', 'b.png.json']
-            saved_page = json.loads((out / 'a.png.json').read_text(encoding='utf-8'))
-            assert saved_page['ocr_text'] and len(saved_page['items']) == 6
-            assert (out / '对照表.md').exists()
-            # 一张坏图（空文件）不拖垮整批：记 error 行，汇总和对照表照常写出
-            (images / 'c_bad.png').write_bytes(b'')
-            out2 = temp / 'out2'
-            with contextlib.redirect_stdout(io.StringIO()):
-                code = scan_regression.main(['--images', str(images), '--out', str(out2)])
-            assert code == 0, code
-            with open(out2 / 'summary.csv', encoding='utf-8-sig', newline='') as file:
-                rows = list(csv.DictReader(file))
-            assert [row['状态'] for row in rows] == ['ready', 'ready', 'error'], rows
-            assert rows[2]['备注'], rows[2]
-            assert 'c_bad.png' in (out2 / '对照表.md').read_text(encoding='utf-8')
-            # 口令文件不存在：中文提示，不抛堆栈
+    with tempfile.TemporaryDirectory(prefix='easyfix_scan_test_') as temp_dir:
+        temp = pathlib.Path(temp_dir)
+        images, out = temp / 'images', temp / 'out'
+        images.mkdir()
+        (images / 'a.png').write_bytes(b'PLAIN')
+        (images / 'b.jpg').write_bytes(b'FLAG')
+        (images / 'c_bad.webp').write_bytes(b'BOOM')
+        (images / 'notes.txt').write_text('不是图片', encoding='utf-8')
+        key_file, config_file = temp / 'key.txt', temp / 'llm.json'
+        key_file.write_text('﻿SECRET-KEY-123\n', encoding='utf-8')
+        config_file.write_text(json.dumps({'provider': 'openai', 'api_key': 'SECRET-API-456',
+                                           'base_url': 'https://example.invalid/v1', 'model': 'm'}),
+                               encoding='utf-8')
+        host = FakeRegressionHost()
+        made = {}
+
+        def make_host(url, key):
+            """记录脚本传进来的地址和口令，返回假主机。"""
+            made['host'] = (url, key)
+            return host
+
+        def make_model(config):
+            """记录配置，返回假模型。"""
+            made['model'] = config
+            return fake_regression_model
+
+        base = ['--images', str(images), '--ocr-key-file', str(key_file), '--llm-config', str(config_file)]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = scan_regression.main(base + ['--out', str(out)], make_host, make_model)
+        printed = output.getvalue()
+        assert code == 0, (code, printed)
+        assert made['host'] == ('http://127.0.0.1:11436', 'SECRET-KEY-123') and made['model']['model'] == 'm'
+        assert 'SECRET-KEY-123' not in printed and 'SECRET-API-456' not in printed
+        assert '中位数' in printed and '最大' in printed
+        # 图片类型按扩展名给；带 FLAG 的那页重扫了一次
+        assert (b'PLAIN', 'image/png', 'normal') in host.calls and (b'FLAG', 'image/jpeg', 'enhanced') in host.calls
+        assert (b'PLAIN', 'image/png', 'enhanced') not in host.calls
+        with open(out / 'summary.csv', encoding='utf-8-sig', newline='') as file:
+            rows = list(csv.DictReader(file))
+        assert [row['图名'] for row in rows] == ['a.png', 'b.jpg', 'c_bad.webp'], rows
+        assert [row['状态'] for row in rows] == ['ready', 'ready', 'error'], rows
+        assert [row['是否重扫'] for row in rows[:2]] == ['否', '是'] and 'RuntimeError' in rows[2]['备注']
+        assert sorted(path.name for path in out.glob('*.json')) == ['a.png.json', 'b.jpg.json']
+        saved = json.loads((out / 'b.jpg.json').read_text(encoding='utf-8'))
+        assert saved['status'] == 'ready' and saved['rescan_used'] == 1 and saved['error'] is None
+        assert saved['ocr_text'] == 'FLAG-normal' and saved['ocr_text_enhanced'] == 'FLAG-enhanced'
+        assert {'read_ms', 'analyze_ms', 'rescan_ms', 'analyze2_ms'} <= set(saved['timings'])
+        assert isinstance(saved['total_ms'], int) and len(saved['items']) == 2
+        table = (out / '对照表.md').read_text(encoding='utf-8')
+        for text in ('## a.png（ready）', '## b.jpg（ready，重扫过）', '## c_bad.webp（error）',
+                     '### 模型判错（1 道）', '### 模型判对（1 道）', '第 2 题：计算 2+2'):
+            assert text in table, text
+
+        def expect_refusal(argv, words, make=make_host):
+            """跑一次，要求返回 2 并打印包含 words 的中文说明。"""
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                code = scan_regression.main(['--images', str(images), '--out', str(out2),
-                                             '--llm-config', str(temp / 'nope.json')])
-            assert code == 2 and '--llm-config' in output.getvalue(), (code, output.getvalue())
-            # 图片目录在仓库里：拒绝运行
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                code = scan_regression.main(['--images', str(ROOT / 'scripts'), '--out', str(out)])
-            assert code == 2 and '仓库' in output.getvalue(), (code, output.getvalue())
-    finally:
-        scan.Database, scan.ocr_client, scan.generate_json = saved
+                code = scan_regression.main(argv, make, make_model)
+            assert code == 2 and words in output.getvalue(), (code, output.getvalue())
+            assert 'SECRET' not in output.getvalue()
+
+        # 识别服务不可用：不跑，也不写结果
+        out_down = temp / 'down'
+        expect_refusal(base + ['--out', str(out_down)], '识别服务不可用',
+                       make=lambda url, key: FakeRegressionHost(healthy=False))
+        assert not out_down.exists()
+        # 配置文件问题：中文提示，不抛堆栈
+        expect_refusal(['--images', str(images), '--ocr-key-file', str(temp / 'nope.txt'),
+                        '--llm-config', str(config_file), '--out', str(out)], '--ocr-key-file')
+        (temp / 'bad.json').write_text('{"api_key": "SECRET-x"}', encoding='utf-8')
+        expect_refusal(['--images', str(images), '--ocr-key-file', str(key_file),
+                        '--llm-config', str(temp / 'bad.json'), '--out', str(out)], 'base_url')
+        # 图片目录或结果目录在仓库里：拒绝运行
+        expect_refusal(['--images', str(ROOT / 'scripts'), '--ocr-key-file', str(key_file),
+                        '--llm-config', str(config_file), '--out', str(out)], '仓库')
+        expect_refusal(base + ['--out', str(ROOT / 'scripts' / 'out')], '仓库')
+
+
+def test_regression_catalog_and_model_request():
+    """回归脚本的考点编号按文件位置、稳定；模型请求照线上格式并用整页识别的参数；回复解析同线上。"""
+    import scan_regression
+
+    points = json.loads(scan_regression.CATALOG_FILE.read_text(encoding='utf-8'))['points']
+    catalog = scan_regression.load_catalog('数学', 6, 1)
+    assert catalog and catalog == scan_regression.load_catalog('数学', 6, 1)
+    for group in catalog:
+        assert points[group['id'] - 1]['level'] == 1 and points[group['id'] - 1]['name'] == group['name']
+        for point in group['points']:
+            source = points[point['id'] - 1]
+            assert source['level'] == 2 and source['subject'] == '数学' and source['name'] == point['name']
+    assert scan_regression.load_error_type_names('数学') == {'计算错误', '审题不清', '概念错误', '完全不会'}
+    url, headers, body, anthropic = scan_regression.build_model_request(
+        {'api_key': 'k', 'base_url': 'https://x.example/v1/', 'model': 'm'}, '提示词')
+    assert url == 'https://x.example/v1/chat/completions' and not anthropic
+    assert headers['Authorization'] == 'Bearer k' and body['max_tokens'] == 8000 and body['temperature'] == 0.2
+    assert body['messages'][0]['role'] == 'system' and body['messages'][1]['content'] == '提示词'
+    url, headers, body, anthropic = scan_regression.build_model_request(
+        {'provider': 'anthropic', 'api_key': 'k', 'base_url': 'https://x.example/anthropic', 'model': 'm'}, 'p')
+    assert anthropic and url == 'https://x.example/anthropic/v1/messages' and headers['x-api-key'] == 'k'
+    assert body['temperature'] == 0.2 and body['thinking'] == {'type': 'disabled'} and body['max_tokens'] == 8000
+    fenced = json.dumps({'choices': [{'message': {'content': '```json\n{"questions": []}\n```'}}]})
+    assert scan_regression.parse_model_reply(fenced, False) == {'questions': []}
+    blocks = json.dumps({'content': [{'type': 'text', 'text': '{"a": 1}'}]})
+    assert scan_regression.parse_model_reply(blocks, True) == {'a': 1}
+    for bad in ('不是 JSON', json.dumps({'choices': []}), json.dumps({'choices': [{'message': {'content': '半截{'}}]})):
+        try:
+            scan_regression.parse_model_reply(bad, False)
+        except scan_regression.ModelError as error:
+            assert error.detail == '模型没有返回有效的结构化内容'
+        else:
+            raise AssertionError(bad)
+
+
+def test_regression_script_imports_only_stdlib():
+    """回归脚本在主机上只靠标准库和 httpx：导入时不加载 fastapi、本机测试服务，httpx 也只在建真实客户端时才导入。"""
+    import subprocess
+    code = ('import sys; sys.path.insert(0, %r); import scan_regression; '
+            "print(sorted(name for name in ('fastapi', 'starlette', 'local_dev_server', 'httpx', 'scan', 'settings') "
+            'if name in sys.modules))') % str(ROOT / 'scripts')
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == '[]', result.stdout
 
 
 TESTS = [
@@ -1538,7 +1634,9 @@ TESTS = [
     test_concurrent_withdraw_acts_once,
     test_withdraw_on_page_closed_midway_is_409,
     test_stale_withdraw_keeps_new_question_linked,
-    test_regression_script_runs_with_fakes_and_refuses_repo_paths,
+    test_regression_script_runs_standalone_with_fakes,
+    test_regression_catalog_and_model_request,
+    test_regression_script_imports_only_stdlib,
 ]
 
 
