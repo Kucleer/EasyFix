@@ -23,6 +23,8 @@
       </div>
     </header>
 
+    <StarMapCard />
+
     <section class="focus-panel"><div><p class="hero-eyebrow">TODAY'S FOCUS · 今日重点</p><h2>{{ stats.to_review_questions ? '从 ' + stats.to_review_questions + ' 道待复习错题开始' : '从一次认真复习开始' }}</h2><p>回顾上次的难点，让知识掌握得更扎实。</p><el-button type="primary" @click="router.push('/questions')">开始错题复习 <el-icon><Right /></el-icon></el-button></div><div class="focus-total"><strong>{{ learningOverview.today_question_review_count + learningOverview.today_word_review_count }}</strong><span>今日已复习</span></div></section>
     <nav class="home-shortcuts" aria-label="学习快捷入口"><RouterLink to="/questions">错题复习 <span>{{ stats.to_review_questions || 0 }} 道待复习 →</span></RouterLink><RouterLink to="/review">待核对 <span>{{ reviewCountStore.pending > 0 ? reviewCountStore.pending + ' 道待处理 →' : '暂无待处理 →' }}</span></RouterLink><RouterLink to="/words">单词温习 <span>{{ stats.word_stats?.to_review_count || 0 }} 个待温习 →</span></RouterLink><RouterLink to="/practice-sets">专项练习 <span>进入练习中心 →</span></RouterLink><RouterLink to="/reading">阅读训练 <span>选一篇开始 →</span></RouterLink></nav>
     <!-- Stats Grid -->
@@ -312,6 +314,7 @@
 
 <script setup>
 import { Right } from '@element-plus/icons-vue'
+import StarMapCard from '@/components/StarMapCard.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { statsApi, statsOverviewApi } from '@/api/question'
