@@ -574,6 +574,73 @@ def test_rescan_failure_keeps_first_result():
     assert host.calls == {'normal': 1, 'enhanced': 1} and len(model.prompts) == 1
 
 
+def test_second_analysis_failure_keeps_first_result():
+    """重扫后的第二次整理失败：直接 ready，保留第一次的结果，失败原因只记进 timings。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    host = FakeHost()
+    model = FakeModel(model_result(['merged']), HTTPException(502, '模型没有返回有效的结构化内容'))
+    with scan_patched(host, model):
+        page_id = new_page(db)['id']
+        advance(db, page_id)
+        first_items = advance(db, page_id)['page']['items']
+        statuses = [advance(db, page_id)['page']['status'] for _ in range(2)]
+        assert statuses == ['analyzing', 'ready'], statuses
+        again = advance(db, page_id)
+    page = again['page']
+    assert again['busy'] is False and page['status'] == 'ready' and page['error'] is None
+    assert page['items'] == first_items and page['timings']['analyze2_error'] == '模型没有返回有效的结构化内容'
+    assert host.calls == {'normal': 1, 'enhanced': 1} and len(model.prompts) == 2
+
+
+class InterruptingHost(FakeHost):
+    """读图进行到一半时执行 interrupt（模拟页面被结束、或卡住后被别人重新认领）。"""
+
+    def __init__(self, interrupt):
+        super().__init__()
+        self.interrupt = interrupt
+
+    async def fetch_ocr(self, env, content, content_type, mode, timeout_seconds):
+        """先执行打断动作，再正常返回读图结果。"""
+        self.interrupt()
+        return await super().fetch_ocr(env, content, content_type, mode, timeout_seconds)
+
+
+def test_late_finisher_does_not_overwrite():
+    """一步还没做完页面就被结束、或被别人重新认领：这一步的结果不写回。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    with scan_patched():
+        page_id = new_page(db)['id']
+
+        def close_now():
+            """读图途中结束这一页。"""
+            run_sync_close(connection, page_id)
+
+        with scan_patched(InterruptingHost(close_now)):
+            advance(db, page_id)
+        row = page_row(connection, page_id)
+        assert row['status'] == 'closed' and row['ocr_text'] is None and row['timings'] == '{}'
+
+        other_id = new_page(db)['id']
+
+        def reclaim_now():
+            """读图途中被另一个请求重新认领（开始时间换成新的）。"""
+            connection.execute('UPDATE scan_page SET step_started_at=? WHERE id=?', (NOW + 5, other_id))
+            connection.commit()
+
+        with scan_patched(InterruptingHost(reclaim_now)):
+            advance(db, other_id)
+        row = page_row(connection, other_id)
+        assert row['status'] == 'reading' and row['step_started_at'] == NOW + 5 and row['ocr_text'] is None
+
+
+def run_sync_close(connection, page_id):
+    """直接在库里把一页改成 closed（和结束接口写的一样）。"""
+    connection.execute("UPDATE scan_page SET status='closed',step_started_at=NULL WHERE id=?", (page_id,))
+    connection.commit()
+
+
 def test_busy_host_retries_then_fails():
     """主机一直忙：等 3 次、共调 4 次后失败；忙两次后成功就继续。"""
     connection = build_scan_database()
@@ -739,6 +806,8 @@ TESTS = [
     test_advance_with_rescan_runs_once,
     test_rescan_switch_off,
     test_rescan_failure_keeps_first_result,
+    test_second_analysis_failure_keeps_first_result,
+    test_late_finisher_does_not_overwrite,
     test_busy_host_retries_then_fails,
     test_host_garbage_and_contract_mismatch,
     test_model_failure_retry_does_not_reread,

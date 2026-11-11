@@ -152,7 +152,7 @@ async def run_read(request, db, page, started_at):
 async def run_analyze(request, db, page, started_at):
     """整理：调一次文本模型；成功存题目草稿，需要重扫转 rescanning，否则 ready；失败转 failed，读图文字保留。"""
     clock = time.time()
-    subject = await db.first('SELECT name FROM subject WHERE id=?', (page['subject_id'],))
+    subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (page['subject_id'],))
     catalog = await load_catalog(db, page['subject_id'], page['grade'], page['semester'])
     error_type_names = await load_error_type_names(db, page['subject_id'])
     prompt = build_page_prompt(subject['name'] if subject else '', page['grade'], page['semester'],
@@ -160,13 +160,21 @@ async def run_analyze(request, db, page, started_at):
     timings = json.loads(page['timings'] or '{}')
     # 重扫后的第二次整理单独记用时
     timing_key = 'analyze2_ms' if page['ocr_text_enhanced'] else 'analyze_ms'
+    error_text = None
     try:
         raw = await generate_json(request, prompt)
     except HTTPException as error:
-        fields = {'status': 'failed', 'error': error.detail}
+        error_text = error.detail
     except Exception:
         # 生产环境里网络超时等会抛运行时异常，统一给一句模型失败的提示
-        fields = {'status': 'failed', 'error': MODEL_FAILED_TEXT}
+        error_text = MODEL_FAILED_TEXT
+    if error_text is not None:
+        if page['ocr_text_enhanced'] and json.loads(page['items'] or '[]'):
+            # 重扫后的第二次整理失败：已有第一次的结果，直接 ready 并保留它，失败原因只记进 timings
+            timings['analyze2_error'] = error_text
+            fields = {'status': 'ready', 'error': None}
+        else:
+            fields = {'status': 'failed', 'error': error_text}
     else:
         catalog_ids = {point['id'] for group in catalog for point in group['points']}
         items = clean_items(raw, catalog_ids, error_type_names)
