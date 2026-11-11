@@ -1069,6 +1069,37 @@ def test_withdraw_on_page_closed_midway_is_409():
     assert stored_items(connection, page_id)[0]['state'] == 'accepted'
 
 
+def test_stale_withdraw_keeps_new_question_linked():
+    """撤回 W1 读到 Q1 后，W2 撤回 Q1、再录入得到 Q2；W1 的写入不能动 Q2，草稿仍指向 Q2。"""
+    connection = build_scan_database()
+    db = SQLiteDB(connection)
+    plain = SQLiteDB(connection)
+    with items_patched():
+        page_id = ready_page(connection, db, [draft_item(0)])
+        first_id = item_call(scan.accept_item, page_id, 0, db)['items'][0]['question_id']
+    original_batch = db.batch
+    holder = {}
+
+    async def interleaved_batch(statements):
+        """W1 写入前，先让 W2 完整撤回、再重新录入一次。"""
+        await scan.withdraw_item(page_id, 0, PageRequest(plain))
+        page = await scan.accept_item(page_id, 0, PageRequest(plain))
+        holder['second_id'] = page['items'][0]['question_id']
+        return await original_batch(statements)
+
+    db.batch = interleaved_batch
+    with items_patched():
+        result = item_call(scan.withdraw_item, page_id, 0, db)
+    second_id = holder['second_id']
+    assert second_id != first_id
+    deleted = dict(connection.execute('SELECT id,deleted FROM question WHERE id IN (?,?)',
+                                      (first_id, second_id)).fetchall())
+    assert deleted == {first_id: 1, second_id: 0}
+    item = stored_items(connection, page_id)[0]
+    assert item['state'] == 'accepted' and item['question_id'] == second_id
+    assert result['items'][0]['question_id'] == second_id
+
+
 def test_withdraw_soft_deletes():
     """录入后撤回：错题软删除，草稿回到 open；再次录入得到新的一道；没录入的不能撤回。"""
     connection = build_scan_database()
@@ -1263,6 +1294,7 @@ TESTS = [
     test_accept_all_batches_within_query_budget,
     test_concurrent_withdraw_acts_once,
     test_withdraw_on_page_closed_midway_is_409,
+    test_stale_withdraw_keeps_new_question_linked,
 ]
 
 

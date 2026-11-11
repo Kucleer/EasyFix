@@ -516,8 +516,10 @@ async def withdraw_item(page_id: int, seq: int, request: Request):
          "AND json_extract(items, '$[' || ? || '].question_id')=?)",
          (question_id, page_id, seq, seq, question_id)),
         ("UPDATE scan_page SET items=json_set(items, '$[' || ? || ']', json(?)), updated_at=? "
-         "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, '$[' || ? || '].state')='accepted'",
-         (seq, json.dumps(reopened, ensure_ascii=False), stamp_now(), page_id, seq)),
+         "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, '$[' || ? || '].state')='accepted' "
+         # 还要指向读到的那道题：期间被别人撤回又重新录入（换了新题）时不能把新题的草稿改回 open
+         "AND json_extract(items, '$[' || ? || '].question_id') IS ?",
+         (seq, json.dumps(reopened, ensure_ascii=False), stamp_now(), page_id, seq, seq, question_id)),
     ])
     page = await load_page(db, page_id, student_id)
     current = json.loads(page['items'] or '[]')[seq]
