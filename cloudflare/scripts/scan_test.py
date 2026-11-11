@@ -7,6 +7,7 @@
 
 import asyncio
 import contextlib
+import io
 import json
 import pathlib
 import sys
@@ -1320,6 +1321,55 @@ def test_guard_clears_cache_only_when_scan_changes_library():
     assert count_invalidations('POST', '/api/questions') == 1
 
 
+def make_tiny_png(color):
+    """生成一张 1x1 的最小 PNG（不依赖 Pillow）。"""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack('>I', len(data)) + body + struct.pack('>I', zlib.crc32(body) & 0xFFFFFFFF)
+
+    header = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
+    pixel = b'\x00' + bytes([color, color, color])
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) + chunk(b'IDAT', zlib.compress(pixel)) + chunk(b'IEND', b'')
+
+
+def test_regression_script_runs_with_fakes_and_refuses_repo_paths():
+    """回归脚本用假主机假模型跑两张图：两行汇总、两个 JSON、都 ready；图片目录在仓库里则拒绝。"""
+    import csv
+    import tempfile
+    import scan_regression
+
+    # 脚本会替换 scan 模块里的依赖，跑完要还原，免得影响别的测试
+    saved = (scan.Database, scan.ocr_client, scan.generate_json)
+    try:
+        with tempfile.TemporaryDirectory(prefix='easyfix_scan_test_') as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            images, out = temp / 'images', temp / 'out'
+            images.mkdir()
+            (images / 'a.png').write_bytes(make_tiny_png(10))
+            (images / 'b.png').write_bytes(make_tiny_png(200))
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = scan_regression.main(['--images', str(images), '--out', str(out)])
+            assert code == 0, code
+            with open(out / 'summary.csv', encoding='utf-8-sig', newline='') as file:
+                rows = list(csv.DictReader(file))
+            assert len(rows) == 2, rows
+            assert all(row['状态'] == 'ready' for row in rows), rows
+            assert sorted(path.name for path in out.glob('*.json')) == ['a.png.json', 'b.png.json']
+            saved_page = json.loads((out / 'a.png.json').read_text(encoding='utf-8'))
+            assert saved_page['ocr_text'] and len(saved_page['items']) == 3
+            assert (out / '对照表.md').exists()
+            # 图片目录在仓库里：拒绝运行
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = scan_regression.main(['--images', str(ROOT / 'scripts'), '--out', str(out)])
+            assert code == 2 and '仓库' in output.getvalue(), (code, output.getvalue())
+    finally:
+        scan.Database, scan.ocr_client, scan.generate_json = saved
+
+
 TESTS = [
     test_interpret_health,
     test_health_endpoint_hides_host_details,
@@ -1373,6 +1423,7 @@ TESTS = [
     test_concurrent_withdraw_acts_once,
     test_withdraw_on_page_closed_midway_is_409,
     test_stale_withdraw_keeps_new_question_linked,
+    test_regression_script_runs_with_fakes_and_refuses_repo_paths,
 ]
 
 
