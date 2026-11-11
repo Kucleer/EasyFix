@@ -154,7 +154,7 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '6. 只是书写形式不同不算错，例如 0.5 和 1/2、化简前后的同一个数，都按做对（0.5 和 1/2 不算错）。',
         '7. 例外：孩子的答案里有字母（代数式）时，书写规范本身就是考点，要逐条检查：'
         '数字和字母相乘，数字写在字母前面（a·0.8、a×10 都要写成 0.8a、10a）；字母之间的乘号省略；'
-        '带分数系数要化成假分数（1\frac{2}{5}x 写成 \frac{7}{5}x）；除法写成分数形式（(36-x)÷a 写成 \frac{36-x}{a}）；'
+        '带分数系数要化成假分数（1\\frac{2}{5}x 写成 \\frac{7}{5}x）；除法写成分数形式（(36-x)÷a 写成 \\frac{36-x}{a}）；'
         '和或差后面带单位时要加括号。值相等但违反任意一条的，判 wrong，reason 写明违反哪条。',
         '',
         _knowledge_rules(catalog, error_type_names),
