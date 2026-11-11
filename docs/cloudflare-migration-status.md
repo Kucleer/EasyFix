@@ -200,3 +200,4 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 部署：Worker `50db82b1`（上线前一版 `54589127`），Pages `dd159130`（上线前一版 `a54a1ab2`）。分支 `feature/page-scan-intake` 尚未合并进 main。
 - 联调与调优期间没有录入任何错题，题库前后 637 道（未删除 613 道）；联调和评测用的识别页 5–13 都已结束。
 - 2026-11-11 晚：修公式显示（清洗时给裸公式加边界）、"不是错题"改为红色描边按钮并直接滑出、界面"孩子"改为"学生"。部署 Worker `fa75dcfe`、Pages `e2f6e886`。此前 Worker 部署连续 4 次被 Cloudflare 以错误 10021（"binding DB of type d1 failed to generate"）拒绝，配置未变、D1 正常，约 10 分钟后重试成功。
+- 2026-11-11 晚：合并手机默写修复（分支 `fix/mobile-dictation-keyboard`，提交 `51b19f8f`：点方格时让隐藏输入框真正获得焦点以弹出软键盘，并兼容安卓键盘读不到按键字母的情况）到 `feature/page-scan-intake`，一起构建前端发布 Pages `ce0740e3`。后端未变（Worker `fa75dcfe`）。尚未在真手机（微信 / iPhone）上验证。
