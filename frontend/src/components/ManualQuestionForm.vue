@@ -157,7 +157,21 @@ import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { uploadApi, questionApi } from '@/api/question'
 
+// 外部传入的初值：整页识别改为手工录时，带上已上传的照片和那一页的学科年级学期
+const props = defineProps({
+  presetImages: { type: Array, default: () => [] },  // 已上传的图片路径
+  subjectId: { type: Number, default: null },
+  grade: { type: Number, default: null },
+  semester: { type: Number, default: null },
+})
+
 const appConfigStore = useAppConfigStore()
+
+/** 读 localStorage 里保存的上次选择（整数），没有时返回 null。 */
+const read_last_choice = (key) => {
+  const value = localStorage.getItem(key)
+  return value ? parseInt(value) : null
+}
 
 // 年级选项
 const gradeOptions = [
@@ -182,7 +196,7 @@ const uploadRef = ref(null)
 
 // 上传相关
 const selectedFiles = ref([])
-const uploadImagePaths = ref([])
+const uploadImagePaths = ref([...props.presetImages])
 
 const subjects = ref([])
 const allTags = ref([])
@@ -190,9 +204,9 @@ const knowledgePoints = ref([])
 const errorTypes = ref([])
 const filteredErrorTypes = ref([])
 
-// 表单 - 学科/年级/学期从 localStorage 恢复
+// 表单 - 学科/年级/学期优先用传入的初值，没有时从 localStorage 恢复
 const form = reactive({
-  subject_id: localStorage.getItem('lastSubjectId') ? parseInt(localStorage.getItem('lastSubjectId')) : null,
+  subject_id: props.subjectId ?? read_last_choice('lastSubjectId'),
   parsed_question: '',
   answer: '',
   analysis: '',
@@ -200,8 +214,8 @@ const form = reactive({
   error_type: [],
   knowledge_point_ids: [],
   primary_knowledge_point_id: null,
-  grade: localStorage.getItem('lastGrade') ? parseInt(localStorage.getItem('lastGrade')) : null,
-  semester: localStorage.getItem('lastSemester') ? parseInt(localStorage.getItem('lastSemester')) : null,
+  grade: props.grade ?? read_last_choice('lastGrade'),
+  semester: props.semester ?? read_last_choice('lastSemester'),
   tag_ids: [],
 })
 
