@@ -63,7 +63,8 @@ const lit = ref([])   // 这次播放点亮时刻新掌握的考点
 
 const subjectName = computed(() => subjects.value.find(s => s.id === subjectId.value)?.name || '')
 const background = computed(() => (subjectName.value === '英语' ? SENTENCES : FORMULAS))
-const masteredCount = computed(() => (data.value?.mastered_count || 0) + lit.value.length)
+// 接口的已掌握数里已经包含这次要点亮的考点：先减去，点亮一颗加一颗
+const masteredCount = computed(() => (data.value?.mastered_count || 0) - (data.value?.to_play?.length || 0) + lit.value.length)
 
 // 悬停时浮出的名称
 const tipText = computed(() => hovered.value?.name || '')
@@ -98,7 +99,9 @@ async function load() {
   lit.value = []
   try {
     const { data: body } = await starmapApi.get(subjectId.value)
-    data.value = body
+    // 要点亮的考点先画成"较好"的黄绿色，播放点亮时刻时再变成绿色
+    const pending = new Set(body.to_play || [])
+    data.value = { ...body, nodes: body.nodes.map(n => (pending.has(n.id) ? { ...n, value: 0.85 } : n)) }
     if (body.to_play?.length) setTimeout(() => playMoment(body.to_play), 800)
   } catch (error) {
     loadError.value = error.response?.data?.detail || '星空暂时打不开，请稍后再试'
@@ -127,6 +130,7 @@ function choose(id) {
   if (id === subjectId.value) return
   subjectId.value = id
   data.value = null
+  onHover(null, null)   // 换学科时收起上一科悬停的名称
   load()
 }
 
