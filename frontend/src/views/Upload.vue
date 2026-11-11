@@ -117,13 +117,39 @@
       <div class="back-link">
         <el-button link type="primary" @click="back_to_pick">← 返回选图</el-button>
       </div>
-      <ManualQuestionForm
-        :key="manual_key"
-        :preset-images="manual_preset.images"
-        :subject-id="manual_preset.subject_id"
-        :grade="manual_preset.grade"
-        :semester="manual_preset.semester"
-      />
+      <div :class="{ 'manual-layout': manual_preset.images.length }">
+        <!-- 带着照片改为手工录时，照片留在旁边对照（电脑端左栏，手机端在上方可收起） -->
+        <div
+          v-if="manual_preset.images.length"
+          class="photo-panel"
+          :class="{ collapsed: photo_collapsed }"
+        >
+          <div class="photo-header">
+            <span>原图</span>
+            <el-button class="photo-toggle" link type="primary" size="small" @click="photo_collapsed = !photo_collapsed">
+              {{ photo_collapsed ? '展开' : '收起' }}
+            </el-button>
+          </div>
+          <div class="photo-body">
+            <el-image
+              v-for="img in manual_preset.images"
+              :key="img"
+              :src="'/uploads/' + img"
+              :preview-src-list="manual_preset.images.map(i => '/uploads/' + i)"
+              fit="contain"
+            />
+          </div>
+        </div>
+        <div class="manual-form">
+          <ManualQuestionForm
+            :key="manual_key"
+            :preset-images="manual_preset.images"
+            :subject-id="manual_preset.subject_id"
+            :grade="manual_preset.grade"
+            :semester="manual_preset.semester"
+          />
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -177,6 +203,7 @@ const pick_upload_ref = ref(null)
 // 手工表单的初值；每次进入手工录都换一个 key，让表单重新按初值建立
 const manual_key = ref(0)
 const manual_preset = reactive({ images: [], subject_id: null, grade: null, semester: null })
+const photo_collapsed = ref(false)  // 手机端原图是否收起
 
 /** 读 localStorage 里保存的上次选择（整数），没有时返回 null。 */
 const read_last_choice = (key) => {
@@ -310,6 +337,8 @@ const shrink_image = async (file, max_side, quality) => {
   canvas.getContext('2d').drawImage(bitmap, 0, 0, size.width, size.height)
   bitmap.close()
   const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality))
+  // 浏览器导不出图片时 toBlob 给 null，不能把它当文件上传
+  if (!blob) throw new Error('图片压缩失败，请换一张')
   const name = file.name.replace(/\.[^.]*$/, '') + '.jpg'
   return new File([blob], name, { type: 'image/jpeg' })
 }
@@ -345,12 +374,21 @@ const handle_pick_file = async (upload_file) => {
       enter_manual([uploaded.path], pick_form)
       return
     }
-    const { data: new_page } = await scanApi.create({
-      image: uploaded.path,
-      subject_id: pick_form.subject_id,
-      grade: pick_form.grade,
-      semester: pick_form.semester,
-    })
+    let new_page
+    try {
+      const response = await scanApi.create({
+        image: uploaded.path,
+        subject_id: pick_form.subject_id,
+        grade: pick_form.grade,
+        semester: pick_form.semester,
+      })
+      new_page = response.data
+    } catch (error) {
+      // 照片已经传上去了，只是识别没开始：带着照片改为手工录
+      ElMessage.error('识别没开始：' + read_error_text(error))
+      enter_manual([uploaded.path], pick_form)
+      return
+    }
     start_scanning(new_page)
   } catch (error) {
     ElMessage.error('上传失败：' + read_error_text(error))
@@ -366,6 +404,7 @@ const enter_manual = (images, source = pick_form) => {
   manual_preset.grade = source.grade ?? null
   manual_preset.semester = source.semester ?? null
   manual_key.value += 1
+  photo_collapsed.value = false
   page.value = null
   mode.value = 'manual'
 }
@@ -558,10 +597,73 @@ onBeforeUnmount(stop_scan_loop)
   margin-bottom: 8px;
 }
 
-/* 手机端：原图在上，状态在下 */
+/* 手工录带照片：左边原图固定，右边表单 */
+.manual-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.photo-panel {
+  flex: 0 0 40%;
+  position: sticky;
+  top: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+}
+
+.photo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+/* 电脑端不需要收起按钮 */
+.photo-toggle {
+  display: none;
+}
+
+.photo-body .el-image {
+  width: 100%;
+  max-height: 80vh;
+}
+
+.manual-form {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 手机端：原图在上，状态在下；手工录的原图在上方，可以收起 */
 @media (max-width: 768px) {
   .scan-layout {
     flex-direction: column;
+  }
+
+  .manual-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .photo-panel {
+    position: static;
+    flex: none;
+  }
+
+  .photo-toggle {
+    display: inline-flex;
+  }
+
+  .photo-panel.collapsed .photo-body {
+    display: none;
+  }
+
+  .photo-panel.collapsed .photo-header {
+    margin-bottom: 0;
   }
 }
 </style>

@@ -362,7 +362,8 @@ const submitQuestion = async () => {
     form.primary_knowledge_point_id = null
     form.tag_ids = []
     selectedFiles.value = []
-    uploadImagePaths.value = []
+    // 带着整页照片进来时，下一道题仍然带上这张照片；普通手工录清空
+    uploadImagePaths.value = [...props.presetImages]
     uploadRef.value?.clearFiles()
   } catch (error) {
     ElMessage.error('保存失败: ' + (error.message || '未知错误'))
