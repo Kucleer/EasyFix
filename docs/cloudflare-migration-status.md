@@ -174,3 +174,20 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 做法：种子文件先加四条并提交（`dcf3e413`），用 `knowledge_backfill.point_sql` 生成按 code 幂等的插入语句，先在本机内存库演练（含重复执行），再用 Wrangler 执行；同时把 `taxonomy_version` 和 `data_revision` 各加 1。
 - 核对：执行前 179 行、二级考点 75 个、最大 id 179、`taxonomy_version=6`、`data_revision=135`；执行后 183 行、二级考点 79 个、新行 id 180–183、`taxonomy_version=7`、`data_revision=136`。题目数 572 不变，没有改动任何题目和关联。
 - 仍然存在的情况（未处理）：83 条旧的自由文本考点（层级为空）未清理；42 道六年级数学题学期为空；五年级 206 道题未归类。
+
+## 变更记录：录入规范与卷子记录（项目 1，2026-11-11 已上线）
+
+- 分支 `claude/project-optimization-plan-b28c5c`；设计 `docs/superpowers/specs/2026-11-10-intake-and-papers-design.md`，计划 `docs/superpowers/plans/2026-11-10-intake-and-papers.md`。
+- 迁移 `0011_intake_papers.sql`：新增 `app_user`、`student`、`paper`；16 张表加 `student_id`；`question` 加卷子关联、题号、孩子的答案、核对状态等列；旧题按学科+年级+学期回填"历史作业"卷子（全是已删除题的组对应的卷子同样软删除）。执行前把 42 道六年级数学学期为空的题补成上学期。
+- 备份 `backups/intake_release_20261110T192803Z/remote.sql`（SHA-256 `076fae1c30a187c34e2248918c0ca171f04df96e3d771576131bea7832eb7842`），同目录有演练结果、Time Travel 书签和每一步输出。维护开关开启期间执行，核对与演练一致：596 题（572 未删除）全部 approved、8 条历史卷子（3 条软删除）、题目与卷子的学科年级学期全部一致、其余表行数不变。
+- 部署：Worker `518f7ca0-9df0-46dd-86b8-c599c30c65fa`（上一版本 `18902ab4`），Pages `3e13883a`；录入小工具的 User-Agent 修复后，重设 Agent 访问口令（Worker 与 Pages 的 `ACCESS_TOKEN` 同时更新，Pages 重新部署 `f63cd022`）。
+- 录入技能安装在 `~/.claude/skills/easyfix-intake/` 与 `~/.agents/skills/easyfix-intake/`，配置在 `~/.easyfix/intake.json`。
+- 验收：登录后首页、错题、统计、待核对、卷子页、"加载更多"均正常；Codex 实际录入一份 8 页作业（41 题、2 题待核对、每题照片对应正确页）。未验收：Claude 的一次录入没有留下记录；待核对页三个按钮和手机端未由用户实测。
+
+## 变更记录：考点掌握度与知识星空（项目 2，2026-11-11 已上线）
+
+- 设计 `docs/superpowers/specs/2026-11-11-knowledge-starmap-design.md`，计划 `docs/superpowers/plans/2026-11-11-knowledge-starmap.md`，种子审阅清单 `docs/superpowers/specs/2026-11-11-knowledge-starmap-seed-review.md`。
+- 迁移 `0012_starmap.sql`（教材节、节与考点对应、先学后学连线、手动调整表，考点加 `learn_grade`）、`0013_starmap_seed.sql`（英语新语法体系 12 个模块 56 个考点、沪教版六上数学 13 节 22 条对应、73 条连线，由 `build_starmap_seed.py` 生成）；英语错题重新打标由 `starmap_retag.py` 从被忽略的映射文件生成（238 道：222 道挂语法考点、16 道词汇题不挂；旧 `E6-` 考点全部软删除）。运行配置 `starmap` 设数学进度 4.2。
+- 备份 `backups/starmap_release_20261111T072641Z/remote.sql`（SHA-256 `0be5f6b674fe824e7ffaae4f2a43aa5ee5de241ab038ecf460f67acd14a5da9d`），同目录有演练结果、映射和打标 SQL、Time Travel 书签与每一步输出。维护开关开启期间执行，核对与演练一致：613 道未删除题不变、数学关联 396 条不变、旧英语考点 0、新英语考点 56/12、节 13、对应 22、连线 73。
+- 部署：Worker `25235f69-5147-4ee1-ac00-c18d3dfcd582`（上一版本 `020fdb21`），Pages `6bee1586`。上线时按用户决定"照实显示"：数学 39 颗薄弱、3 颗一般；英语 3 颗已掌握。第一次读取已把当时已掌握的考点记为已看。
+- 未验证：管理设置"知识星空"栏未在浏览器实测（本机环境没有访问密码那一步）；平板和手机布局不在本期范围。
