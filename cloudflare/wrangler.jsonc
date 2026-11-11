@@ -12,5 +12,6 @@
     "database_id": "2de427ad-42be-412f-8afe-dfedd94f1c6a"
   }],
   "r2_buckets": [{"binding": "IMAGES", "bucket_name": "easyfix"}]
-  ,"services": [{"binding":"PDF","service":"easyfix-pdf"}]
+  ,"services": [{"binding":"PDF","service":"easyfix-pdf"}],
+  "vpc_services": [{"binding": "OCR_HOST", "service_id": "01a1c9e0-b244-7061-b2a5-e94229693abe"}]
 }
