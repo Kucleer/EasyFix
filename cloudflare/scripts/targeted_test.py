@@ -1245,6 +1245,174 @@ def test_local_generate_practice_writes_layout_json():
     assert c.execute('SELECT pdf_path FROM practice_set WHERE id=7').fetchone()[0] == 'practice_sets/7.json'
 
 
+# ---------------------------------------------------------------- 整体评审后的修复
+
+
+def unprepared_paper():
+    """paper_fixture 上按 plan 建一份考点卷：错题 3 是相似题、还没准备。返回 (连接, db, 卷子, 相似题那一行的编号)。"""
+    c, db = paper_fixture()
+    paper = create_paper(db, create_items(plan_body(db, size=3, spot_count=0)))
+    item_id = c.execute("SELECT id FROM practice_set_question WHERE practice_set_id=? AND form='similar'",
+                        (paper['id'],)).fetchone()[0]
+    return c, db, paper, item_id
+
+
+@with_fakes
+def test_pdf_refuses_unprepared_targeted(calls):
+    """考点卷还有没准备好的相似题：生成 PDF 返回 409（线上和本机替身都一样）；准备完后可以生成。"""
+    import tempfile
+    from fastapi import HTTPException
+    import local_dev_server
+    import pdf
+    import targeted
+    c, db, paper, item_id = unprepared_paper()
+    pdf.Database = lambda binding: binding
+    request = request_for(db)
+    try:
+        starmap_test.run(pdf.generate_practice(paper['id'], request))
+        raise AssertionError('没有抛出 409')
+    except HTTPException as error:
+        assert error.status_code == 409 and error.detail == '还有 1 道相似题没准备好，请先在出卷页准备完'
+    generate = local_dev_server.make_local_generate_practice(pathlib.Path(tempfile.mkdtemp(prefix='easyfix_pdf_')))
+    starmap_test.expect_http_error(409, generate(paper['id'], request))
+    assert c.execute('SELECT pdf_path FROM practice_set WHERE id=?', (paper['id'],)).fetchone()[0] is None
+    starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
+    assert starmap_test.run(generate(paper['id'], request))['pdf_url'].endswith('.json')
+
+
+def test_pdf_check_is_one_query():
+    """考点卷的"相似题是否准备完"检查只多一条 SQL，和题数无关；别的卷子不查。"""
+    import pdf
+    c, db, paper, item_id = unprepared_paper()
+    counter = starmap_test.CountingDB(c)
+    starmap_test.expect_http_error(409, pdf.ensure_printable(counter, {'id': paper['id'], 'kind': 'targeted'}))
+    assert counter.calls == 1
+    starmap_test.run(pdf.ensure_printable(counter, {'id': paper['id'], 'kind': 'manual'}))
+    assert counter.calls == 1
+
+
+class RaceDB(starmap_test.SQLiteDB):
+    """在执行某条 UPDATE 之前先跑一段"另一个页面"的写入，模拟两个页面同时准备同一道题。"""
+
+    def __init__(self, connection, marker, before):
+        super().__init__(connection)
+        self.marker, self.before = marker, before
+
+    async def run(self, sql, parameters=()):
+        """碰到含 marker 的 SQL 时，先执行一次 before。"""
+        if self.marker in sql and self.before is not None:
+            self.before()
+            self.before = None
+        return await super().run(sql, parameters)
+
+
+def add_other_similar(c):
+    """给错题 3 加一道"另一个页面生成的"相似题（编号 50）。"""
+    c.execute("INSERT INTO similar_question(id,source_question_id,similar_text,similar_answer,explanation,deleted,"
+              "generated_at) VALUES(50,3,'别处的相似题','答','解析',0,'2026-11-01')")
+    c.commit()
+
+
+@with_fakes
+def test_prepare_does_not_overwrite_concurrent_prepare(calls):
+    """另一个页面先把这道题准备好了：这边的写入不覆盖它，remaining 按库里重新算。"""
+    import targeted
+    c, db, paper, item_id = unprepared_paper()
+
+    def other_tab():
+        """另一个页面抢先生成并写入（在这边查过可复用的相似题之后）。"""
+        add_other_similar(c)
+        c.execute('UPDATE practice_set_question SET similar_question_id=50 WHERE id=?', (item_id,))
+    race = RaceDB(c, 'SET similar_question_id=?', other_tab)
+    body = starmap_test.run(targeted.prepare(paper['id'], request_for(race, {})))
+    assert body['remaining'] == 0 and body['item_id'] == item_id
+    assert c.execute('SELECT similar_question_id FROM practice_set_question WHERE id=?', (item_id,)).fetchone()[0] == 50
+
+
+@with_fakes
+def test_fallback_does_not_overwrite_concurrent_prepare(calls):
+    """另一个页面已经给这道题配好了相似题：这边的"改成原题"不生效，题面仍是相似题。"""
+    import targeted
+    c, db, paper, item_id = unprepared_paper()
+    add_other_similar(c)
+
+    def other_tab():
+        """另一个页面抢先写入。"""
+        c.execute('UPDATE practice_set_question SET similar_question_id=50 WHERE id=?', (item_id,))
+    race = RaceDB(c, "SET form='original'", other_tab)
+    body = starmap_test.run(targeted.prepare(paper['id'], request_for(race, {'fallback': True})))
+    assert body['remaining'] == 0
+    row = c.execute('SELECT form,similar_question_id FROM practice_set_question WHERE id=?', (item_id,)).fetchone()
+    assert (row[0], row[1]) == ('similar', 50)
+
+
+def test_targeted_numbers_stable_after_question_deleted():
+    """考点卷里一道错题被删除后，其余题的题号不变（按出卷顺序）；旧练习集仍按剩下的题连续编号。"""
+    import practices
+    c, db = grading_fixture()
+    add_set(c, 12, '2026-11-01 08:00:00', None, [(1, None, 'original'), (2, None, 'original'),
+                                                 (3, None, 'original')], kind='manual')
+    c.execute('UPDATE question SET deleted=1 WHERE id=2')
+    c.commit()
+    detail = starmap_test.run(practices.get(db, 10))
+    assert [(q['question_id'], q['number']) for q in detail['questions']] == [(1, 1), (3, 3)]
+    legacy = starmap_test.run(practices.get(db, 12))
+    assert [(q['question_id'], q['number']) for q in legacy['questions']] == [(1, 1), (3, 2)]
+
+
+@with_motivation
+def test_graduated_numbers_follow_paper_numbers(calls):
+    """删掉第 1 题后批改：刚毕业的题报的仍是卷面上的题号。"""
+    c, db = grading_fixture()
+    add_set(c, 1, '2026-09-10 08:00:00', '2026-09-10 20:00:00', [(3, 1, 'original')])
+    c.execute('UPDATE question SET deleted=1 WHERE id=1')
+    c.commit()
+    body = submit(db, 10, [(2, False), (3, True)], revision=0)
+    assert body['graduated'] == [3]
+
+
+@with_fakes
+def test_bad_question_similar_never_reused(calls):
+    """相似题被标"题目有误"：卷子删掉以后也不再复用；卷面仍显示这道相似题；没被标的相似题照常复用。"""
+    import motivation
+    import practices
+    import similar
+    import targeted
+    c, db, paper, item_id = unprepared_paper()
+    starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
+    similar_id = c.execute('SELECT similar_question_id FROM practice_set_question WHERE id=?', (item_id,)).fetchone()[0]
+    payload = {'question_results': [{'question_id': 3, 'skip_reason': 'bad_question'}], 'grading_revision': 0}
+    saved = motivation.trigger
+
+    async def fake_trigger(db, code, reason=None):
+        pass
+    motivation.trigger = fake_trigger
+    try:
+        starmap_test.run(practices.reviewed(paper['id'], grade_request(db, payload)))
+    finally:
+        motivation.trigger = saved
+    # 批改后卷子上仍显示这道相似题（以后改批改时不会变成原题）
+    detail = starmap_test.run(practices.get(db, paper['id']))
+    assert [q['question_text'] for q in detail['questions'] if q['form'] == 'similar'] == ['相似题目']
+    c.execute('UPDATE practice_set SET deleted=1 WHERE id=?', (paper['id'],))
+    c.commit()
+    assert starmap_test.run(similar.reusable_similar(db, 3)) is None
+    # 对照：同一道错题另一道没被标的相似题照常复用
+    c.execute("INSERT INTO similar_question(id,source_question_id,similar_text,similar_answer,explanation,deleted,"
+              "generated_at) VALUES(?,3,'另一道','答','解析',0,'2026-11-01')", (similar_id + 100,))
+    assert starmap_test.run(similar.reusable_similar(db, 3))['id'] == similar_id + 100
+
+
+def test_build_payload_groups_by_module_id():
+    """两个同名但不同的一级模块：PDF 分成两组，组标题都用模块名。"""
+    import pdf
+    detail = paper_detail()
+    detail['questions'][2]['knowledge_points'] = [
+        {'id': 202, 'parent_id': 200, 'parent_name': '有理数', 'name': '其他', 'is_primary': 1}]
+    payload = pdf.build_payload(detail)
+    assert [g['title'] for g in payload['groups']] == ['一、有理数（2 题）', '二、有理数（1 题）']
+
+
 TESTS = [
     test_migration_adds_columns,
     test_migration_defaults_keep_old_rows_valid,
@@ -1306,6 +1474,14 @@ TESTS = [
     test_build_payload_space_sizes,
     test_build_payload_manual_unchanged,
     test_local_generate_practice_writes_layout_json,
+    test_pdf_refuses_unprepared_targeted,
+    test_pdf_check_is_one_query,
+    test_prepare_does_not_overwrite_concurrent_prepare,
+    test_fallback_does_not_overwrite_concurrent_prepare,
+    test_targeted_numbers_stable_after_question_deleted,
+    test_graduated_numbers_follow_paper_numbers,
+    test_bad_question_similar_never_reused,
+    test_build_payload_groups_by_module_id,
 ]
 
 

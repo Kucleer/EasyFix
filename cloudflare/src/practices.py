@@ -87,7 +87,9 @@ async def get(db,practice_id,details=True):
             original=item['parsed_question'] or item['original_text'] or ''
             item['original_question_text']=original
             item['original_answer']=item['answer']
-            item['number']=number  # 卷面题号，从 1 开始
+            # 卷面题号，从 1 开始。考点卷按出卷时写下的顺序（display_order 是 0..n-1）：
+            # 卷子印出来以后某道错题被删除，其余题的题号也不变，和纸上对得上；旧练习集仍按剩下的题连续编号
+            item['number']=(item['display_order'] or 0)+1 if row.get('kind')=='targeted' else number
             # 题面取相似题：这一行挂了相似题，并且这一行标的是相似题；
             # 旧数据的行没有 form，按整份卷子的 question_type 判断
             use_similar=bool(item['similar_question_id']) and item['similar_text'] is not None and (

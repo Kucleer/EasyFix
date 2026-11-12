@@ -374,15 +374,23 @@ async def prepare(practice_set_id: int, request: Request):
     if not pending:
         return {'remaining': 0, 'item_id': None, 'fallback': False}
     target = pending[0]
+    # 两条 UPDATE 都只改"仍是相似题、仍没配相似题"的行：另一个页面同时在准备这份卷子、
+    # 已经先写好这一道时，这边的写入不生效，不会把别人配好的相似题覆盖掉
     if fallback:
-        await db.run("UPDATE practice_set_question SET form='original' WHERE id=? AND deleted=0", (target['item_id'],))
+        await db.run("UPDATE practice_set_question SET form='original' WHERE id=? AND deleted=0 "
+                     "AND form='similar' AND similar_question_id IS NULL", (target['item_id'],))
     else:
         row = await similar.reusable_similar(db, target['id'])
         if row is None:
             row = await generate_for(db, request, target)
-        await db.run('UPDATE practice_set_question SET similar_question_id=? WHERE id=? AND deleted=0',
-                     (row['id'], target['item_id']))
-    return {'remaining': len(pending) - 1, 'item_id': target['item_id'], 'fallback': fallback}
+        await db.run("UPDATE practice_set_question SET similar_question_id=? WHERE id=? AND deleted=0 "
+                     "AND form='similar' AND similar_question_id IS NULL", (row['id'], target['item_id']))
+    # 剩余题数按库里重新数（固定一条 SQL，条件和上面的 pending 相同），别的页面同时写过时也准确
+    left = await db.first(
+        'SELECT COUNT(*) AS count FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 '
+        "WHERE pq.practice_set_id=? AND pq.deleted=0 AND pq.form='similar' AND pq.similar_question_id IS NULL",
+        (practice_set_id,))
+    return {'remaining': left['count'], 'item_id': target['item_id'], 'fallback': fallback}
 
 
 @router.post('/{practice_set_id}/reroll')

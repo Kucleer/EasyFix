@@ -30,12 +30,18 @@ async def create_similar(db, request, original: dict, prompt: str) -> dict:
 
 
 async def reusable_similar(db, question_id: int):
-    """最新的一道带解析、没删除、没被任何未删除练习集的未删除题目行引用的相似题；没有则返回 None。"""
+    """最新的一道带解析、没删除、没被任何未删除练习集的未删除题目行引用的相似题；没有则返回 None。
+
+    批改时被标过"题目有误"的相似题永远不再复用（设计 6.5.3），哪怕那份卷子后来删掉了。
+    这里不在批改时软删除相似题，是因为卷子的题目行还指着它：删了以后卷子详情会退回显示原题。
+    """
     return await db.first(
         'SELECT * FROM similar_question s WHERE s.source_question_id=? AND s.deleted=0 '
         "AND s.explanation IS NOT NULL AND s.explanation<>'' "
         'AND NOT EXISTS(SELECT 1 FROM practice_set_question pq JOIN practice_set p ON p.id=pq.practice_set_id '
         'AND p.deleted=0 WHERE pq.similar_question_id=s.id AND pq.deleted=0) '
+        'AND NOT EXISTS(SELECT 1 FROM practice_set_question b WHERE b.similar_question_id=s.id AND b.deleted=0 '
+        "AND b.form='similar' AND b.skip_reason='bad_question') "
         'ORDER BY s.id DESC LIMIT 1', (question_id,))
 
 

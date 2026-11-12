@@ -461,6 +461,7 @@ def make_local_generate_practice(uploads_dir):
         practice = await practices.get(db, practice_set_id)
         if not practice['questions']:
             raise HTTPException(400, '练习集没有题目')
+        await pdf.ensure_printable(db, practice)   # 相似题没准备完的考点卷不能打印，和线上一致
         key = 'practice_sets/%s.json' % practice_set_id
         target = uploads_dir / key
         target.parent.mkdir(parents=True, exist_ok=True)

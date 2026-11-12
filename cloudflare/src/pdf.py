@@ -66,13 +66,15 @@ def build_targeted_payload(practice):
     for item in sorted(practice['questions'],key=lambda row:row.get('number') or 0):
         link=picked_link(item)
         module=(link.get('parent_name') or link.get('name')) if link else '其他'
-        if module not in order:
-            order[module]=len(groups)
+        # 按一级模块的编号分组（和手机、出卷页一致），两个同名模块不会并成一组；组标题仍用模块名
+        module_key=(link.get('parent_id') or link.get('id')) if link else None
+        if module_key not in order:
+            order[module_key]=len(groups)
             groups.append({'module':module,'questions':[]})
         question={'number':item['number'],'question_text':item['question_text']}
         for letter in 'abcd':question['option_'+letter]=item.get('option_'+letter)
         question['space']=space_size(item)
-        groups[order[module]]['questions'].append(question)
+        groups[order[module_key]]['questions'].append(question)
         point=' / '.join(part for part in (link.get('parent_name'),link.get('name')) if part) if link else ''
         similar=item.get('form')=='similar'
         answers.append({'number':item['number'],'answer':item.get('answer'),
@@ -106,12 +108,27 @@ def build_payload(practice):
     return {'template_version':TEMPLATE_VERSION,'title':practice['name'],'questions':printable,'passage':practice.get('passage')}
 
 
+async def ensure_printable(db,practice):
+    """考点卷还有"题面是相似题、但还没配相似题"的题时不能打印（409）；只多查一条 SQL，别的卷子不查。
+
+    这种题如果直接打印，卷面会印出原题却标成相似题、答案页也没有解析，所以要先在出卷页准备完。
+    """
+    if practice.get('kind')!='targeted':return
+    # 和出卷页 prepare 数"还没准备"的条件相同：错题已删除的行不在卷面上，不算
+    row=await db.first("SELECT COUNT(*) AS count FROM practice_set_question pq JOIN question q ON q.id=pq.question_id "
+                       "AND q.deleted=0 WHERE pq.practice_set_id=? AND pq.deleted=0 AND pq.form='similar' "
+                       "AND pq.similar_question_id IS NULL",(practice['id'],))
+    if row and row['count']:
+        raise HTTPException(409,'还有 %d 道相似题没准备好，请先在出卷页准备完'%row['count'])
+
+
 async def generate_practice(practice_set_id,request):
     """读取真实练习内容，渲染成功后才更新 PDF 路径。"""
     from practices import get
     db=Database(request.scope['env'].DB)
     practice=await get(db,practice_set_id)
     if not practice['questions']:raise HTTPException(400,'练习集没有题目')
+    await ensure_printable(db,practice)
     import hashlib
     payload=build_payload(practice)
     fingerprint=hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
