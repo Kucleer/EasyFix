@@ -70,5 +70,13 @@ test('提交内容：跳过的题结果为空并带原因', () => {
 
 test('错题数和卷子标签', () => {
   assert.equal(countWrong({ 1: 'wrong', 2: 'right', 3: 'wrong' }), 2)
-  assert.equal(paperLabel({ id: 128, name: '数学练习卷', created_at: '2026-11-15T08:00:00' }), '#128 数学练习卷 11月15日')
+})
+
+test('卷子标签：默认名已含日期时不重复追加日期', () => {
+  assert.equal(paperLabel({ id: 128, name: '数学练习卷 11月12日', created_at: '2026-11-12T08:00:00' }), '#128 数学练习卷 11月12日')
+})
+
+test('卷子标签：名字为空时用创建日期', () => {
+  assert.equal(paperLabel({ id: 128, name: '', created_at: '2026-11-15T08:00:00' }), '#128 11月15日')
+  assert.equal(paperLabel({ id: 128, name: '  ', created_at: '2026-11-15T08:00:00' }), '#128 11月15日')
 })

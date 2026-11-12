@@ -99,9 +99,14 @@ export function countWrong(marks) {
   return Object.values(marks).filter(m => m === 'wrong').length
 }
 
-// 卷子标签，如 '#128 数学练习卷 11月15日'
+// 卷子标签，如 '#128 数学练习卷 11月12日'；名字已含日期（默认名）时不再追加，名字为空时才用创建日期代替
 export function paperLabel(paper) {
-  const m = /(\d{4})-(\d{2})-(\d{2})/.exec(paper.created_at || '')
-  const date = m ? ` ${Number(m[2])}月${Number(m[3])}日` : ''
-  return `#${paper.id} ${paper.name || ''}${date}`.replace(/\s+/g, ' ').trim()
+  const name = (paper.name || '').trim()
+  let text = name
+  if (!name) {
+    // 从创建时间 'YYYY-MM-DD...' 里取出月和日，转成 'M月D日'
+    const m = /(\d{4})-(\d{2})-(\d{2})/.exec(paper.created_at || '')
+    text = m ? `${Number(m[2])}月${Number(m[3])}日` : ''
+  }
+  return `#${paper.id} ${text}`.replace(/\s+/g, ' ').trim()
 }
