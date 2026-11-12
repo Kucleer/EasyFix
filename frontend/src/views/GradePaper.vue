@@ -93,7 +93,7 @@
               <span class="counter-actions">
                 <el-switch v-if="focus.size" v-model="onlyFocus" size="small" active-text="只看错的和拿不准的" />
                 <el-button v-if="images.length && !numberingWarn" link type="primary" @click="startRecognition(paper.reviewed)">
-                  <el-icon><Refresh /></el-icon>{{ recognition ? '重新识别' : '识别' }}
+                  <el-icon><Refresh /></el-icon>{{ recognition || paper.reviewed ? '重新识别' : '识别' }}
                 </el-button>
                 <el-button link type="primary" @click="step = 'photo'">
                   <el-icon><Camera /></el-icon>{{ images.length ? `照片 ${images.length}` : '拍照' }}
@@ -117,7 +117,7 @@
               >
                 <div class="row-head">
                   <span class="row-number">{{ q.number }}</span>
-                  <el-tag size="small" :type="shownForm(q) === 'similar' ? 'warning' : 'info'" effect="plain">{{ FORM_LABELS[shownForm(q)] }}</el-tag>
+                  <el-tag size="small" :type="shownForm(q) === 'similar' ? 'warning' : 'info'" effect="light">{{ FORM_LABELS[shownForm(q)] }}</el-tag>
                   <span v-if="recognized(q) && recognizeAsReference" class="ref-tag" :class="'ref-' + recognized(q).verdict">识别：{{ MARK_LABELS[recognized(q).verdict] }}</span>
                   <button v-if="!isWide && images.length" class="row-photo" type="button" @click.stop="openPhotoSheet(q)">
                     <el-icon><Picture /></el-icon>看照片
