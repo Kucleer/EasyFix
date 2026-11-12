@@ -41,6 +41,14 @@ export const targetedApi = {
       cache: false,
     })
   },
+  // 批改识别预批：读一张照片（传照片序号），返回这页的识别文字；一页最慢约 120 秒
+  recognizePage(id, index, signal) {
+    return api.post(`/practice-sets/${id}/recognize/page`, { index }, { timeout: 150000, signal })
+  },
+  // 批改识别预批：传各页识别文字，服务端取题目和答案、调一次模型，返回每题的预批结果
+  recognizeJudge(id, pages, signal) {
+    return api.post(`/practice-sets/${id}/recognize/judge`, { pages }, { timeout: 150000, signal })
+  },
   uploadImages(files) {
     const form = new FormData()
     for (const file of files) form.append('files', file)

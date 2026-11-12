@@ -101,7 +101,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, { label: row.kind === 'targeted' && row.reviewed ? '改批改' : '批改', disabled: row.kind !== 'targeted' && row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, { label: isQuestionSet(row) && row.reviewed ? '改批改' : '批改', disabled: !isQuestionSet(row) && row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
       </el-table>
 
       <el-empty v-else description="暂无练习集" />
@@ -635,9 +635,13 @@ const downloadPdf = (ps) => {
   }
 }
 
+// 错题练习集（考点卷和手动组的卷子）：单词、阅读以外的都是
+const isQuestionSet = (ps) => !['word', 'reading'].includes(ps.source_type)
+
 const markReviewed = async (ps) => {
-  // 考点卷在手机批改页里批改，已批改的也能重新进去改
-  if (ps.kind === 'targeted') {
+  // 所有错题练习集都在批改页里批改（电脑、手机共用），已批改的也能重新进去改；
+  // 旧的批改弹窗只留给阅读练习
+  if (isQuestionSet(ps)) {
     router.push(`/grade/${ps.id}`)
     return
   }

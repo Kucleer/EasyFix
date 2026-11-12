@@ -82,8 +82,10 @@ export function toggleMark(mark) {
   return mark === 'right' ? 'wrong' : 'right'
 }
 
-// 批改请求体；question_id 是错题编号（后端按它校验），跳过的题 is_correct 为 null
+// 批改请求体；question_id 是错题编号（后端按它校验），跳过的题 is_correct 为 null。
+// 还有"拿不准"的题时不能提交（页面上提交按钮是灰的），这里再拦一次，免得把拿不准当成错提交
 export function gradePayload(questions, marks, revision) {
+  if (countUnsure(marks) > 0) throw new Error('还有拿不准的题没有定下对错')
   return {
     question_results: questions.map(q => {
       const mark = marks[q.id] || 'right'
@@ -126,4 +128,56 @@ export function canResume(paper) {
 // 题面是相似题、但还没配相似题的题数（出卷页准备进度的总数）
 export function pendingSimilarCount(questions) {
   return (questions || []).filter(q => q.form === 'similar' && !q.similar_question_id).length
+}
+
+// ---------------------------------------------------------------- 批改识别预批（设计 2026-11-12-grading-recognition-design.md）
+
+// 复核列表里结果的文字：对、错、拿不准、没做、题目有误
+export const MARK_LABELS = { right: '对', wrong: '错', unsure: '拿不准', not_done: '没做', bad_question: '题目有误' }
+
+// 识别结果按题目行编号排成字典：{题目行编号: {student_answer, verdict, page}}
+export function recognitionMap(items) {
+  const map = {}
+  for (const item of items || []) map[item.id] = item
+  return map
+}
+
+// 识别预批合并成复核的初始标记：判对算对、判错算错，其余（拿不准、识别结果里没有的题）都是"拿不准"
+export function marksFromRecognition(questions, items) {
+  const map = recognitionMap(items)
+  const marks = {}
+  for (const q of questions || []) {
+    const verdict = map[q.id]?.verdict
+    marks[q.id] = verdict === 'right' || verdict === 'wrong' ? verdict : 'unsure'
+  }
+  return marks
+}
+
+// "拿不准"的题数；不为 0 时不能提交
+export function countUnsure(marks) {
+  return Object.values(marks).filter(m => m === 'unsure').length
+}
+
+// 要重点看的题：做错的和拿不准的。"只看错的和拿不准的"按这份名单筛，
+// 名单在预批时定下，之后改成对的题也不会从眼前消失
+export function focusIds(marks) {
+  return new Set(Object.keys(marks).filter(id => marks[id] === 'wrong' || marks[id] === 'unsure').map(Number))
+}
+
+// 复核列表要显示的题；onlyFocus 为真时只留名单里的，顺序始终按卷面题号
+export function visibleQuestions(questions, focus, onlyFocus) {
+  const list = questions || []
+  return onlyFocus ? list.filter(q => focus.has(q.id)) : list
+}
+
+// 卷面上印的是原题还是相似题
+export function shownForm(q) {
+  return q.shown_form || q.form || 'original'
+}
+
+// 手动组的卷子打印后删过题：题号往前挪，和纸上对不上（这时不识别，改为手动批）；考点卷题号固定
+export function numberingChanged(paper) {
+  if (!paper || paper.kind === 'targeted') return false
+  const total = paper.total_questions
+  return Number.isInteger(total) && total !== (paper.questions || []).length
 }

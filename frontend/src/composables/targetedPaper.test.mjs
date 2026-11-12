@@ -4,6 +4,7 @@ import {
   REASON_LABELS, groupByModule, swapItem, removeItem, toggleForm, createPayload,
   summary, initialMarks, toggleMark, gradePayload, countWrong, paperLabel,
   resumeLink, canResume, pendingSimilarCount,
+  recognitionMap, marksFromRecognition, countUnsure, focusIds, visibleQuestions, shownForm, numberingChanged,
 } from './targetedPaper.js'
 
 const make_plan = () => ({
@@ -105,4 +106,45 @@ test('还没准备的相似题数', () => {
   ]
   assert.equal(pendingSimilarCount(questions), 1)
   assert.equal(pendingSimilarCount(undefined), 0)
+})
+
+// ---------------------------------------------------------------- 批改识别预批
+
+const review_questions = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
+const recognized = [
+  { id: 1, verdict: 'right', student_answer: '5x', page: 1 },
+  { id: 2, verdict: 'wrong', student_answer: '8', page: 1 },
+  { id: 3, verdict: 'unsure', student_answer: '', page: null },
+]
+
+test('预批合并成初始标记：对、错照搬，拿不准和没有结果的题都是拿不准', () => {
+  assert.deepEqual(marksFromRecognition(review_questions, recognized), { 1: 'right', 2: 'wrong', 3: 'unsure', 4: 'unsure' })
+  assert.deepEqual(marksFromRecognition(review_questions, []), { 1: 'unsure', 2: 'unsure', 3: 'unsure', 4: 'unsure' })
+  assert.equal(recognitionMap(recognized)[2].student_answer, '8')
+})
+
+test('拿不准没处理时不能提交', () => {
+  const marks = marksFromRecognition(review_questions, recognized)
+  assert.equal(countUnsure(marks), 2)
+  assert.throws(() => gradePayload(review_questions.map(q => ({ ...q, question_id: q.id })), marks, 0))
+  const done = { ...marks, 3: 'right', 4: 'not_done' }
+  assert.equal(countUnsure(done), 0)
+  const payload = gradePayload(review_questions.map(q => ({ ...q, question_id: q.id * 10 })), done, 2)
+  assert.deepEqual(payload.question_results.map(r => r.is_correct), [true, false, true, null])
+  assert.equal(payload.grading_revision, 2)
+})
+
+test('只看错的和拿不准的：名单在预批时定下，按卷面题号排', () => {
+  const focus = focusIds(marksFromRecognition(review_questions, recognized))
+  assert.deepEqual([...focus].sort(), [2, 3, 4])
+  assert.deepEqual(visibleQuestions(review_questions, focus, true).map(q => q.id), [2, 3, 4])
+  assert.deepEqual(visibleQuestions(review_questions, focus, false).map(q => q.id), [1, 2, 3, 4])
+})
+
+test('卷面题面和题号是否错开', () => {
+  assert.equal(shownForm({ shown_form: 'similar', form: 'original' }), 'similar')
+  assert.equal(shownForm({ form: null }), 'original')
+  assert.equal(numberingChanged({ kind: 'manual', total_questions: 3, questions: [{}, {}] }), true)
+  assert.equal(numberingChanged({ kind: 'manual', total_questions: 2, questions: [{}, {}] }), false)
+  assert.equal(numberingChanged({ kind: 'targeted', total_questions: 3, questions: [{}] }), false)
 })
