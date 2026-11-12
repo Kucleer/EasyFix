@@ -10,9 +10,9 @@ import settings
 from database import Database
 from intake import read_payload
 from intake_model import is_plain_int
-from mastery_model import (ADJUST, leaf_mastery, lighting, recent_results, status_of, upper_mastery,
+from mastery_model import (ADJUST, leaf_detail, lighting, recent_results, status_of, upper_mastery,
                            vocab_progress)
-from question_scope import counted, current_student_id
+from question_scope import counted, current_student_id, grade_ready, stem_ready
 from questions import stamp_now
 
 router = APIRouter(prefix='/api/starmap')
@@ -36,9 +36,16 @@ async def load_points(db, subject_id):
                         'WHERE deleted=0 AND subject_id=? AND level IN (1,2) ORDER BY sort_order,id', (subject_id,))
 
 
-async def load_events(db, subject_id, student_id=1):
-    """取出这一科全部事件，按二级考点分组：{考点编号: [事件, ...]}（三条 SQL）。"""
+async def load_events(db, subject_id, student_id=1, min_grade=None):
+    """取出这一科全部事件，按二级考点分组：{考点编号: [事件, ...]}（三条 SQL）。
+
+    错题和练习事件带上错题编号 qid 和 gate（这道题能不能进卷子：题干不为空、年级不低于
+    min_grade）；gate 为假的题照常加减掌握度，但不算"待重做"、不挡变绿。
+    """
     events = {}
+    # "能进卷子"的条件只在 question_scope 里写一处；年级条件带一个参数，放在 SELECT 里所以参数排在最前面
+    grade_sql, grade_params = grade_ready('q', min_grade)
+    gate_sql = 'CASE WHEN %s AND %s THEN 1 ELSE 0 END AS gate' % (stem_ready('q'), grade_sql)
 
     def add(point_id, event):
         """把一条事件挂到考点上。"""
@@ -46,26 +53,30 @@ async def load_events(db, subject_id, student_id=1):
 
     # 1. 错题：时间优先用卷子日期；历史作业卷子的日期是回填的，改用录入时间
     rows = await db.all(
-        "SELECT qk.knowledge_point_id AS point_id, CASE WHEN p.id IS NULL OR p.source='history' OR p.paper_date IS NULL "
+        'SELECT qk.knowledge_point_id AS point_id, q.id AS qid, q.created_at AS entered, ' + gate_sql + ', '
+        "CASE WHEN p.id IS NULL OR p.source='history' OR p.paper_date IS NULL "
         "THEN q.created_at ELSE p.paper_date END AS at "
         'FROM question q JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 '
         'LEFT JOIN paper p ON p.id=q.paper_id AND p.deleted=0 '
-        'WHERE ' + counted('q') + ' AND q.subject_id=?', (subject_id,))
+        'WHERE ' + counted('q') + ' AND q.subject_id=?', (*grade_params, subject_id))
     for row in rows:
         add(row['point_id'], {'kind': 'wrong', 'at': row['at'], 'seq': SEQ['question'], 'adjust': None,
-                              'source': 'question'})
+                              'source': 'question', 'qid': row['qid'], 'entered': row['entered'],
+                              'gate': bool(row['gate'])})
     # 2. 练习卷里重做旧错题的结果（只认最新一次批改）
     rows = await db.all(
-        'SELECT qk.knowledge_point_id AS point_id, pq.is_correct AS correct, ps.last_reviewed_at AS at '
+        'SELECT qk.knowledge_point_id AS point_id, pq.is_correct AS correct, ps.last_reviewed_at AS at, '
+        'q.id AS qid, pq.display_order AS display_order, ' + gate_sql + ' '
         'FROM practice_set_question pq JOIN practice_set ps ON ps.id=pq.practice_set_id AND ps.deleted=0 '
         'JOIN question q ON q.id=pq.question_id AND ' + counted('q') + ' AND q.subject_id=? '
         'JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 '
-        'WHERE pq.deleted=0 AND pq.is_correct IS NOT NULL', (subject_id,))
+        'WHERE pq.deleted=0 AND pq.is_correct IS NOT NULL', (*grade_params, subject_id))
     for row in rows:
         add(row['point_id'], {'kind': 'right' if row['correct'] else 'wrong', 'at': row['at'],
-                              'seq': SEQ['practice'], 'adjust': None, 'source': 'practice'})
+                              'seq': SEQ['practice'], 'adjust': None, 'source': 'practice', 'qid': row['qid'],
+                              'order': row['display_order'] or 0, 'gate': bool(row['gate'])})
     # 3. 手动调整
     rows = await db.all(
         'SELECT a.knowledge_point_id AS point_id, a.kind, a.created_at AS at FROM mastery_adjustment a '
@@ -127,7 +138,12 @@ async def compute(db, request, subject_id):
     """算出一科的节点、连线和当前已掌握的二级考点；返回 (subject, nodes, links, mastered, config)。"""
     subject = await load_subject(db, subject_id)
     points = await load_points(db, subject_id)
-    events = await load_events(db, subject_id, current_student_id(request))
+    # 先读应用配置：默认年级既决定哪些考点算学过，也决定哪些错题"能进卷子"
+    app = await settings.load(request, 'app', {})
+    default_grade = (app or {}).get('default_grade')
+    if not is_plain_int(default_grade):
+        default_grade = None                     # 没设置或格式不对：不按年级筛
+    events = await load_events(db, subject_id, current_student_id(request), default_grade)
     sections = await load_sections(db, subject_id)
     links_rows = await db.all(
         'SELECT l.from_point_id AS source, l.to_point_id AS target FROM knowledge_link l '
@@ -135,25 +151,27 @@ async def compute(db, request, subject_id):
         'JOIN knowledge_point b ON b.id=l.to_point_id AND b.deleted=0 '
         'WHERE l.deleted=0 ORDER BY l.id', (subject_id,))
     config = await load_config(request)
-    app = await settings.load(request, 'app', {})
     progress = (config.get('progress') or {}).get(str(subject_id))
-    learned = learned_ids(points, events, sections, progress, (app or {}).get('default_grade'))
+    learned = learned_ids(points, events, sections, progress, default_grade)
 
     nodes, values = [], {}
     leaves = [p for p in points if p['level'] == 2]
     for leaf in leaves:
         point_events = events.get(leaf['id'], [])
-        value = leaf_mastery(point_events) if leaf['id'] in learned else None
+        detail = leaf_detail(point_events)
+        value = detail['value'] if leaf['id'] in learned else None
         values[leaf['id']] = value
         nodes.append({'id': leaf['id'], 'name': leaf['name'], 'level': 2, 'parent_id': leaf['parent_id'],
                       'value': value, 'status': status_of(value), 'recent': recent_results(point_events),
-                      'wrong_count': sum(1 for e in point_events if e['source'] == 'question')})
+                      'wrong_count': sum(1 for e in point_events if e['source'] == 'question'),
+                      'pending': detail['pending'], 'all_graduated': detail['all_graduated'],
+                      'waive_at': detail['waive_at']})
     for module in (p for p in points if p['level'] == 1):
         children = [leaf for leaf in leaves if leaf['parent_id'] == module['id']]
         child_values = [values[c['id']] for c in children if values[c['id']] is not None]
         if child_values:
-            merged = [e for c in children for e in events.get(c['id'], [])]
-            value = upper_mastery(child_values, merged, len(children), len(child_values) < len(children))
+            # 一级模块只看下面的二级考点，不直接看错题（设计 4.5）
+            value = upper_mastery(child_values, len(child_values) < len(children))
         else:
             value = None
         nodes.append({'id': module['id'], 'name': module['name'], 'level': 1, 'parent_id': None, 'value': value,

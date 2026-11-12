@@ -168,16 +168,13 @@ def test_same_time_wrong_before_right():
 
 
 def test_upper_rules():
-    """上层星：N=3×考点数（上限 30），至少 N 次、九成对、没有没学的子考点才掌握；否则封顶 0.99。"""
+    """上层星：已学子考点平均值，最高 0.99；子考点全部变绿且没有没学的子考点才是 1。"""
     from mastery_model import upper_mastery
-    rights = [ev('right', '%02d' % i) for i in range(9)]
-    assert upper_mastery([1, 1, 1], rights, 3, False) == 1
-    assert upper_mastery([1, 1, 1], rights[:8], 3, False) == 0.99
-    assert upper_mastery([1, 1, 1], rights, 3, True) == 0.99
-    eight_of_nine = rights[:8] + [ev('wrong', '99')]
-    assert upper_mastery([1, 1, 0.85], eight_of_nine, 3, False) < 1
-    assert abs(upper_mastery([0.5, 0.3], [], 2, False) - 0.4) < 1e-9
-    assert upper_mastery([1] * 11, [ev('right', '%02d' % i) for i in range(30)], 11, False) == 1
+    assert upper_mastery([1, 1, 1], False) == 1
+    assert upper_mastery([1, 1, 1], True) == 0.99
+    assert upper_mastery([1, 1, 0.85], False) < 1
+    assert abs(upper_mastery([0.5, 0.3], False) - 0.4) < 1e-9
+    assert upper_mastery([1] * 11, False) == 1
 
 
 def test_status_and_recent():
@@ -377,6 +374,9 @@ def test_starmap_upper_nodes():
     node = by_id(view(math_fixture(), 1))
     assert abs(node[100]['value'] - (0.35 + 0.5) / 2) < 1e-9
     assert abs(node[110]['value'] - 0.5) < 1e-9          # 只算已学的 111
+    # 101：第 2 题还没重做，待重做 1 道、没有全部毕业
+    assert node[101]['pending'] == 1 and node[101]['all_graduated'] is False and node[101]['waive_at'] is None
+    assert node[102]['pending'] == 0 and node[102]['all_graduated'] is True
 
 
 def test_starmap_english_learn_grade_and_vocab():
@@ -406,6 +406,9 @@ def test_starmap_lighting_flow():
     assert view(c, 1)['to_play'] == []
     add_practice(c, 7, '2026-10-06 08:00:00', [(1, 1, 0)])
     add_practice(c, 8, '2026-10-07 08:00:00', [(2, 1, 0)])
+    c.commit()
+    assert view(c, 1)['to_play'] == []                   # 第 2 题只对了 1 次，没毕业，不点亮
+    add_practice(c, 12, '2026-10-07 09:00:00', [(2, 1, 0)])
     c.commit()
     body = view(c, 1)
     assert body['to_play'] == [101] and body['mastered_count'] == 1
@@ -480,6 +483,8 @@ def test_starmap_query_count_is_fixed():
         big.execute('INSERT INTO knowledge_point(id,name,name_key,subject_id,level,parent_id,sort_order,deleted) '
                     'VALUES(?,?,?,1,2,120,0,0)', (300 + offset, '考点%d' % offset, 'kp%d' % offset))
         add_question(big, 100 + offset, 1, '2026-10-0%d 08:00:00' % (offset % 9 + 1), [300 + offset])
+        add_practice(big, 100 + offset, '2026-10-10 08:00:00', [(100 + offset, 1, 0)])
+    set_config(big, 'app', {'default_grade': 6, 'default_semester': 1})
     big.commit()
     counter_big = CountingDB(big)
     run(starmap.starmap_view(request_for(counter_big), 1))
@@ -619,11 +624,11 @@ def test_leaf_no_green_without_three_rights():
 
 
 def test_upper_requires_learned_children_good():
-    """模块要变绿，已学的子考点都要至少"较好"（0.7）；练习集中在一个考点上不够。"""
+    """模块要变绿，已学的子考点都要变绿；只有"较好"不够。"""
     from mastery_model import upper_mastery
-    rights = [ev('right', '%02d' % i) for i in range(9)]
-    assert upper_mastery([0.5, 0.5, 1], rights, 3, False) < 1
-    assert upper_mastery([0.7, 0.85, 1], rights, 3, False) == 1
+    assert upper_mastery([0.5, 0.5, 1], False) < 1
+    assert upper_mastery([0.7, 0.85, 1], False) < 1
+    assert upper_mastery([0.99, 1, 1], False) == 0.99
 
 
 def retag_fixture():
@@ -693,6 +698,150 @@ def test_retag_stops_when_an_english_question_is_missing():
     raise AssertionError('漏题时没有报错')
 
 
+# ---------------------------------------------------------------- 考点卷 Task 2：掌握度新规则
+
+
+def evq(kind, at, qid, source='practice', order=0, entered=None):
+    """测试用事件：带错题编号、算数（gate 为真）。错题事件的录入时间缺省等于 at。"""
+    is_question = source == 'question'
+    return {'kind': kind, 'at': at, 'seq': 0 if is_question else 1, 'adjust': None, 'source': source,
+            'qid': qid, 'order': order, 'gate': True,
+            'entered': (entered or at) if is_question else None}
+
+
+def test_gate_example_two_questions():
+    """设计 4.4 的例子：A、B 两道错题，三份卷子后点亮。"""
+    from mastery_model import leaf_detail, leaf_mastery
+    events = [evq('wrong', '2026-11-01', 1, 'question'), evq('wrong', '2026-11-01', 2, 'question'),
+              evq('right', '2026-11-08', 1, order=0), evq('wrong', '2026-11-08', 2, order=1)]
+    assert round(leaf_mastery(events), 2) == 0.2
+    events += [evq('right', '2026-11-15', 1, order=0), evq('right', '2026-11-15', 2, order=1)]
+    assert round(leaf_mastery(events), 2) == 0.5
+    events += [evq('right', '2026-11-22', 2)]
+    detail = leaf_detail(events)
+    assert detail['value'] == 1.0 and detail['pending'] == 0 and detail['all_graduated'] is True
+
+
+def test_gate_pending_caps_value():
+    """8 道错题，3 道连对 2 次毕业，5 道没重做：最多 0.25，不变绿。"""
+    from mastery_model import leaf_detail
+    events = [evq('wrong', '2026-11-01', q, 'question') for q in range(1, 9)]
+    events += [evq('right', '2026-11-0%d' % day, q) for q in (1, 2, 3) for day in (2, 3)]
+    detail = leaf_detail(events)
+    assert round(detail['value'], 2) == 0.25 and detail['pending'] == 5
+
+
+def test_gate_new_wrong_on_mastered_drops_to_085():
+    """已掌握的考点来一道新错题，从 1 掉到 0.85。"""
+    from mastery_model import leaf_mastery
+    events = [evq('wrong', '2026-11-01', 1, 'question')] + [evq('right', '2026-11-0%d' % d, 1) for d in (2, 3, 4)]
+    assert leaf_mastery(events) == 1.0
+    assert round(leaf_mastery(events + [evq('wrong', '2026-11-05', 2, 'question')]), 2) == 0.85
+
+
+def test_gate_single_question_needs_check():
+    """只有一道错题：错、对、对之后不是绿色；再做对一道验收题才点亮。"""
+    from mastery_model import leaf_mastery
+    events = [evq('wrong', '2026-11-01', 1, 'question'), evq('right', '2026-11-02', 1), evq('right', '2026-11-03', 1)]
+    assert round(leaf_mastery(events), 2) == 0.65
+    assert leaf_mastery(events + [evq('right', '2026-11-04', 1)]) == 1.0
+
+
+def test_gate_three_rights_but_not_all_graduated():
+    """最近 3 次全对，但第 2 题只对了 1 次：不变绿。"""
+    from mastery_model import leaf_mastery
+    events = [evq('wrong', '2026-11-01', 1, 'question'), evq('wrong', '2026-11-01', 2, 'question'),
+              evq('right', '2026-11-02', 1), evq('right', '2026-11-03', 1), evq('right', '2026-11-04', 2)]
+    assert leaf_mastery(events) < 1.0
+
+
+def test_right_at_one_stays_one():
+    """直接设为掌握后再做对一次，仍是 1（不掉到 0.99）。"""
+    from mastery_model import leaf_mastery
+    assert leaf_mastery([ev('adjust', '2026-11-01', 'set_mastered'), evq('right', '2026-11-02', 1)]) == 1.0
+
+
+def test_set_mastered_waives_older_questions():
+    """直接设为掌握：之前录入的错题视同毕业；之后录入的新错题照常压上限。"""
+    from mastery_model import leaf_detail, leaf_mastery
+    events = [evq('wrong', '2026-11-01', 1, 'question'), evq('wrong', '2026-11-02', 2, 'question'),
+              ev('adjust', '2026-11-05', 'set_mastered')]
+    detail = leaf_detail(events)
+    assert detail['value'] == 1.0 and detail['pending'] == 0 and detail['waive_at'] == '2026-11-05'
+    later = events + [evq('wrong', '2026-11-06', 3, 'question')]
+    assert round(leaf_mastery(later), 2) == 0.85
+
+
+def test_down_small_on_mastered_stays_085():
+    """点亮后手动"降低一点"是 0.85，不会被改回 1。"""
+    from mastery_model import leaf_mastery
+    events = [evq('wrong', '2026-11-01', 1, 'question')] + [evq('right', '2026-11-0%d' % d, 1) for d in (2, 3, 4)]
+    assert leaf_mastery(events) == 1.0
+    assert round(leaf_mastery(events + [ev('adjust', '2026-11-05', 'down_small')]), 2) == 0.85
+
+
+def test_same_paper_orders_by_number():
+    """同一份卷子同一时刻的两条结果，按卷面题号先后算（交换题号结果不同）。"""
+    from mastery_model import leaf_mastery
+    base = [evq('wrong', '2026-11-01', 1, 'question'), evq('wrong', '2026-11-01', 2, 'question')]
+    right_first = base + [evq('right', '2026-11-08', 1, order=0), evq('wrong', '2026-11-08', 2, order=1)]
+    wrong_first = base + [evq('right', '2026-11-08', 1, order=1), evq('wrong', '2026-11-08', 2, order=0)]
+    assert round(leaf_mastery(right_first), 2) == 0.2
+    assert round(leaf_mastery(wrong_first), 2) == 0.3
+
+
+def test_events_without_gate_keep_old_behaviour():
+    """不带错题编号的事件不参与"待重做""毕业"：错、错、对、对、对仍然是 1。"""
+    from mastery_model import leaf_detail
+    detail = leaf_detail([ev(k, str(i)) for i, k in enumerate(['wrong', 'wrong', 'right', 'right', 'right'])])
+    assert detail['value'] == 1.0 and detail['pending'] == 0 and detail['all_graduated'] is True
+
+
+def test_upper_all_children_green():
+    """一级模块：子考点全部为 1 且没有没学的才是 1，否则平均值最高 0.99；没有子考点时 0.5。"""
+    from mastery_model import upper_mastery
+    assert upper_mastery([1.0, 1.0], False) == 1.0
+    assert upper_mastery([1.0, 0.99], False) == 0.99
+    assert upper_mastery([1.0, 1.0], True) == 0.99
+    assert upper_mastery([], False) == 0.5
+
+
+def gate_fixture(default_grade):
+    """考点 121 下三道错题：一道题干为空、一道五年级、一道六年级；default_grade 为空时不写应用配置。"""
+    c = build_database()
+    if default_grade is not None:
+        set_config(c, 'app', {'default_grade': default_grade, 'default_semester': 1})
+    for qid, grade in ((1, 6), (2, 5), (3, 6)):
+        add_question(c, qid, 1, '2026-10-0%d 08:00:00' % qid, [121])
+        c.execute('UPDATE question SET grade=? WHERE id=?', (grade, qid))
+    c.execute("UPDATE question SET parsed_question=NULL, original_text='  ' WHERE id=1")
+    c.commit()
+    return c
+
+
+def test_gate_ignores_empty_stem_and_lower_grade():
+    """题干为空、年级低于默认年级的错题不算待重做。"""
+    assert by_id(view(gate_fixture(6), 1))[121]['pending'] == 1
+
+
+def test_gate_without_default_grade():
+    """没设默认年级时不按年级筛：五年级的题也算，题干为空的仍不算。"""
+    assert by_id(view(gate_fixture(None), 1))[121]['pending'] == 2
+
+
+def test_question_scope_helpers():
+    """题干条件与年级条件的 SQL 片段。"""
+    from question_scope import grade_ready, stem_ready
+    assert grade_ready('q', None) == ('1=1', [])
+    assert grade_ready('a', 6) == ('(a.grade IS NULL OR a.grade>=?)', [6])
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE q(parsed_question TEXT, original_text TEXT)')
+    rows = [(None, None), ('  ', ' \n '), (None, '原题'), (' ', '原题'), ('解析', None), ('解析', '')]
+    c.executemany('INSERT INTO q VALUES(?,?)', rows)
+    ready = [r[0] for r in c.execute('SELECT ' + stem_ready('q') + ' FROM q')]
+    assert ready == [0, 0, 1, 1, 1, 1], ready
+
+
 TESTS = [
     test_migration_adds_tables_and_column,
     test_migration_is_rerunnable,
@@ -726,6 +875,20 @@ TESTS = [
     test_retag_rerun_with_changed_mapping,
     test_retag_never_touches_non_english_questions,
     test_retag_stops_when_an_english_question_is_missing,
+    test_gate_example_two_questions,
+    test_gate_pending_caps_value,
+    test_gate_new_wrong_on_mastered_drops_to_085,
+    test_gate_single_question_needs_check,
+    test_gate_three_rights_but_not_all_graduated,
+    test_right_at_one_stays_one,
+    test_set_mastered_waives_older_questions,
+    test_down_small_on_mastered_stays_085,
+    test_same_paper_orders_by_number,
+    test_events_without_gate_keep_old_behaviour,
+    test_upper_all_children_green,
+    test_gate_ignores_empty_stem_and_lower_grade,
+    test_gate_without_default_grade,
+    test_question_scope_helpers,
 ]
 
 

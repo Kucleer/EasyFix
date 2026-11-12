@@ -1,35 +1,37 @@
 """考点掌握度的计算规则（纯函数，不读数据库、不读时钟）。
 
-规则见设计文档 docs/superpowers/specs/2026-11-11-knowledge-starmap-design.md 第 4 节：
-掌握度只看最近的做题结果，不随时间变化；错题扣、练习卷做对加、可以手动调整。
+基础规则见 docs/superpowers/specs/2026-11-11-knowledge-starmap-design.md 第 4 节（从 0.5 起，错扣、对加）；
+"待重做的错题压上限""错题全部毕业才能变绿""一级模块看子考点"这几条见
+docs/superpowers/specs/2026-11-12-weekly-paper-design.md 第 4.4、4.5 节。
 
 事件统一写成字典：
-    {'kind': 'wrong' | 'right' | 'adjust', 'at': 时间字符串, 'seq': 同一时刻内的次序, 'adjust': 调整类型或 None}
+    {'kind': 'wrong' | 'right' | 'adjust', 'at': 时间字符串, 'seq': 同一时刻内的次序, 'adjust': 调整类型或 None,
+     'source': 'question' | 'practice' | 'adjust'（可选）,
+     'qid': 错题编号（可选）, 'order': 卷面题号顺序（可选，缺省 0）,
+     'gate': 这道题算不算数（可选，缺省假）, 'entered': 错题的录入时间（可选）}
 seq：错题 0、练习结果 1、手动调整 2，保证同一时刻错题排在练习前面。
+没有 qid 或 gate 为假的事件照常加减，但不参与"待重做""毕业"的统计。
 """
 
 START = 0.5          # 学过但没有记录时的起点
 STEP = 0.15          # 每次做错扣、做对加的幅度
 FLOOR = 0.15         # 下限，和"没学"区分开
-LEAF_N = 3           # 最底层考点：最近 3 次全对就是掌握
-UPPER_FACTOR = 3     # 上层星：N = 3 × 覆盖的底层考点数
-UPPER_CAP = 30       # 上层星的 N 最多 30
-UPPER_RATIO = 0.9    # 上层星：最近 N 次里至少九成做对
+LEAF_N = 3           # 最底层考点：最近 3 次全对（且错题全部毕业）才是掌握
 UPPER_MAX = 0.99     # 不满足掌握条件时的最高值（底层和上层都一样）
-UPPER_CHILD_MIN = 0.7  # 上层星要掌握，已学的子考点都要至少"较好"
+GRADUATE_STREAK = 2  # 一道错题在练习卷里连续做对 2 次就毕业
 # 手动调整的幅度；set_mastered 直接设为 1
 ADJUST = {'up_small': 0.15, 'up_large': 0.35, 'down_small': -0.15, 'set_mastered': None}
 VOCAB_STAGES = (0.25, 0.5, 0.75, 1.0)
 
 
 def clamp(value):
-    """把加减后的掌握度限制在 [FLOOR, 0.99]：只有"最近 3 次全对"或"直接设为掌握"才能到 1。"""
+    """把加减后的掌握度限制在 [FLOOR, 0.99]：只有满足掌握条件或"直接设为掌握"才能到 1。"""
     return max(FLOOR, min(UPPER_MAX, value))
 
 
 def sort_events(events):
-    """按时间、再按同一时刻内的次序排序（错题在前、练习其次、调整最后）。"""
-    return sorted(events, key=lambda event: (str(event['at'] or ''), event['seq']))
+    """按时间、同一时刻内的次序（错题在前、练习其次、调整最后）、卷面题号排序。"""
+    return sorted(events, key=lambda event: (str(event['at'] or ''), event['seq'], event.get('order') or 0))
 
 
 def answer_events(events):
@@ -37,35 +39,82 @@ def answer_events(events):
     return [event for event in events if event['kind'] in ('wrong', 'right')]
 
 
-def leaf_mastery(events):
-    """最底层考点的掌握度：从 0.5 起按时间逐条加减；最近 3 次全对则为 1。"""
+def is_pending(state):
+    """一道错题是不是"待重做"：没在练习卷里做过，或最近一次做错（连对次数为 0）。"""
+    return not state['practised'] or state['streak'] == 0
+
+
+def value_cap(pending):
+    """有 pending 道待重做的错题时，掌握度的上限：1 − 0.15 × 待重做数，最低 0.15。"""
+    return max(FLOOR, 1 - STEP * pending)
+
+
+def leaf_detail(events):
+    """最底层考点的掌握度明细：按时间逐条回放事件（设计 4.4）。
+
+    返回 {'value': 掌握度, 'pending': 待重做的错题数, 'all_graduated': 算数的错题是否全部毕业,
+          'waive_at': 最近一次"直接设为掌握"的时间或 None}。
+    """
     value = START
+    tracked = {}        # 算数的错题：错题编号 -> {'practised': 做过没有, 'streak': 连对次数, 'entered': 录入时间}
     answers = []        # 到目前为止的对/错结果
+    waive_at = None
     for event in sort_events(events):
-        if event['kind'] in ('wrong', 'right'):
+        qid = event.get('qid')
+        counts = bool(event.get('gate')) and qid is not None   # 这条事件的题算不算数
+        if event['kind'] in ('wrong', 'right') and event.get('source') == 'question':
+            # 错题事件：登记这道题，扣 0.15
+            if counts and qid not in tracked:
+                entered = str(event.get('entered') or '')
+                state = {'practised': False, 'streak': 0, 'entered': entered}
+                # 录入早于"直接设为掌握"的题（卷子日期排得靠后时也一样）视同已毕业
+                if waive_at is not None and entered < str(waive_at):
+                    state['practised'], state['streak'] = True, GRADUATE_STREAK
+                tracked[qid] = state
+            value = clamp(value - STEP)
+            answers.append('wrong')
+        elif event['kind'] in ('wrong', 'right'):
+            # 练习结果：更新这道错题的连对次数，再加减 0.15
+            right = event['kind'] == 'right'
+            if counts and qid in tracked:
+                state = tracked[qid]
+                state['practised'] = True
+                state['streak'] = state['streak'] + 1 if right else 0
+            if not (right and value >= 1):          # 已经是 1 时做对，保持 1
+                value = clamp(value + (STEP if right else -STEP))
             answers.append(event['kind'])
-            value = clamp(value + (STEP if event['kind'] == 'right' else -STEP))
-            # 一旦最近 3 次全对，当场到达掌握；之后再错从 1 往下扣
-            if len(answers) >= LEAF_N and all(kind == 'right' for kind in answers[-LEAF_N:]):
+            # 此刻最近 3 次全对、并且算数的错题全部毕业，才跳到 1
+            recent_all_right = len(answers) >= LEAF_N and all(kind == 'right' for kind in answers[-LEAF_N:])
+            if right and recent_all_right and all(s['streak'] >= GRADUATE_STREAK for s in tracked.values()):
                 value = 1.0
         elif ADJUST.get(event['adjust'], 0) is None:
-            value = 1.0          # 直接设为掌握
+            # 直接设为掌握：之前录入的错题从此视同已毕业
+            value = 1.0
+            waive_at = event['at']
+            for state in tracked.values():
+                if state['entered'] < str(waive_at):
+                    state['practised'] = True
+                    state['streak'] = max(state['streak'], GRADUATE_STREAK)
         else:
             value = clamp(value + ADJUST.get(event['adjust'], 0))
-    return value
+        # 每算一条都按此刻待重做的错题数压一次上限
+        value = min(value, value_cap(sum(1 for state in tracked.values() if is_pending(state))))
+    pending = sum(1 for state in tracked.values() if is_pending(state))
+    all_graduated = all(state['streak'] >= GRADUATE_STREAK for state in tracked.values())
+    return {'value': value, 'pending': pending, 'all_graduated': all_graduated, 'waive_at': waive_at}
 
 
-def upper_mastery(child_values, events, leaf_count, has_unlearned):
-    """上层星的掌握度：子考点平均值；满足"至少 N 次、九成对、没有没学的子考点、
-    已学子考点都至少较好"时为 1，否则最高 0.99。"""
+def leaf_mastery(events):
+    """最底层考点的掌握度（只要数值时用）。"""
+    return leaf_detail(events)['value']
+
+
+def upper_mastery(child_values, has_unlearned):
+    """一级模块的掌握度：已学子考点的平均值，最高 0.99；
+    已学子考点全部为 1、并且没有没学的子考点时为 1（设计 4.5）。"""
+    if child_values and not has_unlearned and all(value >= 1 for value in child_values):
+        return 1.0
     average = sum(child_values) / len(child_values) if child_values else START
-    window = min(UPPER_FACTOR * leaf_count, UPPER_CAP)
-    answers = answer_events(sort_events(events))
-    weak_child = any(value < UPPER_CHILD_MIN for value in child_values)
-    if window and len(answers) >= window and not has_unlearned and not weak_child:
-        recent = answers[-window:]
-        if sum(event['kind'] == 'right' for event in recent) / window >= UPPER_RATIO:
-            return 1.0
     return min(average, UPPER_MAX)
 
 
