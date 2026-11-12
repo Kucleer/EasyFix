@@ -86,7 +86,7 @@
           </div>
         </div>
 
-        <div class="step-footer">
+        <div class="step-footer submit-bar">
           <el-button type="primary" size="large" class="submit-button" :loading="submitting" @click="submit">提交</el-button>
         </div>
       </section>
@@ -161,6 +161,7 @@ const PHOTO_MAX_SIDE = 1600    // 照片压缩后的长边像素
 const PHOTO_QUALITY = 0.8      // 照片压缩的 JPEG 质量
 const UPLOAD_BATCH = 10        // 上传接口一次最多收 10 张
 const LONG_PRESS_MS = 500      // 按住多久算长按
+const CLICK_GUARD_MS = 400     // 长按触发后这么久内到达的 click 算长按松手，不切换对错
 const STALE_TEXT = '这份卷子刚被批改过，已为你刷新'
 // 方格里显示的状态文字
 const MARK_TEXTS = { right: '对', wrong: '错', not_done: '没做', bad_question: '有误' }
@@ -189,7 +190,9 @@ const drawerOpen = ref(false)
 const drawerQuestion = ref(null)
 
 let pressTimer = null     // 长按计时器
-let pressFired = false    // 刚触发过长按，紧跟着的 click 不再切换对错
+// 上一次长按触发的时间。只看时间、不留开关：松手如果落在抽屉遮罩上，方格收不到 click，
+// 用开关的话会一直留着，把下一次正常点击吞掉；用时间窗口过了就自动失效。
+let pressFiredAt = 0
 
 const questions = computed(() => paper.value?.questions || [])
 const images = computed(() => paper.value?.review_images || [])
@@ -313,20 +316,17 @@ function squareClass(q) {
 
 /** 点一下方格：对 <-> 错（灰色的回到对）；刚长按过就不切换。 */
 function onSquareClick(q) {
-  if (pressFired) {
-    pressFired = false
-    return
-  }
+  if (Date.now() - pressFiredAt < CLICK_GUARD_MS) return
   marks.value = { ...marks.value, [q.id]: toggleMark(marks.value[q.id] || 'right') }
 }
 
 /** 按下方格开始计时，按满 LONG_PRESS_MS 打开抽屉。 */
 function startPress(q) {
   cancelPress()
-  pressFired = false
+  pressFiredAt = 0  // 新的一次按下，之前的长按不再影响
   pressTimer = setTimeout(() => {
     pressTimer = null
-    pressFired = true
+    pressFiredAt = Date.now()
     openDrawer(q)
   }, LONG_PRESS_MS)
 }
@@ -609,6 +609,22 @@ onBeforeUnmount(cancelPress)
   color: inherit;
   font-size: 12px;
   cursor: pointer;
+}
+
+/* 提交按钮贴在屏幕底部，长卷子不用滑到底；
+   手机上底部导航是 fixed（约 61px 加安全区），要留出这段高度才不会被盖住 */
+.submit-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 10px 0;
+  background: var(--bg-secondary, var(--el-bg-color-page));
+}
+
+@media (max-width: 768px) {
+  .submit-bar {
+    bottom: calc(62px + env(safe-area-inset-bottom));
+  }
 }
 
 .submit-button {
