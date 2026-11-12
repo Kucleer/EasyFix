@@ -131,3 +131,9 @@
 - [x] `POST /api/practice-sets/{id}/mark-reviewed`（改动）：错题练习的批改支持逐题 `skip_reason`（`not_done` / `bad_question`）、`grading_revision` 乐观锁（过期返回 409）和重复提交不重复计数；响应增加 `grading_revision`、`points`（考点变化）、`newly_mastered`、`graduated`（本次毕业的题号）。不再记录错因。
 - [x] `GET /api/practice-sets/{id}`（改动）：条目增加 `number`（卷面题号）、`form`、`reason`、`analysis`、`explanation`。
 - [x] `POST /api/practice-sets/{id}/generate-pdf`（改动）：考点卷按模块分组、题号连续，答案页标注"原题 / 相似题"和入选原因，仍沿用指纹缓存。
+
+## 批改识别预批（2026-11-12）
+
+- [x] `POST /api/practice-sets/{id}/recognize/page`：请求 `{index}`（`review_images` 里的照片序号，服务端按序号取路径，不接受前端传路径），普通模式读一张照片，返回 `{index, text}`。照片找不到 404；识别主机不可用、忙、读不出来 503（前端改为手动批改）；单词、阅读练习 422。不写库。
+- [x] `POST /api/practice-sets/{id}/recognize/judge`：请求 `{pages: [{index, text}]}`；题号、题目、标准答案由服务端从库里取，调一次模型，返回 `{items: [{id, number, student_answer, verdict, page}]}`（`verdict` 为 `right` / `wrong` / `unsure`，每题一项，漏掉的补成 `unsure`）。手动组的卷子打印后删过题（题号可能和纸上不一致）409；模型出错 502；单词、阅读练习 422。识别文字和结果都不写库。
+- [x] `GET /api/practice-sets/{id}`（改动）：错题练习的条目增加 `shown_form`（卷面上印的是 `original` 原题还是 `similar` 相似题）。

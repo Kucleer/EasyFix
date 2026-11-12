@@ -17,6 +17,7 @@ from settings import router as settings_router
 from analytics import router as analytics_router
 from motivation import router as motivation_router
 from targeted import router as targeted_router
+from grading_scan import router as grading_scan_router
 from practices import router as practices_router
 from review import router as review_router
 from reports import router as reports_router
@@ -35,6 +36,7 @@ app.include_router(auth_router)
 app.include_router(motivation_router)
 # 考点卷的固定路径 /api/practice-sets/targeted/... 要排在练习集的 /{practice_set_id} 之前
 app.include_router(targeted_router)
+app.include_router(grading_scan_router)
 app.include_router(practices_router)
 app.include_router(review_router)
 app.include_router(reports_router)

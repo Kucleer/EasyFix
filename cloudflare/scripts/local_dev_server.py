@@ -46,7 +46,7 @@ CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
 # 挂载顺序与 main.py 一致：intake、scan 的固定路径要排在 questions 的 {question_id} 之前，
 # targeted（/api/practice-sets/targeted/...）要排在 practices 的 {practice_set_id} 之前
 ROUTER_MODULES = ('intake', 'papers', 'similar', 'catalog', 'knowledge', 'scan', 'questions', 'settings', 'analytics',
-                  'targeted', 'practices', 'reports', 'starmap')
+                  'targeted', 'grading_scan', 'practices', 'reports', 'starmap')
 IMAGE_TYPES = ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_FILES = 10
@@ -375,6 +375,24 @@ async def fake_similar_json(request, prompt, max_tokens=6000, temperature=0.6, p
             'explanation': '假模型的解析：两数相加。'}
 
 
+async def fake_judge_json(request, prompt, max_tokens=6000, temperature=0.6, parse=None):
+    """假的文本模型（批改比对用）：从提示词里取出每道题的题号和标准答案，按题号造一份预批结果。
+
+    题号是 4 的倍数的判错（孩子答案写"错的答案"），是 5 的倍数的拿不准（没读到），其余判对，
+    这样在浏览器里能同时看到对、错、拿不准三种；页号一律给第 1 页。
+    """
+    answers = []
+    for number, answer in re.findall(r'^(\d+)\. 题目：.*\n   标准答案：(.*)$', prompt, flags=re.M):
+        number = int(number)
+        if number % 4 == 0:
+            answers.append({'no': number, 'student_answer': '错的答案', 'verdict': 'wrong', 'page': 1})
+        elif number % 5 == 0:
+            answers.append({'no': number, 'student_answer': '', 'verdict': 'unsure', 'page': None})
+        else:
+            answers.append({'no': number, 'student_answer': answer, 'verdict': 'right', 'page': 1})
+    return {'answers': answers}
+
+
 def make_http_generate_json(config):
     """按 settings.generate_json 的请求格式，用 urllib 调真实的文本模型；config 来自 --llm-config。"""
 
@@ -440,6 +458,13 @@ def install_scan_dependencies(uploads_dir, ocr_url, ocr_key, llm_config):
     scan = importlib.import_module('scan')
     scan.ocr_client = ocr
     scan.generate_json = make_http_generate_json(llm_config) if llm_config else fake_generate_json
+    try:
+        # 批改识别预批：和整页识别用同一个识别主机；比对用真实模型或假的比对模型
+        grading = importlib.import_module('grading_scan')
+        grading.ocr_client = ocr
+        grading.generate_json = make_http_generate_json(llm_config) if llm_config else fake_judge_json
+    except Exception as error:
+        print('跳过批改识别的替身：%s' % error)
 
 
 # ---------------------------------------------------------------- 应用

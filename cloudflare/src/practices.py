@@ -96,6 +96,8 @@ async def get(db,practice_id,details=True):
                 item['form']=='similar' or (item['form'] is None and row['question_type']=='similar'))
             item['question_text']=item['similar_text'] if use_similar else original
             if use_similar:item['answer']=item['similar_answer']
+            # 卷面上实际印的是原题还是相似题（批改页显示"原题 / 相似题"标记用）
+            item['shown_form']='similar' if use_similar else 'original'
             item['is_correct']=bool(item['is_correct']) if item['is_correct'] is not None else None
             links=link_map.get(item['question_id'],[])
             item['knowledge_points']=links
