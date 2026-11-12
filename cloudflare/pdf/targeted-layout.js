@@ -52,6 +52,6 @@ export const TARGETED_STYLE = '@page{size:A4;margin:18mm 16mm 20mm}*{box-sizing:
   + '.code{text-align:center;color:#555;font-size:10pt}.fills{display:flex;gap:8mm;margin:3mm 0 4mm}.fill{flex:1;display:flex;align-items:baseline;font-size:10pt}.fill i{flex:1;border-bottom:1px solid #333;margin-left:2mm}'
   + '.question{border-top:1px solid #888;padding-top:3mm;margin-bottom:4mm;break-inside:avoid}.question.long{break-inside:auto}.question-header{font-size:9pt;color:#333}'
   + '.math-field{white-space:pre-wrap;overflow-wrap:anywhere}.katex{white-space:nowrap}.katex-display{margin:3mm 0;break-inside:avoid}'
-  + '.answer-space{height:12mm}.space-s{height:15mm}.space-m{height:30mm}.space-l{height:50mm}'
+  + '.answer-space{height:12mm}.space-s{height:22.5mm}.space-m{height:45mm}.space-l{height:75mm}'
   + '.answers{break-before:page}.answer-row{border-top:1px solid #ccc;padding:2mm 0;break-inside:avoid}.answer-meta{font-size:9pt;color:#444}.answer-line{display:flex;gap:1mm}.answer-line .math-field{flex:1}'
   + '.paper-footer{margin-top:8mm;text-align:center;font-size:10pt;color:#555}'

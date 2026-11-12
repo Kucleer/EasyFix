@@ -22,7 +22,7 @@ async def validate_math(request,texts):
 
 
 TEMPLATE_VERSION='2'
-TARGETED_TEMPLATE_VERSION='3'
+TARGETED_TEMPLATE_VERSION='4'  # 4：留白放大 1.5 倍（2026-11-12）
 # 入选原因的中文名，和前端考点卷页面一致
 REASON_LABELS={'new':'新错题','wrong':'上次做错','redo':'旧错题重做','consolidate':'巩固','check':'验收','spot':'抽查'}
 FORM_LABELS={'original':'原题','similar':'相似题'}

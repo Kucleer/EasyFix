@@ -1140,7 +1140,7 @@ def test_build_payload_targeted():
     """考点卷：按一级模块分组、题号连续，答案页带原因和题面；相似题用相似题的解析。"""
     import pdf
     payload = pdf.build_payload(paper_detail())
-    assert payload['template_version'] == '3' and payload['layout'] == 'targeted' and payload['code'] == '#7'
+    assert payload['template_version'] == '4' and payload['layout'] == 'targeted' and payload['code'] == '#7'
     assert payload['title'] == '考点卷7'
     assert [g['title'] for g in payload['groups']] == ['一、有理数（2 题）', '二、线段与角（1 题）']
     assert [q['number'] for g in payload['groups'] for q in g['questions']] == [1, 2, 3]
