@@ -6,9 +6,9 @@
         <div class="card-header">
           <span>错题列表</span>
           <div class="header-actions">
-            <el-button type="success" size="large" @click="showGenerateDialog">
+            <el-button type="success" size="large" @click="goTargetedPaper">
               <el-icon><Plus /></el-icon>
-              生成练习
+              出练习卷
             </el-button>
             <el-button type="primary" size="large" @click="$router.push('/upload')">
               <el-icon><Plus /></el-icon>
@@ -440,37 +440,6 @@
       </template>
     </el-dialog>
 
-    <!-- 生成练习弹窗 -->
-    <el-dialog v-model="generateDialogVisible" title="生成练习" width="400px">
-      <el-form :model="generateForm" label-width="80px">
-        <el-form-item label="学科" required>
-          <el-select v-model="generateForm.subject_id" placeholder="选择学科" style="width: 100%">
-            <el-option
-              v-for="subject in subjectOptions"
-              :key="subject.id"
-              :label="subject.name"
-              :value="subject.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="年级">
-          <el-select v-model="generateForm.grade" placeholder="全部" clearable style="width: 100%">
-            <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="数量">
-          <el-input-number v-model="generateForm.count" :min="1" :max="99" />
-        </el-form-item>
-        <el-form-item>
-          <span style="color: #909399; font-size: 12px">优先选择未复习、低正确率的题目</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="generateDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="generatePractice" :loading="generating">生成</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 图片预览弹层 -->
     <el-image-viewer
       v-if="imagePreviewVisible"
@@ -486,13 +455,14 @@ import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
 import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { questionApi, uploadApi } from '@/api/question'
 import { useAppConfigStore } from '@/stores/appConfig'
 import axios from '@/api/http'
 
 const route = useRoute()
+const router = useRouter()
 const appConfigStore = useAppConfigStore()
 
 // 年级选项：一年级到六年级，初一/初二/初三，高一/高二/高三
@@ -611,49 +581,10 @@ const printForm = reactive({
   questionType: 'original',
 })
 
-// 生成练习相关
-const generateDialogVisible = ref(false)
-const generating = ref(false)
-const generateForm = reactive({
-  subject_id: null,
-  grade: null,
-  count: 5,
-})
-
-const subjectOptions = ref([])
-
-const showGenerateDialog = () => {
-  generateForm.subject_id = null
-  generateForm.grade = appConfigStore.defaultGrade
-  generateForm.count = 5
-  generateDialogVisible.value = true
-}
-
-const generatePractice = async () => {
-  if (!generateForm.subject_id) {
-    ElMessage.warning('请选择学科')
-    return
-  }
-  generating.value = true
-  try {
-    const { data } = await questionApi.generateFromQuestions({
-      subject_id: generateForm.subject_id,
-      grade: generateForm.grade,
-      count: generateForm.count,
-    })
-    if (data.pdf_url) {
-      ElMessage.success('练习集和PDF已生成')
-    } else {
-      ElMessage.warning(`练习集已创建，PDF未生成：${data.pdf_error || '请在练习列表重试'}`)
-    }
-    generateDialogVisible.value = false
-    // 跳转到练习集详情
-    window.location.href = `/practice-sets?id=${data.id}`
-  } catch (error) {
-    ElMessage.error('生成失败')
-  } finally {
-    generating.value = false
-  }
+// 出练习卷：跳到考点卷页，当前筛了学科就带上
+const goTargetedPaper = () => {
+  const query = filters.subject_id ? { subject_id: filters.subject_id } : {}
+  router.push({ path: '/targeted-paper', query })
 }
 
 const editForm = reactive({
@@ -705,7 +636,6 @@ const fetchSubjects = async () => {
   try {
     const { data } = await questionApi.listSubjects()
     subjects.value = data
-    subjectOptions.value = data
   } catch (error) {
     console.error('获取学科失败:', error)
   }

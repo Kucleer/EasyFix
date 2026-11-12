@@ -5,6 +5,10 @@
       <template #header>
         <div class="card-header">
           <span>练习集管理</span>
+          <div class="header-actions">
+            <el-link v-if="pendingGradeCount > 0" type="warning" :underline="false" @click="router.push('/grade')">待批改 {{ pendingGradeCount }}</el-link>
+            <el-button type="primary" @click="router.push('/targeted-paper')">出练习卷</el-button>
+          </div>
         </div>
       </template>
 
@@ -62,7 +66,8 @@
         <el-table-column prop="name" label="名称" min-width="300">
           <template #default="{ row }">
             <span class="ps-name">{{ row.name }}</span>
-            <el-tag :type="row.question_type === 'original' ? 'primary' : 'success'" :style="{ marginLeft: '8px', fontSize: '14px' }">
+            <el-tag v-if="row.kind === 'targeted'" type="warning" :style="{ marginLeft: '8px', fontSize: '14px' }">考点卷</el-tag>
+            <el-tag v-else :type="row.question_type === 'original' ? 'primary' : 'success'" :style="{ marginLeft: '8px', fontSize: '14px' }">
               {{ row.question_type === 'original' ? '原题' : '相似题' }}
             </el-tag>
           </template>
@@ -96,7 +101,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, { label: '批改', disabled: row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, { label: row.kind === 'targeted' && row.reviewed ? '改批改' : '批改', disabled: row.kind !== 'targeted' && row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
       </el-table>
 
       <el-empty v-else description="暂无练习集" />
@@ -523,6 +528,7 @@ import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
 import { wordApi } from '@/api/word'
+import { targetedApi } from '@/api/targeted'
 
 const router = useRouter()
 
@@ -623,6 +629,11 @@ const downloadPdf = (ps) => {
 }
 
 const markReviewed = async (ps) => {
+  // 考点卷在手机批改页里批改，已批改的也能重新进去改
+  if (ps.kind === 'targeted') {
+    router.push(`/grade/${ps.id}`)
+    return
+  }
   currentReviewPs.value = ps
 
   // 单词练习集直接标记已复习
@@ -1132,6 +1143,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .card-header  {
 
   display: flex;
