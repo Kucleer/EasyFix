@@ -59,9 +59,12 @@ def split_statements(text):
     return result
 
 
-def build_database(seed_points=True):
-    """建立测试库：旧结构 + 必要的单行记录 + 迁移 0011、0012 + 种子考点（seed_points 为假时不写考点）。"""
-    connection = sqlite3.connect(':memory:')
+def build_database(seed_points=True, check_same_thread=True):
+    """建立测试库：旧结构 + 必要的单行记录 + 迁移 0011、0012 + 种子考点（seed_points 为假时不写考点）。
+
+    check_same_thread 为假时连接可以在别的线程里用（HTTP 测试客户端在另一个线程里跑应用）。
+    """
+    connection = sqlite3.connect(':memory:', check_same_thread=check_same_thread)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_FILE.read_text(encoding='utf-8'))
     connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')

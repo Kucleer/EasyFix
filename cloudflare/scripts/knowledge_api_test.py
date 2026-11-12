@@ -20,13 +20,14 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from analytics import router as analytics_router  # noqa: E402
 from knowledge import router as knowledge_router  # noqa: E402
-from knowledge_invariants_test import build_database  # noqa: E402
+import starmap_test  # noqa: E402  复用建库助手
 from practices import router as practices_router  # noqa: E402
 from questions import router as questions_router  # noqa: E402
 import reports  # noqa: E402
 from reports import router as reports_router  # noqa: E402
 
 RESULTS = []
+MIGRATION_0015 = ROOT / 'migrations' / '0015_targeted_paper.sql'
 
 
 def bind(values):
@@ -88,9 +89,15 @@ class FakeD1:
 
 def build_client():
     """建立带 DB 注入的隔离应用。"""
-    connection = build_database(check_same_thread=False)
+    # 用星空测试的库（线上结构基线 + 0011、0012），再补考点卷的 0015：
+    # 练习集详情和批改现在要用到这些迁移加的表和列（试卷、学习年级、考点卷字段）
+    connection = starmap_test.build_database(seed_points=False, check_same_thread=False)
+    connection.executescript(MIGRATION_0015.read_text(encoding='utf-8'))
+    connection.execute('INSERT INTO error_type(id,name,subject_id,deleted) VALUES(1,"计算错误",1,0)')
+    connection.execute('INSERT INTO error_type(id,name,subject_id,deleted) VALUES(2,"概念错误",NULL,0)')
     from knowledge_invariants_test import seed_tree
     seed_tree(connection)
+    connection.commit()
     app = FastAPI()
 
     @app.middleware('http')

@@ -1,7 +1,7 @@
 # 批改识别预批与电脑手机共用批改页 设计（含待办检查）
 
 日期：2026-11-12
-状态：待用户确认
+状态：已上线（2026-11-12，Worker `0f2d30dd`、Pages `5e3d1920`；2026-11-13 Pages `9bfd7a8e` 加了发布后旧页面自动刷新）
 相关文档：`2026-11-12-weekly-paper-design.md`（项目 3 设计）、`../plans/2026-11-12-targeted-paper.md`（项目 3 计划）、`2026-11-11-page-scan-intake-design.md`（整页识别录入）、`../../scan-intake-tuning-2026-11-11.md`（识别实测）
 
 文中每条决定都标了来源：**【用户定】** 是用户在对话中明确说的；**【Claude 定】** 是 Claude 替用户做的选择，用户审阅时可以改。
@@ -169,46 +169,46 @@
 
 代码：
 
-- [ ] `cloudflare/src/prompts.py`：`_build_targeted_prompt` 去掉 `wrong_answer` 参数、"学生当时的错误答案"一段和"针对这个错误答案暴露出的问题设置考查点"这条要求。
-- [ ] `cloudflare/src/targeted.py`：取题 SQL 不再查 `q.wrong_answer`（约 335 行），调用 `_build_targeted_prompt` 时不再传它（约 348 行）。
-- [ ] `cloudflare/src/similar.py`：检查是否还有传 `wrong_answer` 的地方，一并去掉。
-- [ ] `cloudflare/scripts/targeted_test.py`：删掉或改写"有错误答案时提示词带上它"的测试；新增一条：错题有 `wrong_answer` 时，生成的提示词里也不出现它。
-- [ ] 跑 `python cloudflare/scripts/targeted_test.py` 和其他已有测试，全部通过。
+- [x] `cloudflare/src/prompts.py`：`_build_targeted_prompt` 去掉 `wrong_answer` 参数、"学生当时的错误答案"一段和"针对这个错误答案暴露出的问题设置考查点"这条要求。
+- [x] `cloudflare/src/targeted.py`：取题 SQL 不再查 `q.wrong_answer`（约 335 行），调用 `_build_targeted_prompt` 时不再传它（约 348 行）。
+- [x] `cloudflare/src/similar.py`：检查是否还有传 `wrong_answer` 的地方，一并去掉。
+- [x] `cloudflare/scripts/targeted_test.py`：删掉或改写"有错误答案时提示词带上它"的测试；新增一条：错题有 `wrong_answer` 时，生成的提示词里也不出现它。
+- [x] 跑 `python cloudflare/scripts/targeted_test.py` 和其他已有测试，全部通过。
 
 文档（同一分支）：
 
-- [ ] `2026-11-12-weekly-paper-design.md`：第 2 节目标 4、第 6 节相似题提示词的输入和要求（"孩子当时的错误答案……有错误答案时，针对它……"）、第 276 行附近"只用孩子的错误答案"的说明、第 15 节"路线图要同步改三处"里的第一条，改成"只根据错题本身出，不用错误答案，也不用错因"。
-- [ ] `2026-11-12-targeted-paper.md`：`_build_targeted_prompt` 签名和说明、对应测试、`prepare` / `reroll` 的调用说明里去掉 `wrong_answer`。
-- [ ] `2026-11-10-optimization-roadmap.md`：项目 3 的"相似题 prompt 加入……"改成"相似题只根据错题本身出，带上考点"。
+- [x] `2026-11-12-weekly-paper-design.md`：第 2 节目标 4、第 6 节相似题提示词的输入和要求（"孩子当时的错误答案……有错误答案时，针对它……"）、第 276 行附近"只用孩子的错误答案"的说明、第 15 节"路线图要同步改三处"里的第一条，改成"只根据错题本身出，不用错误答案，也不用错因"。
+- [x] `2026-11-12-targeted-paper.md`：`_build_targeted_prompt` 签名和说明、对应测试、`prepare` / `reroll` 的调用说明里去掉 `wrong_answer`。
+- [x] `2026-11-10-optimization-roadmap.md`：项目 3 的"相似题 prompt 加入……"改成"相似题只根据错题本身出，带上考点"。
 
 ### 9.2 B 部分：项目 3 上线后（新分支，基于合并了项目 3 的 `main`）
 
 后端：
 
-- [ ] 读图接口：按照片序号从 `review_images` 取图，复用 `scan.py` 的读图与重试；识别不可用时返回明确的错误码和提示。
-- [ ] 比对接口：服务端取题号、题目、标准答案（原题或相似题），拼提示词，调一次模型，清洗输出。
-- [ ] 比对提示词：放在 `prompts.py` 或新模块，判定规则沿用录入识别的"只看最终答案"；要求输出页号。
-- [ ] 两个接口只接受 `source_type='question'` 的练习集。
-- [ ] 不新增表、不加迁移、不写库（照片上传沿用现有接口）。
-- [ ] `docs/cloudflare-api-checklist.md` 加上两个接口。
+- [x] 读图接口：按照片序号从 `review_images` 取图，复用 `scan.py` 的读图与重试；识别不可用时返回明确的错误码和提示。
+- [x] 比对接口：服务端取题号、题目、标准答案（原题或相似题），拼提示词，调一次模型，清洗输出。
+- [x] 比对提示词：放在 `prompts.py` 或新模块，判定规则沿用录入识别的"只看最终答案"；要求输出页号。
+- [x] 两个接口只接受 `source_type='question'` 的练习集。
+- [x] 不新增表、不加迁移、不写库（照片上传沿用现有接口）。
+- [x] `docs/cloudflare-api-checklist.md` 加上两个接口。
 
 前端：
 
-- [ ] `GradePaper.vue`：步骤改成 拍照 → 识别（进度条、取消、兜底）→ 复核 → 结果。
-- [ ] 复核列表取代题号方格：题号、原题 / 相似题、题目、标准答案、识别出的孩子答案、预批结果；"只看错的和拿不准的"开关；拿不准未处理时不能提交。
-- [ ] 电脑排版（≥ 1024）：左列表右照片、拍照一步支持拖放、每行直接有"没做 / 题目有误"。手机排版：卡片列表、点题弹出照片。
-- [ ] 已批改的卷子直接进复核、不自动识别；"重新识别"按钮只显示参考结果。
-- [ ] `PracticeSets.vue`：所有错题练习集的"批改 / 改批改"跳 `/grade/:id`；旧弹窗只留给单词和阅读。
-- [ ] 手动组卷子的题号和 PDF 上印的号核对一致。
-- [ ] `composables/targetedPaper.js`（或新文件）：清洗和合并的纯函数，并加测试。
+- [x] `GradePaper.vue`：步骤改成 拍照 → 识别（进度条、取消、兜底）→ 复核 → 结果。
+- [x] 复核列表取代题号方格：题号、原题 / 相似题、题目、标准答案、识别出的孩子答案、预批结果；"只看错的和拿不准的"开关；拿不准未处理时不能提交。
+- [x] 电脑排版（≥ 1024）：左列表右照片、拍照一步支持拖放、每行直接有"没做 / 题目有误"。手机排版：卡片列表、点题弹出照片。
+- [x] 已批改的卷子直接进复核、不自动识别；"重新识别"按钮只显示参考结果。
+- [x] `PracticeSets.vue`：所有错题练习集的"批改 / 改批改"跳 `/grade/:id`；旧弹窗只留给单词和阅读。
+- [x] 手动组卷子的题号和 PDF 上印的号核对一致。
+- [x] `composables/targetedPaper.js`（或新文件）：清洗和合并的纯函数，并加测试。
 
 上线：
 
-- [ ] 测试全部通过，`python -m compileall -q cloudflare/src` 无错。
-- [ ] 本机走查（第 8 节最后一条）。
-- [ ] 部署 Worker 和 Pages，按 `docs/cloudflare-migration-status.md` 的步骤记录版本号和上一版本。
-- [ ] 上线后用一份真实做完的卷子在手机和电脑上各批一次；把识别主机关掉再试一次兜底。
-- [ ] 写变更记录，提交。
+- [x] 测试全部通过，`python -m compileall -q cloudflare/src` 无错。
+- [x] 本机走查（第 8 节最后一条）。
+- [x] 部署 Worker 和 Pages，按 `docs/cloudflare-migration-status.md` 的步骤记录版本号和上一版本。
+- [x] 上线后用一份真实做完的卷子在手机和电脑上各批一次；把识别主机关掉再试一次兜底。
+- [x] 写变更记录，提交。
 
 ## 10. 留给实施者决定的
 
@@ -217,3 +217,13 @@
 - 进度条的样式；电脑上照片区的缩放和翻页方式。
 - 复核列表里题目折叠的行数、手机卡片的布局。
 - 识别各步的超时时间（参考整页识别现有的设置）。
+
+## 11. 实施说明（和上文不一样或补充的地方）
+
+- 接口：`POST /api/practice-sets/{id}/recognize/page`（`{index}` → `{index, text}`，识别不可用 503）、`POST /api/practice-sets/{id}/recognize/judge`（`{pages: [{index, text}]}` → `{items: [{id, number, student_answer, verdict, page}]}`）。代码在 `cloudflare/src/grading_scan.py`、`grading_model.py`，测试 `cloudflare/scripts/grading_scan_test.py`。
+- 开始识别前先查一次识别主机健康（3 秒），不可用直接改为手动批改，不必等每页超时。
+- 第 5 节"手机上的长按菜单保留"没有照做：电脑和手机每道题都直接显示"对 / 错"两个按钮，另有"…"菜单放"没做""题目有误""看解析"，比长按直观。
+- 拍照一步加了删除单张照片的按钮，拍错的照片会影响识别。
+- 第 6 节的题号错开检测：手动组的卷子当前题数比创建时（`total_questions`）少时提示并关闭识别。题面在打印后改过的情况检测不出来。
+- "只看错的和拿不准的"按预批时定下的名单筛，改成对的题不会从眼前消失。
+- 前端路由加了兜底：发布新版本后，旧页面加载页面文件失败时自动整页刷新一次（`frontend/src/router/index.js`）。
