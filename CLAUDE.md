@@ -46,6 +46,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `words.py` / `review.py` / `word_focus.py` / `phrase_focus.py` | 单词本、复习与默写、词组重点标注 |
 | `readings.py` | 阅读短文与题目 |
 | `practices.py` / `pdf.py` | 练习集、批改、PDF 生成与复用 |
+| `targeted.py` / `targeted_model.py` | 考点卷：状态、选题预览、创建、相似题准备与换题；选题与毕业规则的纯函数 |
 | `analytics.py` / `reports.py` | 统计分析、学习报告 |
 | `motivation.py` | 星星、奖励、成就 |
 | `media.py` / `audio_index.py` | 上传、单词音频、打印 |
@@ -71,6 +72,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `/upload` | 录入错题 |
 | `/stats`、`/learning-analysis` | 统计与学习分析 |
 | `/practice-sets` | 练习集 |
+| `/targeted-paper` | 考点卷：出卷页（选科目、题量、分法，预览后生成） |
+| `/grade`、`/grade/:id` | 手机批改：待批改列表与批改页 |
 | `/words` | 单词本 |
 | `/reading`、`/reading-test/:id` | 阅读理解 |
 | `/learning-reports` | 学习报告 |

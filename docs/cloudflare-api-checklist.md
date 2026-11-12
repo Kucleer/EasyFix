@@ -120,3 +120,14 @@
 - [x] `GET /api/stats/summary`、`/api/stats/analysis/full`：知识点部分统一按一级模块；`knowledge_graph` 返回一级/二级节点与父子边。
 - [x] `POST /api/learning-reports/generate`：模块指标由服务端写入 `content.metrics`，`schema_version=2`，模型只输出叙述。
 - [x] `POST /api/words/{word_id}/audio` 与所有写请求：维护开关开启时 Bearer 写入同样返回 503；音频缓存未命中不写 R2。
+
+## 考点卷（项目 3，2026-11-12）
+
+- [x] `GET /api/practice-sets/targeted/status`：待批改卷子数量，以及每个科目最近一份考点卷的题量、分法和抽查数（出卷页预填用）。
+- [x] `POST /api/practice-sets/targeted/plan`：按科目、题量（1–90）、分法（`spread` 均布 / `focus` 集中）、抽查数、是否包含低年级，算出入选清单（每题带入选原因、考点、模块、`has_figure`）和每个考点的备选题；没有可出的题时返回空清单与 `shortfall`，不写库。
+- [x] `POST /api/practice-sets/targeted`：按预览清单创建考点卷（`kind='targeted'`，`question_type='mixed'`），空清单返回 422。
+- [x] `POST /api/practice-sets/targeted/{id}/prepare`：为下一道要用相似题的行生成相似题（每次最多一次模型调用和一次公式校验）；失败返回 502 且该行保持未准备，带 `fallback` 改用原题；卷子已删除返回 404，已批改返回 409。
+- [x] `POST /api/practice-sets/targeted/{id}/reroll`：给某一行换一道题或重新生成相似题，规则同 `prepare`。
+- [x] `POST /api/practice-sets/{id}/mark-reviewed`（改动）：错题练习的批改支持逐题 `skip_reason`（`not_done` / `bad_question`）、`grading_revision` 乐观锁（过期返回 409）和重复提交不重复计数；响应增加 `grading_revision`、`points`（考点变化）、`newly_mastered`、`graduated`（本次毕业的题号）。不再记录错因。
+- [x] `GET /api/practice-sets/{id}`（改动）：条目增加 `number`（卷面题号）、`form`、`reason`、`analysis`、`explanation`。
+- [x] `POST /api/practice-sets/{id}/generate-pdf`（改动）：考点卷按模块分组、题号连续，答案页标注"原题 / 相似题"和入选原因，仍沿用指纹缓存。

@@ -107,8 +107,37 @@ def build_connection():
     connection.executescript(build_retag_sql([]))
     for name, subject_id in ERROR_TYPES:
         connection.execute('INSERT INTO error_type(name,subject_id,deleted) VALUES(?,?,0)', (name, subject_id))
+    seed_demo_questions(connection)
     connection.commit()
     return connection
+
+
+# 本机演示用的数学错题：(题干, 答案, 考点编号在目录里的序号)；第 4 题题干带"如图"，用来看"有图"标签
+DEMO_QUESTIONS = [
+    (r'计算 \(\frac{3}{4}\times\frac{2}{3}\)。', r'\(\frac{1}{2}\)', 19),
+    (r'把 36 分解质因数。', r'\(36=2\times2\times3\times3\)', 19),
+    ('求 12 和 18 的最大公因数。', '6', 19),
+    ('如图，长方形的长是 8 厘米，宽是 5 厘米，求它的周长。', '26 厘米', 22),
+    (r'一根绳子长 \(\frac{5}{6}\) 米，用去 \(\frac{1}{3}\) 米，还剩多少米？', r'\(\frac{1}{2}\) 米', 22),
+    (r'比较 \(\frac{3}{5}\) 和 \(\frac{2}{3}\) 的大小。', r'\(\frac{3}{5}<\frac{2}{3}\)', 22),
+    (r'计算 \(-3+5\)。', '2', 28),
+    (r'计算 \(-2\times(-4)\)。', '8', 28),
+    (r'写出 \(-7\) 的相反数和绝对值。', '相反数 7，绝对值 7', 28),
+]
+
+
+def seed_demo_questions(connection):
+    """只给本机浏览器走查用：在数学下放 9 道已核对的错题，分在 3 个二级考点下（id 19、22、28，分属 3 个一级模块）。"""
+    for text, answer, point_id in DEMO_QUESTIONS:
+        cursor = connection.execute(
+            "INSERT INTO question(subject_id,original_text,parsed_question,answer,grade,semester,deleted,"
+            "review_status,review_count,correct_count,error_count,created_at,updated_at) "
+            "VALUES(1,?,?,?,6,1,0,'approved',0,0,1,'2026-11-01 10:00:00','2026-11-01 10:00:00')",
+            (text, text, answer))
+        connection.execute(
+            "INSERT INTO question_knowledge_point(question_id,knowledge_point_id,is_primary,source,deleted,"
+            "created_at,updated_at) VALUES(?,?,1,'manual',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+            (cursor.lastrowid, point_id))
 
 
 # ---------------------------------------------------------------- 依赖云端存储的路由（本机改用上传目录）
