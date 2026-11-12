@@ -215,3 +215,4 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 发布后只做了无需登录的核对：`/health` 200、未登录访问新接口 401、`/grade` 与 `/targeted-paper` 跳转登录、新页面资源可访问。
 - 未验证（需登录）：真实 PDF 的分页、留白、公式和答案页；手机上批改一份卷子；拍照上传；星空页颜色。本机走查用的是假模型和 JSON 版 PDF 替身。
 - 注意：错题练习的批改现在每次都经过 `write_guard`，维护开关开启时会返回 503（与其他写入一致）。
+- 2026-11-12 晚：考点卷 PDF 的答题留白放大 1.5 倍（22.5/45/75mm），考点卷版式版本升到 4，已生成的考点卷 PDF 再次生成时按新间距重排。部署 PDF Worker `c2c5a68b`（上一版本 `4405b7d6`）、Worker `563c8d50`（上一版本 `335a7e17`）。
