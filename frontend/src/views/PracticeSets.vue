@@ -1136,9 +1136,21 @@ const formatDate = (dateStr) => {
   return new Date(dateStr).toLocaleString('zh-CN')
 }
 
+// 待批改的考点卷份数；取不到按 0 处理，不提示
+const pendingGradeCount = ref(0)
+const loadPendingGradeCount = async () => {
+  try {
+    const { data } = await targetedApi.status()
+    pendingGradeCount.value = data?.pending_count || 0
+  } catch {
+    pendingGradeCount.value = 0
+  }
+}
+
 onMounted(() => {
   fetchPracticeSets()
   fetchSubjects()
+  loadPendingGradeCount()
 })
 </script>
 
