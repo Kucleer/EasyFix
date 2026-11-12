@@ -324,6 +324,113 @@ def test_plan_is_deterministic():
     assert plan_paper(list(reversed(questions)), points, None, '2026-11-12', 12, 'focus', 1) == focus
 
 
+# ---------------------------------------------------------------- 任务 4：相似题提示词、保存解析、复用规则
+
+
+def similar_env(monkeypatch_result):
+    """替换 similar.generate_json 与 pdf.validate_math，返回 (similar 模块, 校验调用记录, 还原函数)。"""
+    import pdf
+    import similar
+    calls = []
+    saved = (similar.generate_json, pdf.validate_math)
+
+    async def fake_generate(request, prompt):
+        calls.append(('model', prompt))
+        return monkeypatch_result
+
+    async def fake_validate(request, texts):
+        calls.append(('math', list(texts)))
+
+    similar.generate_json, pdf.validate_math = fake_generate, fake_validate
+
+    def restore():
+        similar.generate_json, pdf.validate_math = saved
+    return similar, calls, restore
+
+
+def similar_fixture():
+    """建库、写一道数学错题，返回 (连接, 异步 db, 假请求, 原题行)。"""
+    c = build_db()
+    starmap_test.add_question(c, 11, 1, '2026-10-01', [101])
+    c.commit()
+    db = starmap_test.adapter(c)
+    original = dict(c.execute('SELECT q.*,s.name AS subject_name FROM question q JOIN subject s ON s.id=q.subject_id '
+                              'WHERE q.id=11').fetchone())
+    return c, db, starmap_test.FakeRequest(None, db), original
+
+
+def test_targeted_prompt_content():
+    """提示词带错误答案、无图要求、三句话限制和考点路径；不出现错因。"""
+    from prompts import PromptLibrary
+    text = PromptLibrary()._build_targeted_prompt(
+        '计算 3x+2x', '5x', '数学', [{'name': '合并同类项', 'parent_name': '简单的代数式', 'is_primary': True}], '5x²', True)
+    assert '5x²' in text and '不依赖图形' in text and '三句话' in text and '简单的代数式 / 合并同类项' in text
+    assert '错因' not in text and '错误类型' not in text
+    plain = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [], None, False)
+    assert '错误答案' not in plain and '不依赖图形' not in plain
+
+
+def test_create_similar_stores_explanation():
+    """create_similar 写入带解析的新行，数学题校验一次公式。"""
+    c, db, request, original = similar_fixture()
+    similar, calls, restore = similar_env(
+        {'similar_question': '计算 4x+x', 'similar_answer': '5x', 'explanation': '合并同类项，系数相加。'})
+    try:
+        row = starmap_test.run(similar.create_similar(db, request, original, 'prompt'))
+    finally:
+        restore()
+    assert row['explanation'] == '合并同类项，系数相加。' and row['deleted'] == 0 and row['source_question_id'] == 11
+    assert [kind for kind, _ in calls] == ['model', 'math'] and calls[0][1] == 'prompt'
+
+
+def test_create_similar_rejects_empty():
+    """模型返回空题目时抛 502，表里没有新行。"""
+    from fastapi import HTTPException
+    c, db, request, original = similar_fixture()
+    similar, calls, restore = similar_env({'similar_question': '', 'similar_answer': '5x', 'explanation': '解析'})
+    try:
+        try:
+            starmap_test.run(similar.create_similar(db, request, original, 'prompt'))
+            raise AssertionError('应当抛出 502')
+        except HTTPException as error:
+            assert error.status_code == 502
+    finally:
+        restore()
+    assert c.execute('SELECT COUNT(*) FROM similar_question').fetchone()[0] == 0
+
+
+def test_reusable_similar_rules():
+    """没解析的不复用；被没删除卷子用过的不复用；被已删除卷子用过的可复用；已删除的不复用；取最新一道。"""
+    import similar
+    c, db, request, original = similar_fixture()
+
+    def add(sid, explanation, deleted=0):
+        c.execute('INSERT INTO similar_question(id,source_question_id,similar_text,similar_answer,explanation,deleted,'
+                  'generated_at) VALUES(?,?,?,?,?,?,?)', (sid, 11, '题', '答', explanation, deleted, '2026-11-01'))
+
+    def use(sid, set_id, deleted=0):
+        c.execute('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order,'
+                  'form,deleted) VALUES(?,?,?,0,?,?)', (set_id, 11, sid, 'similar', deleted))
+
+    pick = lambda: (lambda row: row and row['id'])(starmap_test.run(similar.reusable_similar(db, 11)))
+    add(1, None)
+    assert pick() is None                               # 旧相似题没有解析
+    add(2, '解析')
+    assert pick() == 2
+    add_set(c, 7, '2026-11-02 10:00:00', None, [])
+    use(2, 7)
+    assert pick() is None                               # 被没删除的卷子用过
+    c.execute('UPDATE practice_set SET deleted=1 WHERE id=7')
+    assert pick() == 2                                  # 卷子已删除，可再用
+    c.execute('UPDATE practice_set SET deleted=0 WHERE id=7')
+    c.execute('UPDATE practice_set_question SET deleted=1 WHERE practice_set_id=7')
+    assert pick() == 2                                  # 题目行已删除，可再用
+    add(3, '解析', deleted=1)
+    assert pick() == 2                                  # 已删除的相似题不复用
+    add(4, '解析')
+    assert pick() == 4                                  # 取最新
+
+
 TESTS = [
     test_migration_adds_columns,
     test_migration_defaults_keep_old_rows_valid,
@@ -347,6 +454,10 @@ TESTS = [
     test_reserve_keeps_unselected_in_order,
     test_has_figure,
     test_plan_is_deterministic,
+    test_targeted_prompt_content,
+    test_create_similar_stores_explanation,
+    test_create_similar_rejects_empty,
+    test_reusable_similar_rules,
 ]
 
 

@@ -30,6 +30,35 @@ class PromptLibrary:
             '    "similar_answer": "相似题目的答案",\n'
             '    "explanation": "简要解析"\n}\n')
 
+    def _build_targeted_prompt(self, question: str, answer: str, subject: str, knowledge_points=None,
+                               wrong_answer: Optional[str] = None, figure: bool = False) -> str:
+        """考点卷用的相似题提示词：在普通提示词上加错误答案、无图要求和解析长度限制，不提错因。"""
+        subject_info = f'学科：{subject}' if subject else '学科：未知'
+        points = []
+        for point in knowledge_points or []:
+            path = (point.get('parent_name') + ' / ' if point.get('parent_name') else '') + str(point.get('name') or '')
+            points.append(('主考点：' if point.get('is_primary') else '关联考点：') + path)
+        knowledge_info = '\n'.join(points) if points else '知识点：未分类'
+        rules = [
+            '题型相似、难度相近',
+            '必须考察主考点；其他关联考点作为背景，不保证全部覆盖',
+            '但具体数值或情境不同',
+        ]
+        if wrong_answer:
+            rules.append('针对这个错误答案暴露出的问题设置考查点')
+        if figure:
+            rules.append('不依赖图形，条件全部用文字给出')
+        rules.append('解析不超过三句话')
+        rule_text = ''.join(f'{i}. {rule}\n' for i, rule in enumerate(rules, 1))
+        wrong_info = f'学生当时的错误答案：\n{wrong_answer}\n\n' if wrong_answer else ''
+        return (
+            '请根据以下题目生成一道相似的练习题，要求：\n' + rule_text + '\n'
+            f'{subject_info}\n{knowledge_info}\n\n原题目：\n{question}\n\n原答案：\n{answer}\n\n{wrong_info}'
+            '请以以下JSON格式返回结果：\n'
+            '{\n    "similar_question": "生成的相似题目",\n'
+            '    "similar_answer": "相似题目的答案",\n'
+            '    "explanation": "简要解析"\n}\n')
+
     def _build_learning_report_prompt(self, subject_name: Optional[str], grade: Optional[int],
                                       time_range_days: Optional[int], data_summary: dict) -> str:
         """构建学习报告提示词：模型只写叙述，不输出任何计数或正确率数字。"""
