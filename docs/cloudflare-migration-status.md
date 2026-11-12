@@ -203,3 +203,15 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 2026-11-11 晚：合并手机默写修复（分支 `fix/mobile-dictation-keyboard`，提交 `51b19f8f`：点方格时让隐藏输入框真正获得焦点以弹出软键盘，并兼容安卓键盘读不到按键字母的情况）到 `feature/page-scan-intake`，一起构建前端发布 Pages `ce0740e3`。后端未变（Worker `fa75dcfe`）。尚未在真手机（微信 / iPhone）上验证。
 - 2026-11-11 晚：公式组件 `MathText` 竖直方向不再滚动（去掉分数旁边带上下箭头的小滚动条），发布 Pages `856f1f9a`。
 - 2026-11-11 晚：按调优记录第 5 节的测量结果关掉重扫：Worker 密钥 `SCAN_RESCAN=off`（用密钥而不是配置文件里的变量，避免部署时覆盖控制台里的普通变量）。实测一页读图 12.8 秒 + 整理 7.6 秒，不再重扫。要恢复重扫，删掉这个密钥即可。
+
+## 变更记录：考点卷与手机批改（项目 3，2026-11-12 已上线）
+
+- 分支 `claude/targeted-paper-2026-11-12-dcd75f`，发布时代码提交 `560d41a4`；设计 `docs/superpowers/specs/2026-11-12-weekly-paper-design.md`，计划 `docs/superpowers/plans/2026-11-12-targeted-paper.md`。
+- 迁移 `0015_targeted_paper.sql`（只加列）：`practice_set.kind`（默认 `manual`）、`practice_set.grading_revision`（默认 0）；`practice_set_question.form/reason/knowledge_point_id/skip_reason`；`similar_question.explanation`。
+- 执行前备份 `backups/targeted_release_20261112T144006Z/remote.sql`（SHA-256 `62e6c6d49626ee188ed34e858ab0a3ebe2a5afeb90f1cde58702092524e508da`），Time Travel 书签 `0000008e-00000000-00005121-e21d6d9db51582ae1b50fdf7a0883858`；同目录有演练、核对脚本输出和每一步输出。未开启维护开关（只加列）。
+- 演练与正式执行后核对一致：41 张表行数不变；错题 638、练习集 221、练习集题目 1116、相似题 7；221 份练习集全部为 `manual`、版本号 0；新列全部为空。
+- 上线前核对（`targeted_preflight.py`，在演练副本上）：按新规则英语有 2 颗原来的绿星不再是绿色（分词作定语 0.55、待重做 3 道；特殊疑问句 0.15、待重做 24 道），数学无变化，用户同意照此上线；题干为空的错题 0；没批改的错题练习集 0；正式环境没有设置默认年级，选题不按年级筛。
+- 部署：Worker `335a7e17-42f9-4c93-9261-4957d1a8a10d`（上一版本 `2af82122`）；PDF Worker `4405b7d6-9f71-44d5-9702-f789d43d13c3`（上一版本 `8afa5ed5`）；Pages `a58dd21c`（上一部署 `856f1f9a`）。
+- 发布后只做了无需登录的核对：`/health` 200、未登录访问新接口 401、`/grade` 与 `/targeted-paper` 跳转登录、新页面资源可访问。
+- 未验证（需登录）：真实 PDF 的分页、留白、公式和答案页；手机上批改一份卷子；拍照上传；星空页颜色。本机走查用的是假模型和 JSON 版 PDF 替身。
+- 注意：错题练习的批改现在每次都经过 `write_guard`，维护开关开启时会返回 503（与其他写入一致）。
