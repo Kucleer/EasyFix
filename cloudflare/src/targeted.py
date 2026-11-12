@@ -332,7 +332,7 @@ async def load_open_paper(db, practice_set_id):
 
 # 题目行连同错题内容（生成相似题要用）；调用方在后面接 WHERE 条件
 ITEM_SQL = ('SELECT pq.id AS item_id, pq.form, pq.similar_question_id, q.id, q.parsed_question, q.original_text, '
-            'q.answer, q.wrong_answer, q.review_reasons, s.name AS subject_name FROM practice_set_question pq '
+            'q.answer, q.review_reasons, s.name AS subject_name FROM practice_set_question pq '
             'JOIN question q ON q.id=pq.question_id AND q.deleted=0 '
             'JOIN subject s ON s.id=q.subject_id ')
 
@@ -345,7 +345,7 @@ async def generate_for(db, request, question):
     stem = stem_of(question)
     links = (await question_links(db, [question['id']])).get(question['id'], [])
     prompt = PromptLibrary()._build_targeted_prompt(
-        stem, question['answer'] or '', question['subject_name'], links, question['wrong_answer'],
+        stem, question['answer'] or '', question['subject_name'], links,
         has_figure(stem, question['review_reasons']))
     try:
         return await similar.create_similar(db, request, question, prompt)

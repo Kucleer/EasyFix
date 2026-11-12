@@ -337,7 +337,7 @@ git commit -m "feat(targeted): question state and paper selection rules"
 - Test: `cloudflare/scripts/targeted_test.py`
 
 **Interfaces:**
-- Produces（`prompts.py`）：`PromptLibrary()._build_targeted_prompt(question: str, answer: str, subject: str, knowledge_points, wrong_answer: str | None, figure: bool) -> str`。在现有 `_build_prompt` 的内容上：有 `wrong_answer` 时加一段"学生当时的错误答案：…"，并要求"针对这个错误答案暴露出的问题设置考查点"；`figure` 为真时要求"不依赖图形，条件全部用文字给出"；要求"解析不超过三句话"。返回的 JSON 字段不变（`similar_question`、`similar_answer`、`explanation`）。提示词里不出现错因。
+- Produces（`prompts.py`）：`PromptLibrary()._build_targeted_prompt(question: str, answer: str, subject: str, knowledge_points, figure: bool) -> str`。在现有 `_build_prompt` 的内容上：不给孩子的错误答案（2026-11-12 修订）；`figure` 为真时要求"不依赖图形，条件全部用文字给出"；要求"解析不超过三句话"。返回的 JSON 字段不变（`similar_question`、`similar_answer`、`explanation`）。提示词里不出现错因。
 - Produces（`similar.py`）：
   - `create_similar(db, request, original: dict, prompt: str) -> dict`：调模型、校验题目和答案不为空（空则 502）、数学题校验公式（题目、答案、解析）、写入 `similar_question`（含 `explanation`），返回新行。不触发激励。
   - `reusable_similar(db, question_id: int) -> dict | None`：这道错题最新的一道"带解析、没删除、没被任何未删除练习集里未删除的题目行引用"的相似题；没有返回 `None`。按这条规则，进过卷子的相似题永远不会再被复用，所以批改时标了"题目有误"的相似题不需要另外处理。
@@ -347,10 +347,10 @@ git commit -m "feat(targeted): question state and paper selection rules"
 
 ```python
 def test_targeted_prompt_content():
-    text = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [{'name': '合并同类项', 'parent_name': '简单的代数式', 'is_primary': True}], '5x²', True)
-    assert '5x²' in text and '不依赖图形' in text and '三句话' in text and '简单的代数式 / 合并同类项' in text
-    assert '错因' not in text and '错误类型' not in text
-    plain = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [], None, False)
+    text = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [{'name': '合并同类项', 'parent_name': '简单的代数式', 'is_primary': True}], True)
+    assert '不依赖图形' in text and '三句话' in text and '简单的代数式 / 合并同类项' in text
+    assert '错因' not in text and '错误类型' not in text and '错误答案' not in text
+    plain = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [], False)
     assert '错误答案' not in plain and '不依赖图形' not in plain
 
 def test_create_similar_stores_explanation():
@@ -388,7 +388,7 @@ git commit -m "feat(similar): targeted prompt with wrong answer, keep explanatio
 
 **Interfaces:**
 - Consumes: Task 2 的 `starmap.compute`（节点里的 `value`、`status`、`pending`、`all_graduated`、`waive_at`）、`question_scope.stem_ready` / `grade_ready`；Task 3 的 `plan_paper`、`question_state`、`has_figure` 和常量；Task 4 的 `create_similar`、`reusable_similar`、`_build_targeted_prompt`。
-- Produces（路由前缀 `/api/practice-sets/targeted`；处理函数依次叫 `status(request)`、`plan(request)`、`create(request)`、`prepare(practice_set_id, request)`、`reroll(practice_set_id, request)`，测试直接调用它们）。`prepare` 和 `reroll` 生成相似题时用 `_build_targeted_prompt`，传入这道错题的 `wrong_answer` 和 `has_figure(题干, review_reasons)`：
+- Produces（路由前缀 `/api/practice-sets/targeted`；处理函数依次叫 `status(request)`、`plan(request)`、`create(request)`、`prepare(practice_set_id, request)`、`reroll(practice_set_id, request)`，测试直接调用它们）。`prepare` 和 `reroll` 生成相似题时用 `_build_targeted_prompt`，传入 `has_figure(题干, review_reasons)`（不传错误答案）：
 
 | 接口 | 请求 | 返回 |
 |------|------|------|

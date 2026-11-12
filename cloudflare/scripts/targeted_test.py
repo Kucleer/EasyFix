@@ -361,14 +361,15 @@ def similar_fixture():
 
 
 def test_targeted_prompt_content():
-    """提示词带错误答案、无图要求、三句话限制和考点路径；不出现错因。"""
+    """提示词带无图要求、三句话限制和考点路径；不出现错因和错误答案。"""
     from prompts import PromptLibrary
     text = PromptLibrary()._build_targeted_prompt(
-        '计算 3x+2x', '5x', '数学', [{'name': '合并同类项', 'parent_name': '简单的代数式', 'is_primary': True}], '5x²', True)
-    assert '5x²' in text and '不依赖图形' in text and '三句话' in text and '简单的代数式 / 合并同类项' in text
-    assert '错因' not in text and '错误类型' not in text
-    plain = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [], None, False)
+        '计算 3x+2x', '5x', '数学', [{'name': '合并同类项', 'parent_name': '简单的代数式', 'is_primary': True}], True)
+    assert '不依赖图形' in text and '三句话' in text and '简单的代数式 / 合并同类项' in text
+    assert '错因' not in text and '错误类型' not in text and '错误答案' not in text
+    plain = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [], False)
     assert '错误答案' not in plain and '不依赖图形' not in plain
+
 
 
 def test_create_similar_stores_explanation():
@@ -457,12 +458,13 @@ def install_fakes():
     """
     import pdf
     import similar
-    calls = {'model': 0, 'math': 0, 'error': None,
+    calls = {'model': 0, 'math': 0, 'error': None, 'prompts': [],
              'result': {'similar_question': '相似题目', 'similar_answer': '相似答案', 'explanation': '相似解析'}}
     saved = (similar.generate_json, pdf.validate_math)
 
     async def fake_generate(request, prompt):
         calls['model'] += 1
+        calls['prompts'].append(prompt)
         if calls['error'] is not None:
             raise calls['error']
         return dict(calls['result'])
@@ -565,6 +567,15 @@ def test_create_then_prepare_until_done(calls):
     assert similar['answer'] == '相似答案' and similar['reason'] == 'wrong' and similar['knowledge_point_id'] == 102
     done = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
     assert done == {'remaining': 0, 'item_id': None, 'fallback': False} and calls['model'] == 1
+
+@with_fakes
+def test_prepare_prompt_ignores_wrong_answer(calls):
+    """错题记着孩子当时的错误答案时，准备相似题的提示词里也不出现它（设计：相似题只根据错题本身出）。"""
+    c, db = paper_fixture()        # 错题 3 的 wrong_answer 是"错的答案"
+    paper = create_paper(db, [{'question_id': 3, 'point_id': 102, 'reason': 'wrong', 'form': 'similar'}])
+    starmap_test.run(__import__('targeted').prepare(paper['id'], request_for(db, {})))
+    assert calls['model'] == 1
+    assert calls['prompts'] and all('错的答案' not in prompt and '错误答案' not in prompt for prompt in calls['prompts'])
 
 
 def test_plan_excludes_blocked_and_old_open_papers():
@@ -1437,6 +1448,7 @@ TESTS = [
     test_has_figure,
     test_plan_is_deterministic,
     test_targeted_prompt_content,
+    test_prepare_prompt_ignores_wrong_answer,
     test_create_similar_stores_explanation,
     test_create_similar_rejects_empty,
     test_reusable_similar_rules,
