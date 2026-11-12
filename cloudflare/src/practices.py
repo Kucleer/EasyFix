@@ -79,14 +79,19 @@ async def get(db,practice_id,details=True):
     elif row['source_type']=='word':
         row['questions']=await word_practice_items(db,practice_id)
     else:
-        rows=await db.all('SELECT pq.*,q.subject_id,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.legacy_knowledge_point,q.knowledge_revision,q.error_type,q.review_count,q.original_image,s.similar_text,s.similar_answer FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(practice_id,))
+        rows=await db.all('SELECT pq.*,q.subject_id,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.legacy_knowledge_point,q.knowledge_revision,q.error_type,q.review_count,q.original_image,q.analysis,s.similar_text,s.similar_answer,s.explanation FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(practice_id,))
         link_map=await question_links(db,[item['question_id'] for item in rows])
-        for item in rows:
+        for number,item in enumerate(rows,1):
             original=item['parsed_question'] or item['original_text'] or ''
             item['original_question_text']=original
             item['original_answer']=item['answer']
-            item['question_text']=item['similar_text'] if row['question_type']=='similar' and item['similar_question_id'] else original
-            if row['question_type']=='similar' and item['similar_question_id']:item['answer']=item['similar_answer']
+            item['number']=number  # 卷面题号，从 1 开始
+            # 题面取相似题：这一行挂了相似题，并且这一行标的是相似题；
+            # 旧数据的行没有 form，按整份卷子的 question_type 判断
+            use_similar=bool(item['similar_question_id']) and item['similar_text'] is not None and (
+                item['form']=='similar' or (item['form'] is None and row['question_type']=='similar'))
+            item['question_text']=item['similar_text'] if use_similar else original
+            if use_similar:item['answer']=item['similar_answer']
             item['is_correct']=bool(item['is_correct']) if item['is_correct'] is not None else None
             links=link_map.get(item['question_id'],[])
             item['knowledge_points']=links

@@ -32,8 +32,8 @@ def add_set(c, practice_id, created_at, reviewed_at, items, kind='targeted', del
     reviewed_at 为 None 表示还没批改（reviewed=0）；display_order 按列表顺序。
     """
     c.execute(
-        'INSERT INTO practice_set(id,name,subject_id,question_type,kind,deleted,created_at,last_reviewed_at,reviewed) '
-        'VALUES(?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO practice_set(id,name,subject_id,source_type,question_type,kind,deleted,created_at,last_reviewed_at,'
+        "reviewed) VALUES(?,?,?,'question',?,?,?,?,?,?)",
         (practice_id, '考点卷%d' % practice_id, subject_id, 'mixed', kind, deleted, created_at, reviewed_at,
          0 if reviewed_at is None else 1))
     for order, (qid, correct, form) in enumerate(items):
@@ -431,6 +431,393 @@ def test_reusable_similar_rules():
     assert pick() == 4                                  # 取最新
 
 
+# ---------------------------------------------------------------- 任务 5：出卷接口
+
+
+def days_ago(days):
+    """北京时间 days 天前的时间文本（'YYYY-MM-DD HH:MM:SS'），测试按当前时钟造"最近 30 天"的数据。"""
+    import datetime
+    from analytics import now
+    return (now() - datetime.timedelta(days=days)).isoformat(' ')[:19]
+
+
+def request_for(db, payload=None):
+    """造一个假请求，让 targeted、starmap、settings 模块直接使用传入的 db。"""
+    import targeted
+    targeted.Database = lambda binding: binding
+    return starmap_test.request_for(db, payload)
+
+
+def install_fakes():
+    """替换 similar.generate_json 与 pdf.validate_math。
+
+    返回 (calls, restore)：calls['model']、calls['math'] 是调用次数；改 calls['result'] 换模型的返回，
+    把 calls['error'] 设成异常对象时假模型抛出它。
+    """
+    import pdf
+    import similar
+    calls = {'model': 0, 'math': 0, 'error': None,
+             'result': {'similar_question': '相似题目', 'similar_answer': '相似答案', 'explanation': '相似解析'}}
+    saved = (similar.generate_json, pdf.validate_math)
+
+    async def fake_generate(request, prompt):
+        calls['model'] += 1
+        if calls['error'] is not None:
+            raise calls['error']
+        return dict(calls['result'])
+
+    async def fake_validate(request, texts):
+        calls['math'] += 1
+
+    similar.generate_json, pdf.validate_math = fake_generate, fake_validate
+
+    def restore():
+        similar.generate_json, pdf.validate_math = saved
+    return calls, restore
+
+
+def with_fakes(function):
+    """测试装饰器：运行期间装上假模型，结束后还原；被装饰的函数第一个参数是 calls。"""
+    def wrapper():
+        calls, restore = install_fakes()
+        try:
+            function(calls)
+        finally:
+            restore()
+    wrapper.__name__ = function.__name__
+    wrapper.__doc__ = function.__doc__
+    return wrapper
+
+
+def paper_fixture():
+    """数学：考点 101 两道没练过的旧错题（1、2），考点 102 一道上次做错的题（3）。返回 (连接, db)。"""
+    c = build_db()
+    starmap_test.add_question(c, 1, 1, '2026-09-01 08:00:00', [101])
+    starmap_test.add_question(c, 2, 1, '2026-09-02 08:00:00', [101])
+    starmap_test.add_question(c, 3, 1, '2026-09-03 08:00:00', [102])
+    c.execute("UPDATE question SET wrong_answer='错的答案', answer='对的答案' WHERE id=3")
+    add_set(c, 1, '2026-09-10 08:00:00', '2026-09-11 08:00:00', [(3, 0, 'original')], kind='manual')
+    c.commit()
+    return c, starmap_test.adapter(c)
+
+
+def plan_body(db, **payload):
+    """调用 plan，返回结果。"""
+    import targeted
+    return starmap_test.run(targeted.plan(request_for(db, {'subject_id': 1, **payload})))
+
+
+def plan_ids(db, **payload):
+    """plan 选中的错题编号集合。"""
+    return {item['question_id'] for item in plan_body(db, **payload)['items']}
+
+
+def create_items(body):
+    """把 plan 的结果变成 create 的 items。"""
+    return [{key: item[key] for key in ('question_id', 'point_id', 'reason', 'form')} for item in body['items']]
+
+
+def create_paper(db, items, **extra):
+    """调用 create，返回卷子详情。"""
+    import targeted
+    return starmap_test.run(targeted.create(request_for(db, {'subject_id': 1, 'items': items, **extra})))
+
+
+def test_plan_endpoint_shape_and_reasons():
+    """一科里：考点 101 薄弱（两道没练过的旧错题）、考点 102 有一道上次做错的题。"""
+    c, db = paper_fixture()
+    body = plan_body(db, size=3, spot_count=0)
+    assert sorted(i['reason'] for i in body['items']) == ['redo', 'redo', 'wrong'] and body['shortfall'] == 0
+    assert all(i['form'] == ('similar' if i['reason'] == 'wrong' else 'original') for i in body['items'])
+    first = body['items'][0]
+    assert {'question_id', 'point_id', 'point_name', 'module_id', 'module_name', 'reason', 'form', 'stem',
+            'has_figure'} <= set(first)
+    assert first['module_name'] == '有理数' and first['stem'].startswith('题')
+    assert body['open_paper_count'] == 0 and body['last_paper'] is None
+
+
+def test_plan_validations():
+    """题量、分法、抽查数不对时 422。"""
+    import targeted
+    c, db = paper_fixture()
+    for payload in ({'size': 0}, {'size': 91}, {'size': '3'}, {'size': True}, {'size': 3, 'mode': 'x'},
+                    {'size': 3, 'spot_count': -1}, {'size': 3, 'spot_count': 91}):
+        starmap_test.expect_http_error(422, targeted.plan(request_for(db, {'subject_id': 1, **payload})))
+
+
+@with_fakes
+def test_create_then_prepare_until_done(calls):
+    """按 plan 的结果创建考点卷，再一道一道准备相似题。"""
+    import practices
+    import targeted
+    c, db = paper_fixture()
+    items = create_items(plan_body(db, size=3, spot_count=0))
+    paper = starmap_test.run(targeted.create(request_for(db, {'subject_id': 1, 'items': items})))
+    assert paper['kind'] == 'targeted' and paper['question_type'] == 'mixed' and paper['total_questions'] == 3
+    assert [q['number'] for q in paper['questions']] == [1, 2, 3]
+    assert paper['name'].startswith('数学练习卷 ') and paper['name'].endswith('日')
+    left = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
+    assert left['remaining'] == 0 and calls['model'] == 1          # 只有一道相似题要生成，只调一次模型
+    detail = starmap_test.run(practices.get(db, paper['id']))
+    similar = [q for q in detail['questions'] if q['form'] == 'similar'][0]
+    assert similar['question_text'] == '相似题目' and similar['explanation']
+    assert similar['answer'] == '相似答案' and similar['reason'] == 'wrong' and similar['knowledge_point_id'] == 102
+    done = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
+    assert done == {'remaining': 0, 'item_id': None, 'fallback': False} and calls['model'] == 1
+
+
+def test_plan_excludes_blocked_and_old_open_papers():
+    """10 天前没批改的卷子占着题；40 天前没批改的卷子不占题；open_paper_count 只算 30 天内的。"""
+    c, db = paper_fixture()
+    add_set(c, 50, days_ago(10), None, [(1, None, 'original')])
+    add_set(c, 51, days_ago(40), None, [(2, None, 'original')])
+    c.commit()
+    body = plan_body(db, size=10)
+    ids = {item['question_id'] for item in body['items']}
+    assert 1 not in ids and 2 in ids and body['open_paper_count'] == 1
+    assert body['last_paper']['id'] == 50 and body['last_paper']['state'] == 'to_print'
+
+
+def grade_fixture(default_grade):
+    """考点 101 下三道题：五年级、年级为空、六年级；default_grade 为空时不写应用配置。"""
+    c = build_db()
+    if default_grade is not None:
+        starmap_test.set_config(c, 'app', {'default_grade': default_grade, 'default_semester': 1})
+    for qid, grade in ((1, 5), (2, None), (3, 6)):
+        starmap_test.add_question(c, qid, 1, '2026-09-0%d 08:00:00' % qid, [101])
+        c.execute('UPDATE question SET grade=? WHERE id=?', (grade, qid))
+    c.commit()
+    return starmap_test.adapter(c)
+
+
+def test_plan_lower_grades_switch():
+    """默认年级 6：五年级的题默认不出，打开"包含低年级"后出；年级为空的题都出。"""
+    db = grade_fixture(6)
+    assert plan_ids(db, size=10) == {2, 3}
+    assert plan_ids(db, size=10, include_lower_grades=True) == {1, 2, 3}
+
+
+def test_plan_without_default_grade():
+    """没设默认年级时五年级的题也出，不报错。"""
+    assert plan_ids(grade_fixture(None), size=10) == {1, 2, 3}
+
+
+def test_plan_and_create_with_nothing_to_pick():
+    """没有错题的学科：plan 返回空清单、shortfall 等于题量；create 传空清单 422。"""
+    import targeted
+    c, db = paper_fixture()
+    body = starmap_test.run(targeted.plan(request_for(db, {'subject_id': 2, 'size': 12})))
+    assert body['items'] == [] and body['shortfall'] == 12 and body['reserve'] == {}
+    starmap_test.expect_http_error(422, targeted.create(request_for(db, {'subject_id': 2, 'items': []})))
+
+
+def test_plan_query_count_is_fixed():
+    """5 道题和 60 道题时 plan 执行的 SQL 条数相同。"""
+    import targeted
+
+    def count(total):
+        """建 total 道题（分在四个考点上，部分做过），返回 plan 执行的 SQL 条数。"""
+        c = build_db()
+        points = (101, 102, 111, 112)
+        for qid in range(1, total + 1):
+            starmap_test.add_question(c, qid, 1, '2026-09-%02d 08:00:00' % (qid % 28 + 1), [points[qid % 4]])
+        add_set(c, 1, '2026-10-01 08:00:00', '2026-10-02 08:00:00',
+                [(qid, qid % 2 == 0, 'original') for qid in range(1, total + 1, 3)])
+        add_set(c, 2, days_ago(3), None, [(2, None, 'original')])
+        c.commit()
+        counter = starmap_test.CountingDB(c)
+        starmap_test.run(targeted.plan(request_for(counter, {'subject_id': 1, 'size': 12})))
+        return counter.calls
+
+    small, big = count(5), count(60)
+    assert small == big, (small, big)
+
+
+def test_create_validations():
+    """题号重复、别科的题、待核对的题、考点不对、原因不对 422；题在没批改的卷子里 409；失败不写卷子。"""
+    import targeted
+    c, db = paper_fixture()
+    starmap_test.add_question(c, 20, 2, '2026-09-01 08:00:00', [201])
+    starmap_test.add_question(c, 21, 1, '2026-09-01 08:00:00', [101], status='pending')
+    starmap_test.add_question(c, 22, 1, '2026-09-01 08:00:00', [111])
+    add_set(c, 60, days_ago(5), None, [(22, None, 'original')])
+    c.commit()
+    before = c.execute('SELECT COUNT(*) FROM practice_set').fetchone()[0]
+
+    def item(qid, point, reason='redo', form='original'):
+        """一条创建用的题目。"""
+        return {'question_id': qid, 'point_id': point, 'reason': reason, 'form': form}
+
+    bad = [
+        [item(1, 101), item(1, 101)],            # 题号重复
+        [item(20, 201)],                         # 别的学科
+        [item(21, 101)],                         # 待核对
+        [item(1, 102)],                          # 不是它挂的考点
+        [item(1, 101, reason='x')],              # 原因不对
+        [item(1, 101, form='x')],                # 题面不对
+        [item(1, 100)],                          # 一级考点
+        'x',
+    ]
+    for items in bad:
+        starmap_test.expect_http_error(422, targeted.create(request_for(db, {'subject_id': 1, 'items': items})))
+    starmap_test.expect_http_error(409, targeted.create(request_for(db, {'subject_id': 1, 'items': [item(22, 111)]})))
+    assert c.execute('SELECT COUNT(*) FROM practice_set').fetchone()[0] == before
+
+
+def test_create_orders_by_module_and_point():
+    """请求里交错给出两个模块的题，创建后同一模块、同一考点的题题号相连。"""
+    c, db = paper_fixture()
+    starmap_test.add_question(c, 11, 1, '2026-09-05 08:00:00', [111])
+    starmap_test.add_question(c, 12, 1, '2026-09-06 08:00:00', [111])
+    c.commit()
+
+    def item(qid, point):
+        """一条创建用的题目。"""
+        return {'question_id': qid, 'point_id': point, 'reason': 'redo', 'form': 'original'}
+
+    paper = create_paper(db, [item(11, 111), item(1, 101), item(12, 111), item(3, 102), item(2, 101)],
+                         name='自定义名称')
+    assert [q['question_id'] for q in paper['questions']] == [1, 2, 3, 11, 12]
+    assert [q['number'] for q in paper['questions']] == [1, 2, 3, 4, 5] and paper['name'] == '自定义名称'
+
+
+@with_fakes
+def test_prepare_reuses_unused_similar(calls):
+    """错题已有一道带解析、没用过的相似题时，prepare 直接复用，不调模型。"""
+    import practices
+    import targeted
+    c, db = paper_fixture()
+    c.execute("INSERT INTO similar_question(id,source_question_id,similar_text,similar_answer,explanation,deleted,"
+              "generated_at) VALUES(9,3,'旧相似题','旧答案','旧解析',0,'2026-10-01')")
+    c.commit()
+    paper = create_paper(db, create_items(plan_body(db, size=3, spot_count=0)))
+    left = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
+    assert left['remaining'] == 0 and left['fallback'] is False and calls['model'] == 0
+    detail = starmap_test.run(practices.get(db, paper['id']))
+    similar = [q for q in detail['questions'] if q['form'] == 'similar'][0]
+    assert similar['similar_question_id'] == 9 and similar['question_text'] == '旧相似题'
+
+
+@with_fakes
+def test_prepare_failure_keeps_item_pending_then_fallback(calls):
+    """模型出错时 502，那一行保持未准备；再调仍处理同一道；带 fallback 后改成原题。"""
+    from fastapi import HTTPException
+    import pdf
+    import targeted
+    c, db = paper_fixture()
+    paper = create_paper(db, create_items(plan_body(db, size=3, spot_count=0)))
+    item_id = c.execute("SELECT id FROM practice_set_question WHERE practice_set_id=? AND form='similar'",
+                        (paper['id'],)).fetchone()[0]
+    calls['error'] = HTTPException(502, '模型出错')
+    starmap_test.expect_http_error(502, targeted.prepare(paper['id'], request_for(db, {})))
+    starmap_test.expect_http_error(502, targeted.prepare(paper['id'], request_for(db, {})))
+    assert calls['model'] == 2
+    row = c.execute('SELECT form,similar_question_id FROM practice_set_question WHERE id=?', (item_id,)).fetchone()
+    assert (row[0], row[1]) == ('similar', None)
+    # 公式校验不过（渲染服务返回 4xx）也按 502 处理
+    calls['error'] = None
+
+    async def bad_math(request, texts):
+        """公式校验失败。"""
+        raise HTTPException(422, '公式有误')
+    pdf.validate_math = bad_math
+    starmap_test.expect_http_error(502, targeted.prepare(paper['id'], request_for(db, {})))
+    assert c.execute('SELECT COUNT(*) FROM similar_question').fetchone()[0] == 0
+    left = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {'fallback': True})))
+    assert left == {'remaining': 0, 'item_id': item_id, 'fallback': True} and calls['model'] == 3
+    row = c.execute('SELECT form,similar_question_id FROM practice_set_question WHERE id=?', (item_id,)).fetchone()
+    assert (row[0], row[1]) == ('original', None)
+
+
+@with_fakes
+def test_reroll_replaces_similar(calls):
+    """reroll 后那一行指向新的相似题，旧的软删除，reusable_similar 不再返回旧的。"""
+    import similar
+    import targeted
+    c, db = paper_fixture()
+    paper = create_paper(db, create_items(plan_body(db, size=3, spot_count=0)))
+    starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
+    item_id, old_id = c.execute("SELECT id,similar_question_id FROM practice_set_question WHERE practice_set_id=? "
+                                "AND form='similar'", (paper['id'],)).fetchone()
+    calls['result'] = {'similar_question': '新相似题', 'similar_answer': '新答案', 'explanation': '新解析'}
+    body = starmap_test.run(targeted.reroll(paper['id'], request_for(db, {'item_id': item_id})))
+    assert body == {'item_id': item_id, 'similar_text': '新相似题', 'similar_answer': '新答案', 'explanation': '新解析'}
+    new_id = c.execute('SELECT similar_question_id FROM practice_set_question WHERE id=?', (item_id,)).fetchone()[0]
+    assert new_id != old_id and calls['model'] == 2
+    assert c.execute('SELECT deleted FROM similar_question WHERE id=?', (old_id,)).fetchone()[0] == 1
+    reusable = starmap_test.run(similar.reusable_similar(db, 3))
+    assert reusable is None or reusable['id'] != old_id
+    # 原题行、别的卷子的行、格式不对的编号不能 reroll
+    original_id = c.execute("SELECT id FROM practice_set_question WHERE practice_set_id=? AND form='original'",
+                            (paper['id'],)).fetchone()[0]
+    for bad in (original_id, 99999, 'x'):
+        starmap_test.expect_http_error(422, targeted.reroll(paper['id'], request_for(db, {'item_id': bad})))
+    assert calls['model'] == 2
+
+
+@with_fakes
+def test_prepare_and_reroll_reject_closed_paper(calls):
+    """已删除 404；已批改 409；手动组的卷子 422；都不写数据、不调模型。"""
+    import targeted
+    c, db = paper_fixture()
+    add_set(c, 70, days_ago(1), None, [(3, None, 'similar')], deleted=1)
+    add_set(c, 71, days_ago(1), days_ago(0), [(3, None, 'similar')])
+    add_set(c, 72, days_ago(1), None, [(3, None, 'similar')], kind='manual')
+    c.commit()
+    for paper_id, status in ((70, 404), (71, 409), (72, 422), (99999, 404)):
+        found = c.execute('SELECT id FROM practice_set_question WHERE practice_set_id=?', (paper_id,)).fetchone()
+        item_id = found[0] if found else 1
+        starmap_test.expect_http_error(status, targeted.prepare(paper_id, request_for(db, {})))
+        starmap_test.expect_http_error(status, targeted.reroll(paper_id, request_for(db, {'item_id': item_id})))
+    assert calls['model'] == 0 and c.execute('SELECT COUNT(*) FROM similar_question').fetchone()[0] == 0
+    linked = c.execute('SELECT COUNT(*) FROM practice_set_question WHERE similar_question_id IS NOT NULL').fetchone()[0]
+    forms = {row[0] for row in c.execute('SELECT form FROM practice_set_question WHERE practice_set_id IN (70,71,72)')}
+    assert linked == 0 and forms == {'similar'}
+
+
+def test_status_endpoint():
+    """有 PDF、没批改的考点卷：to_grade，算进 pending_count；40 天前没批改的旧卷不算。"""
+    import targeted
+    c, db = paper_fixture()
+    add_set(c, 80, days_ago(40), None, [(1, None, 'original')])
+    add_set(c, 81, days_ago(2), None, [(2, None, 'original')])
+    c.execute("UPDATE practice_set SET pdf_path='2026/11/a.pdf' WHERE id=81")
+    add_set(c, 82, days_ago(1), days_ago(0), [(1, True, 'original')], subject_id=2)
+    c.execute('UPDATE practice_set SET accuracy=83.3 WHERE id=82')
+    c.commit()
+    body = starmap_test.run(targeted.status(request_for(db)))
+    assert body['pending_count'] == 1
+    subjects = {row['subject_id']: row for row in body['subjects']}
+    assert subjects[1]['subject_name'] == '数学'
+    assert subjects[1]['last_paper']['id'] == 81 and subjects[1]['last_paper']['state'] == 'to_grade'
+    assert subjects[2]['last_paper']['state'] == 'graded' and subjects[2]['last_paper']['accuracy'] == 83.3
+    assert set(subjects[1]['last_paper']) == {'id', 'name', 'created_at', 'state', 'accuracy'}
+
+
+def test_get_keeps_old_sets_working():
+    """旧的整份相似题练习集（form 为空）仍显示相似题题面；旧的原题练习集显示原题；新字段都有。"""
+    import practices
+    c, db = paper_fixture()
+    c.execute("INSERT INTO similar_question(id,source_question_id,similar_text,similar_answer,deleted,generated_at) "
+              "VALUES(5,1,'旧相似题','旧相似答案',0,'2026-09-05')")
+    c.execute("UPDATE question SET answer='原答案', analysis='原解析' WHERE id=1")
+    for set_id, question_type in ((90, 'similar'), (91, 'original')):
+        c.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,deleted,created_at,reviewed) "
+                  "VALUES(?,?,1,'question',?,0,'2026-09-06 08:00:00',0)", (set_id, '旧卷%d' % set_id, question_type))
+        c.execute('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) '
+                  'VALUES(?,1,5,0)', (set_id,))
+    c.commit()
+    old_similar = starmap_test.run(practices.get(db, 90))
+    question = old_similar['questions'][0]
+    assert question['question_text'] == '旧相似题' and question['answer'] == '旧相似答案'
+    assert question['number'] == 1 and question['analysis'] == '原解析' and question['form'] is None
+    assert old_similar['kind'] == 'manual' and old_similar['grading_revision'] == 0
+    old_original = starmap_test.run(practices.get(db, 91))
+    question = old_original['questions'][0]
+    assert question['question_text'] == '题1' and question['answer'] == '原答案'
+    assert {'reason', 'knowledge_point_id', 'skip_reason', 'explanation'} <= set(question)
+
+
 TESTS = [
     test_migration_adds_columns,
     test_migration_defaults_keep_old_rows_valid,
@@ -458,6 +845,22 @@ TESTS = [
     test_create_similar_stores_explanation,
     test_create_similar_rejects_empty,
     test_reusable_similar_rules,
+    test_plan_endpoint_shape_and_reasons,
+    test_plan_validations,
+    test_create_then_prepare_until_done,
+    test_plan_excludes_blocked_and_old_open_papers,
+    test_plan_lower_grades_switch,
+    test_plan_without_default_grade,
+    test_plan_and_create_with_nothing_to_pick,
+    test_plan_query_count_is_fixed,
+    test_create_validations,
+    test_create_orders_by_module_and_point,
+    test_prepare_reuses_unused_similar,
+    test_prepare_failure_keeps_item_pending_then_fallback,
+    test_reroll_replaces_similar,
+    test_prepare_and_reroll_reject_closed_paper,
+    test_status_endpoint,
+    test_get_keeps_old_sets_working,
 ]
 
 

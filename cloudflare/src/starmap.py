@@ -20,6 +20,10 @@ router = APIRouter(prefix='/api/starmap')
 CONFIG_NAME = 'starmap'   # runtime_config 里的配置名：{"progress": {学科: 节号}, "seen": {学科: [考点]}}
 # 事件在同一时刻内的次序：错题、练习、调整
 SEQ = {'question': 0, 'practice': 1, 'adjust': 2}
+# 错题日期：优先用卷子日期；历史作业卷子的日期是回填的，改用录入时间（q 是错题、p 是 LEFT JOIN 的卷子）。
+# 选题（targeted.py）取错题日期时也用这一句，两边保持一致
+WRONG_AT_SQL = ("CASE WHEN p.id IS NULL OR p.source='history' OR p.paper_date IS NULL "
+                "THEN q.created_at ELSE p.paper_date END")
 
 
 async def load_subject(db, subject_id):
@@ -54,8 +58,7 @@ async def load_events(db, subject_id, student_id=1, min_grade=None):
     # 1. 错题：时间优先用卷子日期；历史作业卷子的日期是回填的，改用录入时间
     rows = await db.all(
         'SELECT qk.knowledge_point_id AS point_id, q.id AS qid, q.created_at AS entered, ' + gate_sql + ', '
-        "CASE WHEN p.id IS NULL OR p.source='history' OR p.paper_date IS NULL "
-        "THEN q.created_at ELSE p.paper_date END AS at "
+        + WRONG_AT_SQL + ' AS at '
         'FROM question q JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 '
         'LEFT JOIN paper p ON p.id=q.paper_id AND p.deleted=0 '
@@ -134,15 +137,26 @@ async def load_config(request):
     return config if isinstance(config, dict) else {}
 
 
-async def compute(db, request, subject_id):
-    """算出一科的节点、连线和当前已掌握的二级考点；返回 (subject, nodes, links, mastered, config)。"""
+async def load_default_grade(request):
+    """读取应用配置里的默认年级；没设置或格式不对时返回 None（不按年级筛）。"""
+    app = await settings.load(request, 'app', {})
+    default_grade = (app or {}).get('default_grade')
+    return default_grade if is_plain_int(default_grade) else None
+
+
+NOT_LOADED = object()   # compute 的 default_grade 缺省值：表示调用方没读过，由 compute 自己读
+
+
+async def compute(db, request, subject_id, default_grade=NOT_LOADED):
+    """算出一科的节点、连线和当前已掌握的二级考点；返回 (subject, nodes, links, mastered, config)。
+
+    default_grade：调用方已经读过默认年级时传进来（可以是 None），省一条 SQL；不传时这里自己读。
+    """
     subject = await load_subject(db, subject_id)
     points = await load_points(db, subject_id)
     # 先读应用配置：默认年级既决定哪些考点算学过，也决定哪些错题"能进卷子"
-    app = await settings.load(request, 'app', {})
-    default_grade = (app or {}).get('default_grade')
-    if not is_plain_int(default_grade):
-        default_grade = None                     # 没设置或格式不对：不按年级筛
+    if default_grade is NOT_LOADED:
+        default_grade = await load_default_grade(request)
     events = await load_events(db, subject_id, current_student_id(request), default_grade)
     sections = await load_sections(db, subject_id)
     links_rows = await db.all(

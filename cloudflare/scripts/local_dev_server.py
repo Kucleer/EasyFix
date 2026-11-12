@@ -41,10 +41,12 @@ MIGRATION_FILE = ROOT / 'migrations' / '0011_intake_papers.sql'
 STARMAP_MIGRATION = ROOT / 'migrations' / '0012_starmap.sql'
 STARMAP_SEED = ROOT / 'migrations' / '0013_starmap_seed.sql'
 SCAN_MIGRATION = ROOT / 'migrations' / '0014_scan_page.sql'
+TARGETED_MIGRATION = ROOT / 'migrations' / '0015_targeted_paper.sql'
 CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
-# 挂载顺序与 main.py 一致：intake、scan 的固定路径要排在 questions 的 {question_id} 之前
+# 挂载顺序与 main.py 一致：intake、scan 的固定路径要排在 questions 的 {question_id} 之前，
+# targeted（/api/practice-sets/targeted/...）要排在 practices 的 {practice_set_id} 之前
 ROUTER_MODULES = ('intake', 'papers', 'similar', 'catalog', 'knowledge', 'scan', 'questions', 'settings', 'analytics',
-                  'practices', 'reports', 'starmap')
+                  'targeted', 'practices', 'reports', 'starmap')
 IMAGE_TYPES = ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_FILES = 10
@@ -80,7 +82,7 @@ def seed_catalog(connection, subject_ids):
 
 
 def build_connection():
-    """建一份内存库：结构基线 + 0011、0012 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
+    """建一份内存库：结构基线 + 0011、0012、0014、0015 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
     # 测试客户端和 uvicorn 都会在别的线程里使用连接，单用户本机工具可以放开线程检查
     connection = sqlite3.connect(':memory:', check_same_thread=False)
     connection.row_factory = sqlite3.Row
@@ -88,6 +90,7 @@ def build_connection():
     connection.executescript(MIGRATION_FILE.read_text(encoding='utf-8'))
     connection.executescript(STARMAP_MIGRATION.read_text(encoding='utf-8'))
     connection.executescript(SCAN_MIGRATION.read_text(encoding='utf-8'))
+    connection.executescript(TARGETED_MIGRATION.read_text(encoding='utf-8'))
     connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')
     connection.execute('INSERT INTO knowledge_assert(id,guard,structure) VALUES(1,1,1)')
     config = {'data_revision': '0', 'taxonomy_version': '1', 'app': '{"default_grade":6,"default_semester":1}'}
@@ -337,6 +340,12 @@ async def fake_generate_json(request, prompt, max_tokens=6000, temperature=0.6, 
     ]}
 
 
+async def fake_similar_json(request, prompt, max_tokens=6000, temperature=0.6, parse=None):
+    """假的文本模型（相似题用）：不管提示词是什么，都返回一道带答案和解析的固定相似题。"""
+    return {'similar_question': '（假模型）相似题：计算 \\(2+3\\) 的结果', 'similar_answer': '5',
+            'explanation': '假模型的解析：两数相加。'}
+
+
 def make_http_generate_json(config):
     """按 settings.generate_json 的请求格式，用 urllib 调真实的文本模型；config 来自 --llm-config。"""
 
@@ -451,6 +460,10 @@ def build_app(connection, uploads_dir, frontend_dir, ocr_url=None, ocr_key=None,
     mounted = mount_routers(app)
     if 'scan' in mounted:
         install_scan_dependencies(uploads_dir, ocr_url, ocr_key, llm_config)
+    if 'similar' in mounted:
+        # 相似题（含考点卷的 prepare / reroll）：没给 --llm-config 就用假模型，返回带解析的固定相似题
+        importlib.import_module('similar').generate_json = (
+            make_http_generate_json(llm_config) if llm_config else fake_similar_json)
     add_storage_routes(app, uploads_dir)
     if frontend_dir is not None:
         add_frontend_routes(app, pathlib.Path(frontend_dir))
