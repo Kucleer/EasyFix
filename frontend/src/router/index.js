@@ -51,7 +51,7 @@ const routes = [
     component: () => import('@/views/PracticeSets.vue'),
   },
   {
-    // 出练习卷（考点卷）：可带 ?subject_id= 预选学科；不进侧栏菜单
+    // 出练习卷（考点卷）：可带 ?subject_id= 预选学科，或 ?paper_id= 接着准备一份没批改的考点卷；不进侧栏菜单
     path: '/targeted-paper',
     name: 'TargetedPaper',
     component: () => import('@/views/TargetedPaper.vue'),

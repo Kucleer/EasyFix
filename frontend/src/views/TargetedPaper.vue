@@ -99,6 +99,9 @@
         <template #title>{{ prepareError }}</template>
         <el-button size="small" type="primary" :loading="prepareRunning" @click="runPrepare">继续准备</el-button>
       </el-alert>
+      <!-- 已经生成过 PDF 又换了相似题：提醒重新生成（后端按卷面内容的指纹判断，内容变了会重新渲染） -->
+      <el-alert v-if="pdfStale" type="warning" :closable="false" show-icon class="prepare-alert"
+        title="题目换过了，之前生成的 PDF 是旧题面。请点「生成 PDF」重新生成后再打印，否则纸上和手机批改页对不上。" />
 
       <el-card v-loading="previewLoading" class="list-card" shadow="never">
         <template #header>
@@ -162,7 +165,8 @@
 
 <script setup>
 // 出练习卷页（设计 11.1）：选题预览 → 创建 → 一道一道准备相似题 → 只读卷面预览 → 生成 PDF。
-// 刷新页面不恢复没创建的清单；已创建的卷子在练习中心里可以再次打开。
+// 刷新页面不恢复没创建的清单。已创建、没批改的考点卷可以带 ?paper_id= 再打开（练习中心的"查看""生成 PDF"
+// 会跳到这里）：没准备完的相似题接着准备，然后显示卷面预览。
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -173,7 +177,7 @@ import { questionApi } from '@/api/question'
 import { loadStarmapSubjects } from '@/api/starmap'
 import {
   REASON_LABELS, FORM_LABELS, MODE_LABELS, STATE_LABELS,
-  groupByModule, swapItem, removeItem, toggleForm, createPayload, summary,
+  groupByModule, swapItem, removeItem, toggleForm, createPayload, summary, canResume, pendingSimilarCount,
 } from '@/composables/targetedPaper'
 
 const SIZE_MIN = 1          // 题量下限
@@ -216,6 +220,7 @@ const expanded = ref(new Set())     // 展开了答案和解析的题目行编�
 const rerollingId = ref(null)
 const pdfLoading = ref(false)
 const deleting = ref(false)
+const pdfStale = ref(false)         // 已有 PDF 之后又换过相似题：PDF 是旧题面，要重新生成
 let leaving = false                 // 离开页面后停止准备循环
 
 const lastPaper = computed(() => planData.value?.last_paper || null)
@@ -369,7 +374,7 @@ async function onCreate() {
     const { data } = await targetedApi.create(createPayload(subjectId.value, paperName.value.trim() || null, planData.value))
     paper.value = data
     // 要准备的相似题数：题面是相似题、还没挂相似题的行
-    prepareTotal.value = (data.questions || []).filter(q => q.form === 'similar' && !q.similar_question_id).length
+    prepareTotal.value = pendingSimilarCount(data.questions)
     prepareDone.value = 0
     fallbackIds.value = new Set()
     expanded.value = new Set()
@@ -467,6 +472,8 @@ async function onReroll(item) {
             similar_answer: data.similar_answer, explanation: data.explanation }
         : q)),
     }
+    // 这份卷子已经生成过 PDF：提醒重新生成
+    if (paper.value.pdf_path) pdfStale.value = true
     ElMessage.success('已换成新的相似题')
   } catch (error) {
     ElMessage.error(error_text(error, '换相似题失败，请再试一次'))
@@ -481,6 +488,8 @@ async function onGeneratePdf() {
   pdfLoading.value = true
   try {
     const { data } = await targetedApi.generatePdf(paper.value.id)
+    paper.value = { ...paper.value, pdf_path: data.pdf_url.replace('/uploads/', '') }
+    pdfStale.value = false
     if (win) win.location.href = data.pdf_url
     else window.open(data.pdf_url, '_blank')
   } catch (error) {
@@ -505,6 +514,7 @@ async function onDeletePaper() {
     await questionApi.deletePracticeSet(paper.value.id)
     paper.value = null
     prepareError.value = ''
+    pdfStale.value = false
     paperName.value = ''
     stage.value = 'setup'
     ElMessage.success('已删掉，可以重新出卷')
@@ -518,12 +528,41 @@ async function onDeletePaper() {
 
 // ---------------- 进入页面
 
+/**
+ * 带 ?paper_id= 打开：读这份卷子；是没批改的考点卷就进入准备阶段，
+ * 准备循环在没有要准备的题时（remaining 为 0）直接显示卷面预览。返回是否成功接上。
+ */
+async function resumePaper(id) {
+  try {
+    const { data } = await targetedApi.detail(id)
+    if (!canResume(data)) {
+      ElMessage.warning(data.reviewed ? '这份卷子已经批改过，不能再改题面' : '这份卷子不是考点卷')
+      return false
+    }
+    paper.value = data
+    subjectId.value = data.subject_id
+    prepareTotal.value = pendingSimilarCount(data.questions)
+    prepareDone.value = 0
+    fallbackIds.value = new Set()
+    expanded.value = new Set()
+    stage.value = 'preparing'
+  } catch (error) {
+    ElMessage.error(error_text(error, '读取卷子失败'))
+    return false
+  }
+  await runPrepare()
+  return true
+}
+
 onMounted(async () => {
   try {
     subjects.value = await loadStarmapSubjects()
   } catch {
     subjects.value = []
   }
+  // 查询参数 paper_id：接着准备一份已创建的卷子，接上了就不用选题
+  const paperId = Number(route.query.paper_id)
+  if (paperId > 0 && await resumePaper(paperId)) return
   // 查询参数 subject_id 预选学科，没有或不在列表里就选第一科
   const wanted = Number(route.query.subject_id)
   subjectId.value = subjects.value.find(s => s.id === wanted)?.id ?? subjects.value[0]?.id ?? null

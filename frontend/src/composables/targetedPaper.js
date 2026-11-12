@@ -110,3 +110,20 @@ export function paperLabel(paper) {
   }
   return `#${paper.id} ${text}`.replace(/\s+/g, ' ').trim()
 }
+
+// 练习中心里点"查看""生成 PDF"时要去的出卷页地址：只有没批改的考点卷回出卷页
+// （在那里接着准备相似题、看卷面、生成 PDF）；已批改的考点卷和别的练习返回 null，照旧用详情弹窗
+export function resumeLink(paper) {
+  if (!paper || paper.kind !== 'targeted' || paper.reviewed) return null
+  return `/targeted-paper?paper_id=${paper.id}`
+}
+
+// 出卷页带 ?paper_id= 打开时，这份卷子能不能接着准备：是考点卷、没批改、没删除
+export function canResume(paper) {
+  return !!paper && paper.kind === 'targeted' && !paper.reviewed && !paper.deleted
+}
+
+// 题面是相似题、但还没配相似题的题数（出卷页准备进度的总数）
+export function pendingSimilarCount(questions) {
+  return (questions || []).filter(q => q.form === 'similar' && !q.similar_question_id).length
+}

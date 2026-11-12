@@ -529,6 +529,7 @@ import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
 import { wordApi } from '@/api/word'
 import { targetedApi } from '@/api/targeted'
+import { resumeLink } from '@/composables/targetedPaper'
 
 const router = useRouter()
 
@@ -609,6 +610,12 @@ const handleSelectionChange = (selection) => {
 const generatingPdfIds = ref([])
 
 const generatePdf = async (ps) => {
+  // 没批改的考点卷回出卷页生成：那里会先把没准备好的相似题准备完，再生成 PDF
+  const link = resumeLink(ps)
+  if (link) {
+    router.push(link)
+    return
+  }
   if (generatingPdfIds.value.includes(ps.id)) return
   generatingPdfIds.value.push(ps.id)
   try {
@@ -888,6 +895,12 @@ const confirmMarkReviewed = async () => {
 
 // 查看详情
 const showDetail = async (ps) => {
+  // 没批改的考点卷回出卷页查看（可接着准备相似题、换相似题、生成 PDF）；已批改的照旧用详情弹窗
+  const link = resumeLink(ps)
+  if (link) {
+    router.push(link)
+    return
+  }
   try {
     const { data } = await questionApi.getPracticeSetDetail(ps.id)
     detailData.value = data

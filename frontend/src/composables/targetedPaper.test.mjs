@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   REASON_LABELS, groupByModule, swapItem, removeItem, toggleForm, createPayload,
   summary, initialMarks, toggleMark, gradePayload, countWrong, paperLabel,
+  resumeLink, canResume, pendingSimilarCount,
 } from './targetedPaper.js'
 
 const make_plan = () => ({
@@ -79,4 +80,29 @@ test('卷子标签：默认名已含日期时不重复追加日期', () => {
 test('卷子标签：名字为空时用创建日期', () => {
   assert.equal(paperLabel({ id: 128, name: '', created_at: '2026-11-15T08:00:00' }), '#128 11月15日')
   assert.equal(paperLabel({ id: 128, name: '  ', created_at: '2026-11-15T08:00:00' }), '#128 11月15日')
+})
+
+test('没批改的考点卷从练习中心回到出卷页；已批改、别的练习不跳', () => {
+  assert.equal(resumeLink({ id: 7, kind: 'targeted', reviewed: false }), '/targeted-paper?paper_id=7')
+  assert.equal(resumeLink({ id: 7, kind: 'targeted', reviewed: true }), null)
+  assert.equal(resumeLink({ id: 7, kind: 'manual', reviewed: false }), null)
+  assert.equal(resumeLink({ id: 7, reviewed: false }), null)
+})
+
+test('出卷页能不能接着准备一份卷子', () => {
+  assert.equal(canResume({ id: 7, kind: 'targeted', reviewed: false, deleted: 0 }), true)
+  assert.equal(canResume({ id: 7, kind: 'targeted', reviewed: true }), false)
+  assert.equal(canResume({ id: 7, kind: 'targeted', reviewed: false, deleted: 1 }), false)
+  assert.equal(canResume({ id: 7, kind: 'manual', reviewed: false }), false)
+  assert.equal(canResume(null), false)
+})
+
+test('还没准备的相似题数', () => {
+  const questions = [
+    { form: 'similar', similar_question_id: null },
+    { form: 'similar', similar_question_id: 5 },
+    { form: 'original', similar_question_id: null },
+  ]
+  assert.equal(pendingSimilarCount(questions), 1)
+  assert.equal(pendingSimilarCount(undefined), 0)
 })
