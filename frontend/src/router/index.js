@@ -51,6 +51,13 @@ const routes = [
     component: () => import('@/views/PracticeSets.vue'),
   },
   {
+    // 出练习卷（考点卷）：可带 ?subject_id= 预选学科；不进侧栏菜单
+    path: '/targeted-paper',
+    name: 'TargetedPaper',
+    component: () => import('@/views/TargetedPaper.vue'),
+    meta: { title: '出练习卷' },
+  },
+  {
     path: '/reading',
     name: 'Reading',
     component: () => import('@/views/Reading.vue'),
