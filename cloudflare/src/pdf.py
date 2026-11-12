@@ -43,6 +43,15 @@ def primary_link(item):
     return links[0] if links else None
 
 
+def picked_link(item):
+    """出卷时这道题是为哪个考点选的：按 knowledge_point_id 在关联里找；列为空或找不到时退回主考点。"""
+    picked=item.get('knowledge_point_id')
+    if picked is not None:
+        for point in item.get('knowledge_points') or []:
+            if point.get('id')==picked:return point
+    return primary_link(item)
+
+
 def space_size(item):
     """作答留白档位：有选项 's'；否则按答案字数，不超过 20 字 's'、不超过 80 字 'm'，更长 'l'。"""
     if any(item.get('option_'+letter) for letter in 'abcd'):return 's'
@@ -55,7 +64,7 @@ def build_targeted_payload(practice):
     groups,order=[],{}
     answers=[]
     for item in sorted(practice['questions'],key=lambda row:row.get('number') or 0):
-        link=primary_link(item)
+        link=picked_link(item)
         module=(link.get('parent_name') or link.get('name')) if link else '其他'
         if module not in order:
             order[module]=len(groups)

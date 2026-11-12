@@ -1153,6 +1153,24 @@ def test_build_payload_targeted():
     assert payload['groups'][1]['questions'][0]['option_a'] == '甲'
 
 
+def test_build_payload_groups_by_picked_point():
+    """主考点在模块 A、出卷时挑的考点在模块 B：分组和答案页的考点都跟着挑的考点走。"""
+    import pdf
+    detail = paper_detail()
+    other = {'id': 301, 'parent_id': 300, 'parent_name': '整式', 'name': '合并同类项', 'is_primary': 0}
+    # 第 2 题主考点仍是有理数 / 乘方，但这次是为"整式 / 合并同类项"挑的
+    detail['questions'][1]['knowledge_points'].append(other)
+    detail['questions'][1]['knowledge_point_id'] = 301
+    payload = pdf.build_payload(detail)
+    assert [g['title'] for g in payload['groups']] == ['一、有理数（1 题）', '二、整式（1 题）', '三、线段与角（1 题）']
+    assert payload['groups'][1]['questions'][0]['number'] == 2
+    assert payload['answers'][1]['point'] == '整式 / 合并同类项'
+    # 列为空或找不到时退回主考点
+    for value in (None, 999):
+        detail['questions'][1]['knowledge_point_id'] = value
+        assert pdf.build_payload(detail)['answers'][1]['point'] == '有理数 / 乘方'
+
+
 def test_build_payload_reason_labels():
     """六种入选原因的中文名。"""
     import pdf
@@ -1283,6 +1301,7 @@ TESTS = [
     test_grading_query_count_is_fixed,
     test_grading_reading_and_word_sets_unchanged,
     test_build_payload_targeted,
+    test_build_payload_groups_by_picked_point,
     test_build_payload_reason_labels,
     test_build_payload_space_sizes,
     test_build_payload_manual_unchanged,
