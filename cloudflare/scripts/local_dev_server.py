@@ -416,6 +416,32 @@ def install_scan_dependencies(uploads_dir, ocr_url, ocr_key, llm_config):
 # ---------------------------------------------------------------- 应用
 
 
+def make_local_generate_practice(uploads_dir):
+    """做 pdf.generate_practice 的本机替身：没有浏览器可渲染，把版式数据写成 JSON 文件。
+
+    文件放在 <uploads>/practice_sets/<编号>.json，同时更新 practice_set.pdf_path，
+    这样出卷、打印的流程能走通，也能检查分组、留白和答案页的数据。
+    """
+    uploads_dir = pathlib.Path(uploads_dir)
+
+    async def generate_practice(practice_set_id, request):
+        """读练习详情，用 pdf.build_payload 拼出版式数据并保存。"""
+        pdf = importlib.import_module('pdf')
+        practices = importlib.import_module('practices')
+        db = request.scope['env'].DB
+        practice = await practices.get(db, practice_set_id)
+        if not practice['questions']:
+            raise HTTPException(400, '练习集没有题目')
+        key = 'practice_sets/%s.json' % practice_set_id
+        target = uploads_dir / key
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(pdf.build_payload(practice), ensure_ascii=False, indent=2), encoding='utf-8')
+        await db.run('UPDATE practice_set SET pdf_path=? WHERE id=? AND deleted=0', (key, practice_set_id))
+        return {'pdf_url': '/uploads/' + key}
+
+    return generate_practice
+
+
 async def skip_validation(request, texts):
     """本机不校验公式：什么都不做。"""
     return None
@@ -464,6 +490,10 @@ def build_app(connection, uploads_dir, frontend_dir, ocr_url=None, ocr_key=None,
         # 相似题（含考点卷的 prepare / reroll）：没给 --llm-config 就用假模型，返回带解析的固定相似题
         importlib.import_module('similar').generate_json = (
             make_http_generate_json(llm_config) if llm_config else fake_similar_json)
+    try:
+        importlib.import_module('pdf').generate_practice = make_local_generate_practice(uploads_dir)
+    except Exception as error:
+        print('跳过 PDF 本机替身：%s' % error)
     add_storage_routes(app, uploads_dir)
     if frontend_dir is not None:
         add_frontend_routes(app, pathlib.Path(frontend_dir))

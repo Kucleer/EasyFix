@@ -5,6 +5,7 @@
     python cloudflare/scripts/targeted_test.py
 """
 
+import json
 import pathlib
 import sys
 
@@ -1112,6 +1113,120 @@ def test_grading_reading_and_word_sets_unchanged(calls):
     assert calls['trigger'] == 2
 
 
+# ---------------------------------------------------------------- 任务 7：考点卷的 PDF 版式
+
+
+def paper_detail():
+    """考点卷详情：两个模块共 3 道题，第 2 道是相似题；#7。"""
+    def point(pid, parent_id, parent, name):
+        return [{'id': pid, 'parent_id': parent_id, 'parent_name': parent, 'name': name, 'is_primary': 1}]
+    base = {'difficulty': 2, 'error_type': None, 'option_a': None, 'option_b': None, 'option_c': None,
+            'option_d': None, 'is_reading_question': False, 'topic': None}
+    return {'id': 7, 'name': '考点卷7', 'kind': 'targeted', 'passage': None, 'questions': [
+        {**base, 'id': 1, 'question_id': 1, 'number': 1, 'form': 'original', 'reason': 'new',
+         'question_text': '原题一', 'answer': '答案一', 'analysis': '原题的解析', 'explanation': None,
+         'knowledge_points': point(101, 100, '有理数', '加法')},
+        {**base, 'id': 2, 'question_id': 2, 'number': 2, 'form': 'similar', 'reason': 'wrong',
+         'question_text': '相似题干', 'answer': 'x' * 50, 'analysis': '被忽略的原题解析', 'explanation': '相似题的解析',
+         'knowledge_points': point(102, 100, '有理数', '乘方')},
+        {**base, 'id': 3, 'question_id': 3, 'number': 3, 'form': 'original', 'reason': 'spot',
+         'question_text': '原题三', 'answer': '答案三', 'analysis': None, 'explanation': None,
+         'option_a': '甲', 'option_b': '乙',
+         'knowledge_points': point(201, 200, '线段与角', '线段')},
+    ]}
+
+
+def test_build_payload_targeted():
+    """考点卷：按一级模块分组、题号连续，答案页带原因和题面；相似题用相似题的解析。"""
+    import pdf
+    payload = pdf.build_payload(paper_detail())
+    assert payload['template_version'] == '3' and payload['layout'] == 'targeted' and payload['code'] == '#7'
+    assert payload['title'] == '考点卷7'
+    assert [g['title'] for g in payload['groups']] == ['一、有理数（2 题）', '二、线段与角（1 题）']
+    assert [q['number'] for g in payload['groups'] for q in g['questions']] == [1, 2, 3]
+    second = payload['answers'][1]
+    assert second['form'] == '相似题' and second['analysis'] == '相似题的解析' and second['reason'] == '上次做错'
+    assert payload['answers'][0]['analysis'] == '原题的解析' and payload['answers'][0]['form'] == '原题'
+    assert payload['answers'][0]['point'] == '有理数 / 加法' and payload['answers'][0]['reason'] == '新错题'
+    assert payload['answers'][2]['reason'] == '抽查'
+    assert payload['footer'] == '手机上从首页的"专项练习"进待批改，找到 #7'
+    assert payload['groups'][1]['questions'][0]['option_a'] == '甲'
+
+
+def test_build_payload_reason_labels():
+    """六种入选原因的中文名。"""
+    import pdf
+    assert pdf.REASON_LABELS == {'new': '新错题', 'wrong': '上次做错', 'redo': '旧错题重做',
+                                 'consolidate': '巩固', 'check': '验收', 'spot': '抽查'}
+
+
+def test_build_payload_space_sizes():
+    """留白：有选项 s；答案 10 字 s、50 字 m、200 字 l。"""
+    import pdf
+    detail = paper_detail()
+    for question, text in zip(detail['questions'], ['y' * 10, 'y' * 50, 'y' * 200]):
+        question['answer'] = text
+        question['option_a'] = question['option_b'] = None
+    spaces = [q['space'] for g in pdf.build_payload(detail)['groups'] for q in g['questions']]
+    assert spaces == ['s', 'm', 'l']
+    detail['questions'][2]['option_a'] = '甲'
+    assert pdf.build_payload(detail)['groups'][1]['questions'][0]['space'] == 's'
+
+
+OLD_DETAIL = {'id': 5, 'name': '旧练习', 'kind': 'manual', 'pdf_path': None, 'passage': None, 'questions': [
+    {'id': 11, 'question_id': 21, 'question_text': r'算 \(1+1\)', 'difficulty': 2, 'error_type': '计算',
+     'option_a': None, 'option_b': None, 'option_c': None, 'option_d': None, 'is_reading_question': False,
+     'topic': None,
+     'knowledge_points': [{'id': 102, 'parent_id': 100, 'parent_name': '有理数', 'name': '乘方', 'is_primary': 0},
+                          {'id': 101, 'parent_id': 100, 'parent_name': '有理数', 'name': '加法', 'is_primary': 1}]},
+    {'id': 12, 'question_id': 22, 'question_text': '选哪个', 'difficulty': 1, 'error_type': None,
+     'option_a': '甲', 'option_b': '乙', 'option_c': '丙', 'option_d': '丁', 'is_reading_question': False,
+     'topic': 't', 'knowledge_points': []}]}
+
+# 改动前 generate_practice 对 OLD_DETAIL 发给渲染器的内容（逐字节捕获），指纹不能变
+EXPECTED_OLD_PAYLOAD = json.loads(
+    '{"passage": null, "questions": [{"difficulty": 2, "error_type": "\\u8ba1\\u7b97", "id": 21, '
+    '"is_reading_question": false, "knowledge_path": [{"id": 101, "is_primary": true, "name": "\\u52a0\\u6cd5", '
+    '"parent_id": 100, "parent_name": "\\u6709\\u7406\\u6570"}, {"id": 102, "is_primary": false, '
+    '"name": "\\u4e58\\u65b9", "parent_id": 100, "parent_name": "\\u6709\\u7406\\u6570"}], '
+    '"knowledge_point": "\\u6709\\u7406\\u6570/\\u52a0\\u6cd5\\uff08\\u4e3b\\u8003\\u70b9\\uff09", '
+    '"option_a": null, "option_b": null, "option_c": null, "option_d": null, '
+    '"question_text": "\\u7b97 \\\\(1+1\\\\)", "topic": null}, '
+    '{"difficulty": 1, "error_type": null, "id": 22, "is_reading_question": false, "knowledge_path": [], '
+    '"knowledge_point": null, "option_a": "\\u7532", "option_b": "\\u4e59", "option_c": "\\u4e19", '
+    '"option_d": "\\u4e01", "question_text": "\\u9009\\u54ea\\u4e2a", "topic": "t"}], '
+    '"template_version": "2", "title": "\\u65e7\\u7ec3\\u4e60"}')
+
+
+def test_build_payload_manual_unchanged():
+    """非考点卷：内容和改动前 generate_practice 发出的逐字段相同，指纹不变。"""
+    import hashlib
+    import pdf
+    payload = pdf.build_payload(OLD_DETAIL)
+    assert payload == EXPECTED_OLD_PAYLOAD
+    digest = lambda value: hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    assert digest(payload) == digest(EXPECTED_OLD_PAYLOAD)
+    no_kind = {key: value for key, value in OLD_DETAIL.items() if key != 'kind'}
+    assert pdf.build_payload(no_kind) == EXPECTED_OLD_PAYLOAD
+
+
+def test_local_generate_practice_writes_layout_json():
+    """本机替身：把版式数据写成 uploads/practice_sets/<编号>.json 并更新 pdf_path。"""
+    import tempfile
+    import local_dev_server
+    c = build_db()
+    starmap_test.add_question(c, 1, 1, '2026-09-01 08:00:00', [101])
+    add_set(c, 7, '2026-11-01 08:00:00', None, [(1, None, 'original')])
+    c.commit()
+    uploads = pathlib.Path(tempfile.mkdtemp(prefix='easyfix_pdf_'))
+    generate = local_dev_server.make_local_generate_practice(uploads)
+    result = starmap_test.run(generate(7, request_for(starmap_test.adapter(c))))
+    assert result == {'pdf_url': '/uploads/practice_sets/7.json'}
+    saved = json.loads((uploads / 'practice_sets' / '7.json').read_text(encoding='utf-8'))
+    assert saved['layout'] == 'targeted' and saved['code'] == '#7'
+    assert c.execute('SELECT pdf_path FROM practice_set WHERE id=7').fetchone()[0] == 'practice_sets/7.json'
+
+
 TESTS = [
     test_migration_adds_columns,
     test_migration_defaults_keep_old_rows_valid,
@@ -1167,6 +1282,11 @@ TESTS = [
     test_grading_reports_changes,
     test_grading_query_count_is_fixed,
     test_grading_reading_and_word_sets_unchanged,
+    test_build_payload_targeted,
+    test_build_payload_reason_labels,
+    test_build_payload_space_sizes,
+    test_build_payload_manual_unchanged,
+    test_local_generate_practice_writes_layout_json,
 ]
 
 

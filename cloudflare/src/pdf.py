@@ -22,15 +22,65 @@ async def validate_math(request,texts):
 
 
 TEMPLATE_VERSION='2'
+TARGETED_TEMPLATE_VERSION='3'
+# 入选原因的中文名，和前端考点卷页面一致
+REASON_LABELS={'new':'新错题','wrong':'上次做错','redo':'旧错题重做','consolidate':'巩固','check':'验收','spot':'抽查'}
+FORM_LABELS={'original':'原题','similar':'相似题'}
+DIGITS='零一二三四五六七八九'
 
 
-async def generate_practice(practice_set_id,request):
-    """读取真实练习内容，渲染成功后才更新 PDF 路径。"""
-    from practices import get
-    db=Database(request.scope['env'].DB)
-    practice=await get(db,practice_set_id)
-    if not practice['questions']:raise HTTPException(400,'练习集没有题目')
-    import hashlib
+def chinese_number(number):
+    """把 1~99 写成中文数字（组标题的序号）：1→一，10→十，12→十二，20→二十。"""
+    if number<10:return DIGITS[number]
+    tens,ones=divmod(number,10)
+    return ('' if tens==1 else DIGITS[tens])+'十'+(DIGITS[ones] if ones else '')
+
+
+def primary_link(item):
+    """取这道题的主考点；没有主考点取排在最前的一个，都没有返回 None。"""
+    links=sorted(item.get('knowledge_points') or [],
+                 key=lambda point:(0 if point.get('is_primary') else 1,point.get('id') or 0))
+    return links[0] if links else None
+
+
+def space_size(item):
+    """作答留白档位：有选项 's'；否则按答案字数，不超过 20 字 's'、不超过 80 字 'm'，更长 'l'。"""
+    if any(item.get('option_'+letter) for letter in 'abcd'):return 's'
+    length=len(str(item.get('answer') or ''))
+    return 's' if length<=20 else 'm' if length<=80 else 'l'
+
+
+def build_targeted_payload(practice):
+    """考点卷的版式内容：按一级模块分组（组内保持题号顺序），另附家长用的答案页。"""
+    groups,order=[],{}
+    answers=[]
+    for item in sorted(practice['questions'],key=lambda row:row.get('number') or 0):
+        link=primary_link(item)
+        module=(link.get('parent_name') or link.get('name')) if link else '其他'
+        if module not in order:
+            order[module]=len(groups)
+            groups.append({'module':module,'questions':[]})
+        question={'number':item['number'],'question_text':item['question_text']}
+        for letter in 'abcd':question['option_'+letter]=item.get('option_'+letter)
+        question['space']=space_size(item)
+        groups[order[module]]['questions'].append(question)
+        point=' / '.join(part for part in (link.get('parent_name'),link.get('name')) if part) if link else ''
+        similar=item.get('form')=='similar'
+        answers.append({'number':item['number'],'answer':item.get('answer'),
+                        'analysis':item.get('explanation') if similar else item.get('analysis'),
+                        'point':point,'form':FORM_LABELS['similar' if similar else 'original'],
+                        'reason':REASON_LABELS.get(item.get('reason'),'')})
+    code='#'+str(practice['id'])
+    return {'template_version':TARGETED_TEMPLATE_VERSION,'layout':'targeted','title':practice['name'],'code':code,
+            'groups':[{'title':'%s、%s（%d 题）'%(chinese_number(index),group['module'],len(group['questions'])),
+                       'questions':group['questions']} for index,group in enumerate(groups,1)],
+            'answers':answers,
+            'footer':'手机上从首页的"专项练习"进待批改，找到 '+code}
+
+
+def build_payload(practice):
+    """把练习详情变成渲染器的输入。考点卷走新版式；其余和过去逐字段相同，旧 PDF 的指纹不变。"""
+    if practice.get('kind')=='targeted':return build_targeted_payload(practice)
     printable=[]
     for item in practice['questions']:
         links=sorted(item.get('knowledge_points') or [],
@@ -44,7 +94,17 @@ async def generate_practice(practice_set_id,request):
                                    'is_primary':bool(point.get('is_primary'))} for point in links]
         fields['knowledge_point']=(path+'（主考点）') if path else None
         printable.append(fields)
-    payload={'template_version':TEMPLATE_VERSION,'title':practice['name'],'questions':printable,'passage':practice.get('passage')}
+    return {'template_version':TEMPLATE_VERSION,'title':practice['name'],'questions':printable,'passage':practice.get('passage')}
+
+
+async def generate_practice(practice_set_id,request):
+    """读取真实练习内容，渲染成功后才更新 PDF 路径。"""
+    from practices import get
+    db=Database(request.scope['env'].DB)
+    practice=await get(db,practice_set_id)
+    if not practice['questions']:raise HTTPException(400,'练习集没有题目')
+    import hashlib
+    payload=build_payload(practice)
     fingerprint=hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     cache_name='pdf:'+str(practice_set_id)
     cached=await db.first('SELECT value FROM runtime_config WHERE name=? AND deleted=0',(cache_name,))

@@ -4,6 +4,7 @@ import katexScript from './assets/katex.txt';
 import autoRenderScript from './assets/auto-render.txt';
 import mathScript from './assets/math-text.txt';
 import style from './assets/katex-css.txt';
+import {targetedBody,targetedQuestionCount,TARGETED_STYLE} from './targeted-layout.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const origin = 'https://easyfix-bl2.pages.dev';
@@ -30,6 +31,13 @@ export default {
       try {validate(payload.texts || []);return Response.json({valid:true});}
       catch(error){return Response.json({detail:String(error.message).slice(0,400)},{status:422});}
     }
+    const targeted=payload.layout==='targeted';
+    if (targeted) {
+      // 考点卷的题放在分组里：先按总数校验，再给下面原有的校验一个空题目列表
+      const count=targetedQuestionCount(payload);
+      if (!(count>=1 && count<=100)) return Response.json({detail:'打印题目数量无效'},{status:422});
+      payload.questions=[];
+    }
     if (!Array.isArray(payload.questions) || payload.questions.length>100) return Response.json({detail:'打印题目数量无效'},{status:422});
     let browser;
     try {
@@ -54,7 +62,8 @@ export default {
         blocks+=`<section class="question"><div class="question-header">第 ${index+1} 题${q.id?'　|　ID: '+escape(q.id):''}${q.knowledge_point?'　|　知识点：'+escape(q.knowledge_point):''}</div>${content}<div class="answer-space"></div></section>`;
       }
       const documentHtml=`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><base href="${origin}/assets/math/v0.19.0/"><style>${style}\n@page{size:A4;margin:18mm 16mm 20mm}*{box-sizing:border-box}body{margin:0;color:#111;font-family:"Noto Sans CJK SC","Noto Sans SC",sans-serif;font-size:11pt;line-height:1.9}h1{text-align:center;font-size:18pt}.question{border-top:1px solid #888;padding-top:3mm;margin-bottom:10mm;break-inside:avoid}.question.long{break-inside:auto}.question-header{font-size:9pt;color:#333}.math-field{white-space:pre-wrap;overflow-wrap:anywhere}.katex{white-space:nowrap}.katex-display{margin:3mm 0;break-inside:avoid}.answer-space{height:12mm}.passage{margin-bottom:8mm}</style></head><body><h1>${escape(payload.title)}</h1>${blocks}</body></html>`;
-      await page.setContent(documentHtml,{waitUntil:'load'});
+      const targetedHtml=targeted?`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><base href="${origin}/assets/math/v0.19.0/"><style>${style}\n${TARGETED_STYLE}</style></head><body>${targetedBody(payload,field,escape)}</body></html>`:null;
+      await page.setContent(targeted?targetedHtml:documentHtml,{waitUntil:'load'});
       await page.addScriptTag({content:katexScript});
       await page.addScriptTag({content:autoRenderScript});
       await page.addScriptTag({content:mathScript,type:'module'});
