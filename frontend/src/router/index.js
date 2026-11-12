@@ -58,6 +58,20 @@ const routes = [
     meta: { title: '出练习卷' },
   },
   {
+    // 手机批改：待批改列表；不进侧栏菜单，从首页"专项练习"那一格进入
+    path: '/grade',
+    name: 'GradeList',
+    component: () => import('@/views/GradeList.vue'),
+    meta: { title: '待批改' },
+  },
+  {
+    // 手机批改：批改一份卷子（拍照 → 点对错 → 结果）
+    path: '/grade/:id',
+    name: 'GradePaper',
+    component: () => import('@/views/GradePaper.vue'),
+    meta: { title: '待批改' },
+  },
+  {
     path: '/reading',
     name: 'Reading',
     component: () => import('@/views/Reading.vue'),

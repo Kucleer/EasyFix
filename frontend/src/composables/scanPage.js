@@ -80,6 +80,25 @@ export function scaledSize(width, height, maxSide) {
   return { width: Math.round(width * ratio), height: Math.round(height * ratio) }
 }
 
+/**
+ * 把图片画到 canvas 上按长边缩小，导出为 JPEG（录入页和批改页共用）。
+ * 只在浏览器里调用：用到 createImageBitmap、document 和 File。
+ */
+export async function shrink_image(file, max_side, quality) {
+  const bitmap = await createImageBitmap(file)
+  const size = scaledSize(bitmap.width, bitmap.height, max_side)
+  const canvas = document.createElement('canvas')
+  canvas.width = size.width
+  canvas.height = size.height
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, size.width, size.height)
+  bitmap.close()
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality))
+  // 浏览器导不出图片时 toBlob 给 null，不能把它当文件上传
+  if (!blob) throw new Error('图片压缩失败，请换一张')
+  const name = file.name.replace(/\.[^.]*$/, '') + '.jpg'
+  return new File([blob], name, { type: 'image/jpeg' })
+}
+
 // ---------------------------------------------------------------- 整理区
 
 // 年级编号 -> 名称（与录入页的年级选项一致）

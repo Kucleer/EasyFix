@@ -164,7 +164,7 @@ import { UploadFilled, Loading } from '@element-plus/icons-vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { uploadApi, questionApi } from '@/api/question'
 import { scanApi } from '@/api/scan'
-import { stepLabel, needsCompression, scaledSize } from '@/composables/scanPage'
+import { stepLabel, needsCompression, shrink_image } from '@/composables/scanPage'
 
 // 年级选项
 const GRADE_OPTIONS = [
@@ -326,22 +326,6 @@ const cancel_to_manual = async () => {
 }
 
 // ---------------------------------------------------------------- 选图
-
-/** 把图片画到 canvas 上按长边缩小，导出为 JPEG。 */
-const shrink_image = async (file, max_side, quality) => {
-  const bitmap = await createImageBitmap(file)
-  const size = scaledSize(bitmap.width, bitmap.height, max_side)
-  const canvas = document.createElement('canvas')
-  canvas.width = size.width
-  canvas.height = size.height
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, size.width, size.height)
-  bitmap.close()
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality))
-  // 浏览器导不出图片时 toBlob 给 null，不能把它当文件上传
-  if (!blob) throw new Error('图片压缩失败，请换一张')
-  const name = file.name.replace(/\.[^.]*$/, '') + '.jpg'
-  return new File([blob], name, { type: 'image/jpeg' })
-}
 
 /** 超过上传上限时压缩：先长边 3000、质量 0.85，还超就长边 2400、质量 0.7；不超限原样返回。 */
 const compress_if_needed = async (file) => {
