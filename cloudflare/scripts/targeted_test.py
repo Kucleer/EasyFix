@@ -818,6 +818,300 @@ def test_get_keeps_old_sets_working():
     assert {'reason', 'knowledge_point_id', 'skip_reason', 'explanation'} <= set(question)
 
 
+# ---------------------------------------------------------------- 任务 6：批改按差值计数
+
+
+class GradeRequest(starmap_test.FakeRequest):
+    """批改接口的假请求：在 FakeRequest 上补一个 JSON 的 content-type 请求头。"""
+
+    def __init__(self, payload, db):
+        super().__init__(payload, db)
+        self.headers = {'content-type': 'application/json'}
+
+
+def grade_request(db, payload):
+    """造批改用的假请求，并让 practices、starmap、settings 直接使用传入的 db。"""
+    import practices
+    practices.Database = lambda binding: binding
+    starmap_test.request_for(db)          # 顺带替换 starmap、settings 的 Database
+    return GradeRequest(payload, db)
+
+
+def with_motivation(function):
+    """测试装饰器：把 motivation.trigger 换成计数的假函数，被装饰的函数第一个参数是计数字典。"""
+    def wrapper():
+        import motivation
+        calls = {'trigger': 0}
+        saved = motivation.trigger
+
+        async def fake_trigger(db, code, reason=None):
+            calls['trigger'] += 1
+        motivation.trigger = fake_trigger
+        try:
+            function(calls)
+        finally:
+            motivation.trigger = saved
+    wrapper.__name__ = function.__name__
+    wrapper.__doc__ = function.__doc__
+    return wrapper
+
+
+def grading_fixture():
+    """数学：错题 1、2、3 都在考点 101；考点卷 10 按顺序放 1、2、3，还没批改。返回 (连接, db)。"""
+    c = build_db()
+    for qid in (1, 2, 3):
+        starmap_test.add_question(c, qid, 1, '2026-09-0%d 08:00:00' % qid, [101])
+    add_set(c, 10, '2026-11-01 08:00:00', None, [(1, None, 'original'), (2, None, 'original'), (3, None, 'original')])
+    c.commit()
+    return c, starmap_test.adapter(c)
+
+
+def mark(db, paper_id, pairs, revision=None, **extra):
+    """返回批改协程。pairs 为 [(错题编号, 做对 True/False 或其它值)]；revision 为 None 时不带版本号。"""
+    import practices
+    payload = {'question_results': [{'question_id': qid, 'is_correct': correct} for qid, correct in pairs], **extra}
+    if revision is not None:
+        payload['grading_revision'] = revision
+    return practices.reviewed(paper_id, grade_request(db, payload))
+
+
+def submit(db, paper_id, pairs, revision=None, **extra):
+    """提交一次批改，返回结果。"""
+    return starmap_test.run(mark(db, paper_id, pairs, revision, **extra))
+
+
+def counters(c, qid):
+    """错题的 (review_count, correct_count, error_count)。"""
+    return tuple(c.execute('SELECT review_count,correct_count,error_count FROM question WHERE id=?', (qid,)).fetchone())
+
+
+def db_value(c, sql, *params):
+    """取一条 SQL 的第一个值。"""
+    return c.execute(sql, params).fetchone()[0]
+
+
+def snapshot_tables(c):
+    """把批改会写的几张表整体取出来，用来确认失败时没有任何改动。"""
+    return [[tuple(row) for row in c.execute('SELECT * FROM %s ORDER BY id' % table)]
+            for table in ('question', 'practice_set', 'practice_set_question')]
+
+
+@with_motivation
+def test_grading_is_idempotent_and_counts_delta(calls):
+    """三道题：第一次批 对、错、对；原样再提交一次；再把第 2 题改成对。"""
+    c, db = grading_fixture()
+    first = submit(db, 10, [(1, True), (2, False), (3, True)], revision=0)
+    assert first['accuracy'] == 66.7 and first['grading_revision'] == 1
+    assert counters(c, 2) == (1, 0, 1)                      # (review_count, correct_count, error_count)
+    stamp = db_value(c, 'SELECT last_reviewed_at FROM practice_set WHERE id=?', 10)
+    assert stamp is not None
+    again = submit(db, 10, [(1, True), (2, False), (3, True)], revision=1)
+    assert counters(c, 2) == (1, 0, 1) and again['grading_revision'] == 2
+    assert counters(c, 1) == (1, 1, 0)
+    fixed = submit(db, 10, [(1, True), (2, True), (3, True)], revision=2)
+    assert counters(c, 2) == (1, 1, 0) and fixed['accuracy'] == 100.0
+    assert db_value(c, 'SELECT review_count FROM practice_set WHERE id=?', 10) == 1
+    assert db_value(c, 'SELECT last_reviewed_at FROM practice_set WHERE id=?', 10) == stamp
+    assert db_value(c, 'SELECT grading_revision FROM practice_set WHERE id=?', 10) == 3
+
+
+@with_motivation
+def test_grading_stale_revision_conflicts(calls):
+    """带了过期的版本号：409，不写入。"""
+    c, db = grading_fixture()
+    submit(db, 10, [(1, True)], revision=0)
+    before = snapshot_tables(c)
+    starmap_test.expect_http_error(409, mark(db, 10, [(1, False)], revision=0))
+    assert counters(c, 1) == (1, 1, 0) and snapshot_tables(c) == before
+
+
+@with_motivation
+def test_grading_guard_blocks_concurrent_submit(calls):
+    """读到卷子之后、写入之前别人先提交了（版本号已变）：事务内断言让整批回滚，409，不重复计数。"""
+    import practices
+    c, db = grading_fixture()
+    saved = practices.get
+
+    async def stale_get(binding, practice_id, details=True):
+        """先读到旧的卷子，再模拟另一个人抢先提交（库里版本号加 1）。"""
+        row = await saved(binding, practice_id, details)
+        c.execute('UPDATE practice_set SET grading_revision=grading_revision+1 WHERE id=?', (practice_id,))
+        return row
+    practices.get = stale_get
+    try:
+        before = snapshot_tables(c)
+        starmap_test.expect_http_error(409, mark(db, 10, [(1, True)]))
+    finally:
+        practices.get = saved
+    assert snapshot_tables(c)[0] == before[0] and counters(c, 1) == (0, 0, 0)
+    assert db_value(c, 'SELECT reviewed FROM practice_set WHERE id=10') == 0 and calls['trigger'] == 0
+
+
+@with_motivation
+def test_grading_skip_reasons(calls):
+    """没做、题目有误不算进正确率和错题计数，也不产生练习事件。"""
+    import starmap
+    c, db = grading_fixture()
+    payload = [{'question_id': 1, 'skip_reason': 'not_done'},
+               {'question_id': 2, 'is_correct': False, 'skip_reason': 'bad_question'},
+               {'question_id': 3, 'is_correct': True}]
+    import practices
+    body = starmap_test.run(practices.reviewed(10, grade_request(db, {'question_results': payload,
+                                                                      'grading_revision': 0})))
+    assert body['accuracy'] == 100.0
+    rows = {row[0]: (row[1], row[2]) for row in c.execute(
+        'SELECT question_id,is_correct,skip_reason FROM practice_set_question WHERE practice_set_id=10')}
+    assert rows == {1: (None, 'not_done'), 2: (None, 'bad_question'), 3: (1, None)}
+    assert counters(c, 1) == (0, 0, 0) and counters(c, 2) == (0, 0, 0) and counters(c, 3) == (1, 1, 0)
+    events = starmap_test.run(starmap.load_events(db, 1))
+    practice_qids = {e['qid'] for point in events.values() for e in point if e['source'] == 'practice'}
+    assert practice_qids == {3}
+
+
+@with_motivation
+def test_grading_skip_then_correct(calls):
+    """先标没做，再改成做对：review_count 从 0 变 1，skip_reason 清空。"""
+    import practices
+    c, db = grading_fixture()
+    starmap_test.run(practices.reviewed(10, grade_request(db, {
+        'question_results': [{'question_id': 1, 'skip_reason': 'not_done'}], 'grading_revision': 0})))
+    assert counters(c, 1) == (0, 0, 0)
+    submit(db, 10, [(1, True)], revision=1)
+    assert counters(c, 1) == (1, 1, 0)
+    assert db_value(c, 'SELECT skip_reason FROM practice_set_question WHERE practice_set_id=10 AND question_id=1') \
+        is None
+
+
+@with_motivation
+def test_grading_without_revision_still_works(calls):
+    """不带 grading_revision（电脑旧弹窗）可以提交，版本号照样加 1。"""
+    c, db = grading_fixture()
+    assert submit(db, 10, [(1, True), (2, True), (3, False)])['grading_revision'] == 1
+    assert submit(db, 10, [(3, True)])['grading_revision'] == 2
+    assert counters(c, 3) == (1, 1, 0)
+
+
+@with_motivation
+def test_grading_partial_payload_keeps_others(calls):
+    """已批改的卷子只提交一道题的修改，其他题结果不变；第一次批改时没提到的题算没批改。"""
+    c, db = grading_fixture()
+    first = submit(db, 10, [(1, True), (2, False)], revision=0)
+    assert first['accuracy'] == 50.0
+    assert db_value(c, 'SELECT is_correct FROM practice_set_question WHERE practice_set_id=10 AND question_id=3') \
+        is None and counters(c, 3) == (0, 0, 0)
+    body = submit(db, 10, [(2, True)], revision=1)
+    results = dict(c.execute('SELECT question_id,is_correct FROM practice_set_question WHERE practice_set_id=10'))
+    assert results == {1: 1, 2: 1, 3: None} and body['accuracy'] == 100.0
+    assert counters(c, 1) == (1, 1, 0) and counters(c, 2) == (1, 1, 0)
+
+
+@with_motivation
+def test_grading_rejects_foreign_item(calls):
+    """不属于这份卷子的题、is_correct 不是布尔值、skip_reason 不对、版本号不是整数：422，库里没有任何变化。"""
+    import practices
+    c, db = grading_fixture()
+    starmap_test.add_question(c, 9, 1, '2026-09-09 08:00:00', [101])
+    c.commit()
+    before = snapshot_tables(c)
+    bad_payloads = [
+        {'question_results': [{'question_id': 1, 'is_correct': True}, {'question_id': 9, 'is_correct': True}]},
+        {'question_results': [{'question_id': 1, 'is_correct': 1}]},
+        {'question_results': [{'question_id': 1, 'is_correct': 'true'}]},
+        {'question_results': [{'question_id': 1, 'skip_reason': 'x'}]},
+        {'question_results': [{'question_id': '1', 'is_correct': True}]},
+        {'question_results': [{'question_id': 1, 'is_correct': True}, {'question_id': 1, 'is_correct': False}]},
+        {'question_results': [{'question_id': 1, 'is_correct': True}], 'grading_revision': 'x'},
+        {'question_results': ['坏数据']},
+    ]
+    for payload in bad_payloads:
+        starmap_test.expect_http_error(422, practices.reviewed(10, grade_request(db, payload)))
+    assert snapshot_tables(c) == before and calls['trigger'] == 0
+
+
+@with_motivation
+def test_grading_motivation_only_first_time(calls):
+    """两次提交，激励只触发一次。"""
+    c, db = grading_fixture()
+    submit(db, 10, [(1, True)], revision=0)
+    submit(db, 10, [(1, False)], revision=1)
+    assert calls['trigger'] == 1
+
+
+@with_motivation
+def test_grading_reports_changes(calls):
+    """考点 102：错题 3、4；之前两份卷子把 4 做对两次、3 做对一次。这次 3 做对：3 毕业，102 点亮。"""
+    c, db = grading_fixture()
+    starmap_test.add_question(c, 4, 1, '2026-09-04 08:00:00', [102])
+    c.execute('UPDATE question_knowledge_point SET knowledge_point_id=102 WHERE question_id=3')
+    add_set(c, 1, '2026-09-10 08:00:00', '2026-09-10 20:00:00', [(3, 1, 'original'), (4, 1, 'original')])
+    add_set(c, 2, '2026-09-12 08:00:00', '2026-09-12 20:00:00', [(4, 1, 'original')])
+    c.execute('DELETE FROM practice_set_question WHERE practice_set_id=10')
+    add_set(c, 11, '2026-11-01 08:00:00', None, [(1, None, 'original'), (3, None, 'original')])
+    c.commit()
+    body = submit(db, 11, [(1, True), (3, True)], revision=0)
+    points = {point['id']: point for point in body['points']}
+    assert set(points[102]) == {'id', 'name', 'before', 'after'} and points[102]['name'] == '有理数乘方'
+    assert points[102]['before']['status'] != 'mastered' and points[102]['after'] == {'value': 1.0,
+                                                                                      'status': 'mastered'}
+    assert 101 in points and points[101]['before']['value'] < points[101]['after']['value']
+    assert body['graduated'] == [2] and body['newly_mastered'] == 1
+    # 原样再提交：没有变化
+    again = submit(db, 11, [(1, True), (3, True)], revision=1)
+    assert again['points'] == [] and again['graduated'] == [] and again['newly_mastered'] == 0
+
+
+def test_grading_query_count_is_fixed():
+    """3 道题和 30 道题的卷子，批改执行的 SQL 条数相同。"""
+    import motivation
+
+    def count(total):
+        """建 total 道题的考点卷，批改一次，返回读库条数。"""
+        c = build_db()
+        for qid in range(1, total + 1):
+            starmap_test.add_question(c, qid, 1, '2026-09-01 08:00:00', [(101, 102, 111)[qid % 3]])
+        add_set(c, 10, '2026-11-01 08:00:00', None, [(qid, None, 'original') for qid in range(1, total + 1)])
+        c.commit()
+        counter = starmap_test.CountingDB(c)
+        starmap_test.run(mark(counter, 10, [(qid, qid % 2 == 0) for qid in range(1, total + 1)], revision=0))
+        return counter.calls
+
+    saved = motivation.trigger
+
+    async def fake_trigger(db, code, reason=None):
+        pass
+    motivation.trigger = fake_trigger
+    try:
+        small, big = count(3), count(30)
+    finally:
+        motivation.trigger = saved
+    assert small == big, (small, big)
+
+
+@with_motivation
+def test_grading_reading_and_word_sets_unchanged(calls):
+    """阅读练习的批改照旧按次数加一，返回里没有 points，版本号不动。"""
+    import practices
+    c, db = grading_fixture()
+    c.execute("INSERT INTO reading_passage(id,title,content,topic,grade,difficulty,deleted) "
+              "VALUES(1,'短文','内容','主题',6,2,0)")
+    for number in (1, 2):
+        c.execute("INSERT INTO reading_question(id,passage_id,question_number,question_text,option_a,option_b,"
+                  "option_c,option_d,correct_answer,deleted) VALUES(?,1,?,'问','A','B','C','D','A',0)",
+                  (number, number))
+    c.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,passage_id,total_questions,"
+              "reviewed,review_count,deleted,created_at) VALUES(20,'阅读',2,'reading','original',1,2,0,0,0,"
+              "'2026-11-01 08:00:00')")
+    c.commit()
+    payload = {'question_results': [{'question_id': 1, 'is_correct': True}, {'question_id': 2, 'is_correct': False}]}
+    for expected in (1, 2):
+        body = starmap_test.run(practices.reviewed(20, grade_request(db, payload)))
+        assert body['review_count'] == expected and body['accuracy'] == 50.0
+        assert 'points' not in body and 'grading_revision' not in body
+    assert db_value(c, 'SELECT review_count FROM practice_set WHERE id=20') == 2
+    assert db_value(c, 'SELECT grading_revision FROM practice_set WHERE id=20') == 0
+    assert calls['trigger'] == 2
+
+
 TESTS = [
     test_migration_adds_columns,
     test_migration_defaults_keep_old_rows_valid,
@@ -861,6 +1155,18 @@ TESTS = [
     test_prepare_and_reroll_reject_closed_paper,
     test_status_endpoint,
     test_get_keeps_old_sets_working,
+    test_grading_is_idempotent_and_counts_delta,
+    test_grading_stale_revision_conflicts,
+    test_grading_guard_blocks_concurrent_submit,
+    test_grading_skip_reasons,
+    test_grading_skip_then_correct,
+    test_grading_without_revision_still_works,
+    test_grading_partial_payload_keeps_others,
+    test_grading_rejects_foreign_item,
+    test_grading_motivation_only_first_time,
+    test_grading_reports_changes,
+    test_grading_query_count_is_fixed,
+    test_grading_reading_and_word_sets_unchanged,
 ]
 
 
