@@ -236,3 +236,12 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 部署：只部署 Pages `c5afea6a`（上一部署 `e7d86802`），Worker 不变。
 - 发布后只做了无需登录的核对：新入口文件 `assets/index-DU8t-y5m.js` 线上 200，首页未登录跳转登录。本机用假数据在 375 宽下逐页走查过。未验证（需登录）：线上用真实数据在手机上看各列表页。
 - 已知未改：管理中心（和配置页）访问密码框按回车会整页刷新，点"验证"正常；激励页有一个没有入口的旧"积分明细"弹窗。
+
+## 变更记录：相似题答案照抄原题、批改页孩子答案不渲染公式（2026-11-14 已上线）
+
+- 分支 `claude/similar-questions-answer-escaping-6ec59b`，代码提交 `f2cd4d75`；只改后端，无迁移、无前端。
+- 相似题：模型先写答案后写解析，答案会照抄原题（例如解析算出 \(-2\)，答案却写原题的 0）。两种相似题提示词共用 `SIMILAR_OUTPUT_RULES`：先写解析再写答案，不许套用原答案，公式加 `\(...\)`。
+- 批改识别：提示词要求孩子答案里的式子加 `\(...\)`；`grading_model.wrap_bare_math` 给仍不带边界的 LaTeX（如 `3^{2025}`）补上，夹中文时只包式子那几段。
+- 数据：改了 `similar_question` 3 行（id 11、12、13）的答案，id 13 的解析也一并改正；修改前的整行导出在被忽略的 `backups/similar-answer-fix-2026-11-14.json`。
+- 部署：Worker `bd5ea0b0`（上一版本 `178f91a8`）；Pages、PDF Worker 不变。
+- 未验证（需登录）：批改页重新识别后的公式显示、新生成相似题的答案。已知未改：id 9 的相似题答案 `\frac{9}{4}` 没有公式边界，页面会显示源码。
