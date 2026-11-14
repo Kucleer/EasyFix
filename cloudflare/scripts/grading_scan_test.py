@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import starmap_test  # noqa: E402  复用建库、适配器、运行协程等助手
 import targeted_test  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from grading_model import build_judge_prompt, clean_judgement, numbering_changed  # noqa: E402
+from grading_model import build_judge_prompt, clean_judgement, numbering_changed, wrap_bare_math  # noqa: E402
 
 PAGE_TEXT = '第 1 题 学生写：5x\n第 2 题 学生写：7'
 
@@ -71,6 +71,22 @@ def test_judge_prompt_content():
     assert PAGE_TEXT in text and '第 3 页' in text and '第三页' in text
     assert '1. 题目：计算 3x+2x\n   标准答案：5x' in text and '2. 题目：计算 3+4\n   标准答案：7' in text
     assert '只看最终答案' in text and 'unsure' in text and '学科：数学' in text
+    assert '\\(3^{2025}\\)' in text   # 要求孩子答案里的式子带公式边界
+
+
+def test_wrap_bare_math():
+    """没边界的 LaTeX 补上 \\(...\\)；已有边界、普通文字、填空横线不动；夹中文的只包式子那几段。"""
+    assert wrap_bare_math('3^{2025}') == '\\(3^{2025}\\)'
+    assert wrap_bare_math('(1) y+\\frac{1}{20}y') == '\\((1) y+\\frac{1}{20}y\\)'
+    assert wrap_bare_math('\\(3^{2025}\\)') == '\\(3^{2025}\\)'
+    assert wrap_bare_math('16') == '16' and wrap_bare_math('5x') == '5x' and wrap_bare_math('') == ''
+    assert wrap_bare_math('___') == '___' and wrap_bare_math('B') == 'B'
+    assert wrap_bare_math('原价 \\frac{5}{4}c 元') == '原价 \\(\\frac{5}{4}c\\) 元'
+    assert wrap_bare_math('x=-2，y^2=4') == '\\(x=-2\\)，\\(y^2=4\\)' or \
+        wrap_bare_math('x=-2，y^2=4') == 'x=-2，\\(y^2=4\\)'
+    # clean_judgement 返回给页面的答案也已补好
+    raw = {'answers': [{'no': 1, 'student_answer': '3^{2025}', 'verdict': 'wrong', 'page': 1}]}
+    assert clean_judgement(raw, {1: 101}, {1})[0]['student_answer'] == '\\(3^{2025}\\)'
 
 
 # ---------------------------------------------------------------- 接口用的假主机、假模型
@@ -316,6 +332,7 @@ TESTS = [
     test_clean_judgement_empty_answer_is_unsure,
     test_numbering_changed,
     test_judge_prompt_content,
+    test_wrap_bare_math,
     test_page_returns_text_by_index,
     test_page_host_unavailable_is_503,
     test_page_busy_then_ok,

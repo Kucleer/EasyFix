@@ -7,6 +7,8 @@
 - 模型输出的清洗（题号必须属于这份卷子、漏掉的补成"拿不准"、多出来的丢掉）。
 """
 
+import re
+
 VERDICTS = ('right', 'wrong', 'unsure')     # 对、错、拿不准
 MAX_PAGE_TEXT = 20000      # 一页识别文字最多收多少字（正常一页几千字，超出说明不是正常请求）
 QUESTION_CHARS = 200       # 提示词里每道题的题目最多给多少字（够模型认出是哪道题就行）
@@ -59,7 +61,8 @@ def build_judge_prompt(subject_name, pages, questions):
         '',
         '请对上面每一道题都给出一项，只返回 JSON：{"answers": [ ... ]}，每项四个字段：',
         '- no：题号（整数，必须是上面列出的题号）。',
-        '- student_answer：孩子写的最终答案，原样抄下来；读不到或者空着就写空字符串。',
+        '- student_answer：孩子写的最终答案，原样抄下来；读不到或者空着就写空字符串。'
+        '里面的数学式子用 \\(...\\) 包起来，例如 \\(3^{2025}\\)、\\(\\frac{1}{2}\\)。',
         '- verdict：right（做对）、wrong（做错）或 unsure（拿不准）。',
         '- page：这道题在第几页（整数），找不到写 null。',
         '',
@@ -74,6 +77,32 @@ def build_judge_prompt(subject_name, pages, questions):
         '不要输出 JSON 以外的任何内容。数学公式照原样写，JSON 字符串里的每个反斜杠都要写成两个。',
     ]
     return '\n'.join(parts)
+
+
+MATH_BOUNDARY = re.compile(r'\\\(|\\\[|\$\$')          # 已经有公式边界
+# LaTeX 命令、上标、下标；单独一串下划线是填空横线，不算
+MATH_MARK = re.compile(r'\\[A-Za-z]+|\^|_[{A-Za-z0-9]')
+# 中文字符和全角标点：公式里放不了，遇到就在这里断开
+NON_MATH_RUN = re.compile(r'([\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]+)')
+
+
+def wrap_bare_math(text):
+    """给没加边界的 LaTeX 补上 \\(...\\)，让页面能渲染成公式。
+
+    模型有时把孩子的答案写成 3^{2025}、\\frac{1}{2} 这样不带边界的源码，页面会原样显示。
+    已经有边界的不动；夹着中文的，按中文断开，只把带 LaTeX 记号的那几段包起来。
+    """
+    if not text or MATH_BOUNDARY.search(text) or not MATH_MARK.search(text):
+        return text
+    parts = []
+    for part in NON_MATH_RUN.split(text):
+        core = part.strip()
+        if core and not NON_MATH_RUN.fullmatch(part) and MATH_MARK.search(core):
+            # 保留两边的空格，只把中间的式子包起来
+            start = part.index(core)
+            part = part[:start] + '\\(' + core + '\\)' + part[start + len(core):]
+        parts.append(part)
+    return ''.join(parts)
 
 
 def _plain_int(value):
@@ -107,6 +136,7 @@ def clean_judgement(raw, numbers, page_numbers):
         student = entry.get('student_answer')
         student = _cut(student, STUDENT_ANSWER_CHARS) if isinstance(student, (str, int, float)) and \
             not isinstance(student, bool) else ''
+        student = wrap_bare_math(student)
         verdict = entry.get('verdict') if entry.get('verdict') in VERDICTS else 'unsure'
         if not student:
             verdict = 'unsure'

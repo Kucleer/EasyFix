@@ -369,6 +369,10 @@ def test_targeted_prompt_content():
     assert '错因' not in text and '错误类型' not in text and '错误答案' not in text
     plain = PromptLibrary()._build_targeted_prompt('计算 3x+2x', '5x', '数学', [], False)
     assert '错误答案' not in plain and '不依赖图形' not in plain
+    # 先写解析再写答案，并且明确不许照抄原答案（普通相似题提示词也一样）
+    assert plain.index('"explanation"') < plain.index('"similar_answer"') and '不许照抄' in plain
+    general = PromptLibrary()._build_prompt('计算 3x+2x', '5x', '数学', [])
+    assert general.index('"explanation"') < general.index('"similar_answer"') and '不许照抄' in general
 
 
 

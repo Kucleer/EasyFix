@@ -7,6 +7,21 @@
 from typing import Optional
 
 
+# 两种相似题提示词共用的输出要求。
+# 原答案只用来让模型看清答案的写法，新题的答案必须重新解。
+# 模型按 JSON 字段的顺序往下写，所以先写解析（解题过程）再写答案，
+# 答案才会跟着解析算出来，不会照抄原题的答案（出过"解析算出 -2、答案却写 0"的题）。
+SIMILAR_OUTPUT_RULES = (
+    '注意：上面的原答案只属于原题。新题换了数值或情境，答案一般也不同，'
+    '必须对新题重新完整解一遍，不许照抄或套用原答案。'
+    '先在 explanation 里写解题过程，similar_answer 必须和解析最后算出的结果完全一致。\n'
+    '数学公式用 \\(...\\) 包起来。\n\n'
+    '请按下面的顺序，以JSON格式返回结果：\n'
+    '{\n    "similar_question": "生成的相似题目",\n'
+    '    "explanation": "简要解析（含解题过程）",\n'
+    '    "similar_answer": "相似题目的答案，和解析的结论一致"\n}\n')
+
+
 class PromptLibrary:
 
     def _build_prompt(self, question: str, answer: str, subject: str, knowledge_points=None) -> str:
@@ -25,10 +40,7 @@ class PromptLibrary:
             '2. 必须考察主考点；其他关联考点作为背景，不保证全部覆盖\n'
             '3. 但具体数值或情境不同\n\n'
             f'{subject_info}\n{knowledge_info}\n\n原题目：\n{question}\n\n原答案：\n{answer}\n\n'
-            '请以以下JSON格式返回结果：\n'
-            '{\n    "similar_question": "生成的相似题目",\n'
-            '    "similar_answer": "相似题目的答案",\n'
-            '    "explanation": "简要解析"\n}\n')
+            + SIMILAR_OUTPUT_RULES)
 
     def _build_targeted_prompt(self, question: str, answer: str, subject: str, knowledge_points=None,
                                figure: bool = False) -> str:
@@ -54,10 +66,7 @@ class PromptLibrary:
         return (
             '请根据以下题目生成一道相似的练习题，要求：\n' + rule_text + '\n'
             f'{subject_info}\n{knowledge_info}\n\n原题目：\n{question}\n\n原答案：\n{answer}\n\n'
-            '请以以下JSON格式返回结果：\n'
-            '{\n    "similar_question": "生成的相似题目",\n'
-            '    "similar_answer": "相似题目的答案",\n'
-            '    "explanation": "简要解析"\n}\n')
+            + SIMILAR_OUTPUT_RULES)
 
     def _build_learning_report_prompt(self, subject_name: Optional[str], grade: Optional[int],
                                       time_range_days: Optional[int], data_summary: dict) -> str:
