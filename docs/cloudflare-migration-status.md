@@ -219,3 +219,11 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 2026-11-12 深夜：批改识别预批与电脑手机共用批改页上线（设计 `docs/superpowers/specs/2026-11-12-grading-recognition-design.md`）。考点卷相似题提示词不再带孩子的错误答案；新增 `POST /api/practice-sets/{id}/recognize/page`、`/recognize/judge`（不写库、无迁移）；所有错题练习卷都在 `/grade/:id` 批改。从分支 `claude/grading-recognition-design-97c8d7`（`7984eaa`）部署 Worker `0f2d30dd`（上一版本 `563c8d50`）、Pages `5e3d1920`（上一版本 `a58dd21c`）。
 - 发布后只做了无需登录的核对：`/health` 200、未登录调用两个识别接口 401、`/grade/1` 跳转登录。未验证（需登录）：用真实卷子在手机和电脑上各批一次；关掉识别主机走一遍兜底。本机走查用的是假识别主机和假比对模型。
 - 2026-11-13：发布后，部署前就打开的页面点"批改"报 "Failed to fetch dynamically imported module"（旧入口文件要的旧页面文件已不存在），刷新即可。前端路由加了兜底：页面文件加载失败时自动整页刷新一次。只部署 Pages `9bfd7a8e`（上一版本 `5e3d1920`），Worker 不变。用户已在线上用真实卷子批改过。
+
+## 变更记录：停用错因、练习只留一个列表（2026-11-14 已上线）
+
+- 分支 `claude/pending-projects-review-5fefe5`，代码提交 `8b9c16db`；范围见 `docs/superpowers/specs/2026-11-12-weekly-paper-design.md` 第 15 节。
+- 停用错因：录入和整页识别不再让模型填错因（旧版技能传了也忽略）；界面不再显示、筛选、编辑错因，管理中心去掉"错误类型管理"；统计和学习报告不再用错因。数据库的列、表和旧数据都保留，无迁移。
+- 练习只留一个列表：去掉单独的待批改列表页，`/grade` 跳到练习中心并只看待批改的卷子；错题练习卷状态显示"待批改/已批改"，单词和阅读仍是"未复习/已复习"；练习中心加"类型"筛选，没批改的卷子主按钮是"批改"。
+- 部署：Worker `178f91a8`（上一版本 `0f2d30dd`）；Pages `e7d86802`（上一部署 `9bfd7a8e`）；PDF Worker 不变。录入技能已重新安装到两个用户目录。
+- 发布后只做了无需登录的核对：`/health` 200、未登录调用 `/api/intake/guide`、`/api/stats/summary` 返回 401、`/grade` 与 `/practice-sets` 跳转登录。未验证（需登录）：首页、管理中心、练习中心的新界面；整页识别和录入一份真实卷子。
