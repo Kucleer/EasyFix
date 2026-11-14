@@ -56,7 +56,7 @@ def build_payload(client, evidence='老师打叉', empty_pages=()):
     images = [item['path'] for item in upload_two_photos(client)['images']]
     questions = [{'page': page, 'question_no': str(page), 'parsed_question': '题目%d' % page, 'answer': '答案',
                   'analysis': '解析', 'wrong_answer': '错解', 'wrong_evidence': '' if page in empty_pages else evidence, 'difficulty': 3,
-                  'error_type': guide['error_types'][0], 'knowledge_point_ids': [point_id],
+                  'knowledge_point_ids': [point_id],
                   'primary_knowledge_point_id': point_id} for page in (1, 2)]
     return {'spec_version': guide['spec_version'], 'request_id': uuid.uuid4().hex[:20],
             'parent_reply': '跳过', 'paper': {'subject_id': 1, 'grade': 6, 'semester': 1, 'name': '', 'paper_type': 'homework',
@@ -78,7 +78,7 @@ def test_guide_math():
     assert body['catalog_available'] is True
     assert len(body['knowledge_modules']) == 9, len(body['knowledge_modules'])
     assert count_points(body) == 42, count_points(body)
-    assert sorted(body['error_types']) == sorted(['计算错误', '审题不清', '概念错误', '完全不会']), body['error_types']
+    assert 'error_types' not in body  # 错因已停用，录题规范不再返回错因清单
     assert body['grade'] == 6
 
 

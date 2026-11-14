@@ -26,7 +26,7 @@
     <StarMapCard />
 
     <section class="focus-panel"><div><p class="hero-eyebrow">TODAY'S FOCUS · 今日重点</p><h2>{{ stats.to_review_questions ? '从 ' + stats.to_review_questions + ' 道待复习错题开始' : '从一次认真复习开始' }}</h2><p>回顾上次的难点，让知识掌握得更扎实。</p><el-button type="primary" @click="router.push('/questions')">开始错题复习 <el-icon><Right /></el-icon></el-button></div><div class="focus-total"><strong>{{ learningOverview.today_question_review_count + learningOverview.today_word_review_count }}</strong><span>今日已复习</span></div></section>
-    <nav class="home-shortcuts" aria-label="学习快捷入口"><RouterLink to="/questions">错题复习 <span>{{ stats.to_review_questions || 0 }} 道待复习 →</span></RouterLink><RouterLink to="/review">待核对 <span>{{ reviewCountStore.pending > 0 ? reviewCountStore.pending + ' 道待处理 →' : '暂无待处理 →' }}</span></RouterLink><RouterLink to="/words">单词温习 <span>{{ stats.word_stats?.to_review_count || 0 }} 个待温习 →</span></RouterLink><RouterLink :to="targetedPendingCount > 0 ? '/grade' : '/practice-sets'">专项练习 <span>{{ targetedPendingCount > 0 ? targetedPendingCount + ' 份待批改 →' : '进入练习中心 →' }}</span></RouterLink><RouterLink to="/reading">阅读训练 <span>选一篇开始 →</span></RouterLink></nav>
+    <nav class="home-shortcuts" aria-label="学习快捷入口"><RouterLink to="/questions">错题复习 <span>{{ stats.to_review_questions || 0 }} 道待复习 →</span></RouterLink><RouterLink to="/review">待核对 <span>{{ reviewCountStore.pending > 0 ? reviewCountStore.pending + ' 道待处理 →' : '暂无待处理 →' }}</span></RouterLink><RouterLink to="/words">单词温习 <span>{{ stats.word_stats?.to_review_count || 0 }} 个待温习 →</span></RouterLink><RouterLink :to="targetedPendingCount > 0 ? '/practice-sets?pending=1' : '/practice-sets'">专项练习 <span>{{ targetedPendingCount > 0 ? targetedPendingCount + ' 份待批改 →' : '进入练习中心 →' }}</span></RouterLink><RouterLink to="/reading">阅读训练 <span>选一篇开始 →</span></RouterLink></nav>
     <!-- Stats Grid -->
     <section class="stats-grid">
       <div class="stat-card tone-indigo stat-lg" role="link" tabindex="0" @keydown.enter="$router.push('/questions')" @click="$router.push('/questions')">
@@ -159,7 +159,7 @@
     <!-- Content Grid -->
     <section class="content-grid">
       <!-- Learning Overview -->
-      <article class="panel">
+      <article class="panel panel-full">
         <div class="panel-head">
           <h2 class="panel-title">学习概览</h2>
         </div>
@@ -211,25 +211,6 @@
             </div>
           </div>
         </div>
-      </article>
-
-      <!-- Error Type Distribution -->
-      <article class="panel">
-        <div class="panel-head">
-          <h2 class="panel-title">错误类型分布</h2>
-          <el-select v-model="selectedSubject" placeholder="选择学科" size="small" class="subject-select">
-            <el-option
-              v-for="subject in stats.by_subject"
-              :key="subject.subject_id"
-              :label="subject.subject_name"
-              :value="subject.subject_id"
-            />
-          </el-select>
-        </div>
-        <div v-if="hasFilteredErrorTypeData" class="chart-container">
-          <v-chart :option="errorTypePieOption" autoresize style="height: 240px" />
-        </div>
-        <el-empty v-else description="暂无数据" :image-size="80" />
       </article>
 
       <!-- Accuracy Curve -->
@@ -285,22 +266,6 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="主要错误类型" min-width="180">
-            <template #default="{ row }">
-              <div class="error-tags">
-                <el-tag
-                  v-for="(count, type) in getTopErrorTypes(row.error_type_counts)"
-                  :key="type"
-                  :type="getErrorTagType(type)"
-                  size="small"
-                  round
-                  style="margin-right: 4px"
-                >
-                  {{ type }} {{ count }}
-                </el-tag>
-              </div>
-            </template>
-          </el-table-column>
           <el-table-column prop="practice_count" label="练习次数" width="120" align="center">
             <template #default="{ row }">
               <span class="practice-count">{{ row.practice_count || 0 }}</span>
@@ -340,7 +305,6 @@ const stats = ref({
   total_error_books: 0,
   active_days: 0,
   difficulty_distribution: {},
-  error_type_distribution: {},
   by_subject: [],
   word_stats: {
     total_words: 0,
@@ -352,7 +316,6 @@ const stats = ref({
   question_accuracy_curve: []
 })
 
-const selectedSubject = ref('')
 
 const gradeLabelMap = {
   1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级',
@@ -392,10 +355,6 @@ const loadAllStats = async () => {
   try {
     const { data } = await statsApi.getSummary(params)
     stats.value = data
-    // 学科筛选在年级变化后可能失效，重置
-    if (selectedSubject.value && !data.by_subject?.some(s => s.subject_id === selectedSubject.value)) {
-      selectedSubject.value = ''
-    }
   } catch (error) {
     console.error('获取统计失败:', error)
   }
@@ -444,96 +403,8 @@ const adjustColor = (hex, amount) => {
   return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')
 }
 
-const getErrorTagType = (type) => {
-  const types = { '计算': 'danger', '概念': 'warning', '审题': 'info', '粗心': 'success', '其他': '' }
-  return types[type] || ''
-}
-
-const getTopErrorTypes = (errorTypeCounts) => {
-  if (!errorTypeCounts) return {}
-  return Object.fromEntries(Object.entries(errorTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3))
-}
-
 const hasAccuracyCurve = computed(() => {
   return stats.value.word_accuracy_curve && stats.value.word_accuracy_curve.length > 0
-})
-
-const filteredErrorTypeData = computed(() => {
-  const bySubject = stats.value.by_subject || []
-  if (!selectedSubject.value && bySubject.length > 0) {
-    const mathSubject = bySubject.find(s => s.subject_name.includes('数学'))
-    selectedSubject.value = mathSubject ? mathSubject.subject_id : bySubject[0].subject_id
-  }
-  const subject = bySubject.find(s => s.subject_id === selectedSubject.value)
-  return subject?.error_type_counts || {}
-})
-
-const hasFilteredErrorTypeData = computed(() => {
-  return Object.keys(filteredErrorTypeData.value).length > 0
-})
-
-const errorTypePieOption = computed(() => {
-  const data = filteredErrorTypeData.value
-  if (!Object.keys(data).length) return {}
-  const colors = ['#4f46e5', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#84cc16', '#f97316', '#8b5cf6', '#ec4899']
-  const entries = Object.entries(data).sort((a, b) => b[1] - a[1])
-  const total = entries.reduce((sum, [, v]) => sum + v, 0)
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: '{b}: {c} ({d}%)',
-      backgroundColor: '#ffffff',
-      borderColor: '#e2e8f0',
-      borderWidth: 1,
-      textStyle: { color: '#334155' }
-    },
-    legend: {
-      orient: 'vertical',
-      right: 8,
-      top: 'center',
-      itemWidth: 12,
-      itemHeight: 12,
-      itemGap: 14,
-      textStyle: { color: '#64748b', fontSize: 13, lineHeight: 22 },
-      formatter: (name) => {
-        const item = entries.find(([n]) => n === name)
-        if (!item) return name
-        const pct = ((item[1] / total) * 100).toFixed(1)
-        return `${name}  ${item[1]}  ${pct}%`
-      }
-    },
-    series: [{
-      type: 'pie',
-      radius: ['32%', '68%'],
-      center: ['34%', '50%'],
-      avoidLabelOverlap: true,
-      itemStyle: {
-        borderRadius: 8,
-        borderColor: '#ffffff',
-        borderWidth: 3,
-      },
-      label: { show: false },
-      emphasis: {
-        scaleSize: 8,
-        itemStyle: { shadowBlur: 16, shadowColor: 'rgba(79, 70, 229, 0.35)' }
-      },
-      labelLine: { show: false },
-      data: entries.map(([name, value], i) => ({
-        name,
-        value,
-        itemStyle: {
-          color: {
-            type: 'linear',
-            x: 0, y: 0, x2: 1, y2: 1,
-            colorStops: [
-              { offset: 0, color: colors[i % colors.length] },
-              { offset: 1, color: adjustColor(colors[i % colors.length], -24) }
-            ]
-          }
-        }
-      }))
-    }]
-  }
 })
 
 const subjectTableData = computed(() => stats.value.by_subject || [])
@@ -863,8 +734,6 @@ onMounted(async () => {
 .panel-title {
   font-size:17px;
   margin:0}
-.subject-select {
-  width:140px}
 .overview-grid {
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -933,10 +802,6 @@ onMounted(async () => {
   text-align:right;
   color:var(--text-muted);
   font-size:11px}
-.error-tags {
-  display:flex;
-  gap:4px;
-  flex-wrap:wrap}
 @media(max-width:1200px) {
   .stats-grid {
   grid-template-columns:repeat(3,minmax(0,1fr))}

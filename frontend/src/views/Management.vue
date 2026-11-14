@@ -89,24 +89,6 @@
           </div>
         </el-tab-pane>
 
-        <!-- 错误类型管理 -->
-        <el-tab-pane label="错误类型管理" name="errorTypes">
-          <div class="tab-content">
-            <div class="action-bar">
-              <el-button type="primary" @click="openErrorTypeDialog">
-                <el-icon><Plus /></el-icon>
-                新增错误类型
-              </el-button>
-            </div>
-            <el-table :data="errorTypes" stripe style="width: 100%; margin-top: 15px">
-              <el-table-column prop="id" label="ID" width="80" />
-              <el-table-column prop="name" label="类型名称" />
-              <el-table-column prop="subject_name" label="学科" width="120" />
-              <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '编辑', run: () => editErrorType(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteErrorType(row), disabled: false, danger: true }]" /></template></el-table-column>
-            </el-table>
-          </div>
-        </el-tab-pane>
-
         <!-- 知识点管理 -->
         <el-tab-pane label="知识点管理" name="knowledgePoints">
           <div class="tab-content">
@@ -155,13 +137,10 @@
               <el-table-column label="题数" width="80" align="right">
                 <template #default="{ row }">{{ row.question_count || 0 }}</template>
               </el-table-column>
-              <el-table-column label="子级 / 错误类型" min-width="180">
+              <el-table-column label="子级" min-width="120">
                 <template #default="{ row }">
                   <span v-if="row.level === 1">子级 {{ row.child_count || 0 }} 个</span>
-                  <div v-else class="kp-errors">
-                    <el-tag v-for="et in row.error_types || []" :key="et.id" size="small">{{ et.name }}</el-tag>
-                    <span v-if="!row.error_types?.length" class="text-muted">未配置</span>
-                  </div>
+                  <span v-else class="text-muted">—</span>
                 </template>
               </el-table-column>
               <el-table-column prop="sort_order" label="排序" width="70" align="right" />
@@ -375,24 +354,6 @@
       </template>
     </el-dialog>
 
-    <!-- 新增/编辑错误类型弹窗 -->
-    <el-dialog v-model="showErrorTypeDialog" :title="editErrorTypeData ? '编辑错误类型' : '新增错误类型'" width="400px">
-      <el-form :model="errorTypeForm" label-width="80px">
-        <el-form-item label="类型名称" required>
-          <el-input v-model="errorTypeForm.name" placeholder="请输入错误类型名称" />
-        </el-form-item>
-        <el-form-item label="学科">
-          <el-select v-model="errorTypeForm.subject_id" placeholder="选择学科（空表示通用）" clearable style="width: 100%">
-            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="closeErrorTypeDialog">取消</el-button>
-        <el-button type="primary" @click="saveErrorType">保存</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 新增/编辑知识点弹窗 -->
     <el-dialog v-model="showKnowledgeDialog" :title="editKnowledgeData ? '编辑知识点' : '新增知识点'" width="560px">
       <el-form :model="knowledgeForm" label-width="100px">
@@ -430,11 +391,6 @@
           <el-select v-model="knowledgeForm.semester" placeholder="仅作推荐筛选" clearable style="width: 100%">
             <el-option label="上学期" :value="1" />
             <el-option label="下学期" :value="2" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="knowledgeForm.level === 2" label="错误类型">
-          <el-select v-model="knowledgeForm.error_type_ids" multiple placeholder="选择该考点的错误类型" style="width: 100%">
-            <el-option v-for="et in knowledgeErrorTypeOptions" :key="et.id" :label="et.name" :value="et.id" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -633,16 +589,6 @@ const tags = ref([])
 const showTagDialog = ref(false)
 const tagForm = reactive({ name: '', color: '#409eff' })
 
-// 错误类型
-const errorTypes = ref([])
-const etFilters = reactive({ subject_id: null })
-const showErrorTypeDialog = ref(false)
-const editErrorTypeData = ref(null)
-const errorTypeForm = reactive({
-  name: '',
-  subject_id: localStorage.getItem('lastEtSubject') ? parseInt(localStorage.getItem('lastEtSubject')) : null
-})
-
 // 知识点
 const knowledgePoints = ref([])
 const legacyKnowledgePoints = ref([])
@@ -665,15 +611,10 @@ const knowledgeForm = reactive({
   sort_order: 0,
   grade: localStorage.getItem('lastKpGrade') ? parseInt(localStorage.getItem('lastKpGrade')) : null,
   semester: localStorage.getItem('lastKpSemester') ? parseInt(localStorage.getItem('lastKpSemester')) : null,
-  error_type_ids: [],
 })
 const moduleOptions = computed(() => (knowledgePoints.value || [])
   .filter(item => item.level === 1)
   .filter(item => !knowledgeForm.subject_id || item.subject_id === knowledgeForm.subject_id))
-const knowledgeErrorTypeOptions = computed(() => (errorTypes.value || []).filter(
-  item => item.subject_id == null || item.subject_id === knowledgeForm.subject_id,
-))
-
 // 错题本
 const errorBooks = ref([])
 const showErrorBookDialog = ref(false)
@@ -819,82 +760,6 @@ const deleteTag = async (row) => {
   }
 }
 
-// 获取错误类型列表
-const fetchErrorTypes = async () => {
-  try {
-    const params = {}
-    if (etFilters.subject_id) params.subject_id = etFilters.subject_id
-    const { data } = await questionApi.listErrorTypes(params)
-    errorTypes.value = Array.isArray(data) ? data : []
-  } catch (e) {
-    console.error('获取错误类型失败:', e)
-  }
-}
-
-// 打开新增错误类型弹窗
-const openErrorTypeDialog = () => {
-  editErrorTypeData.value = null
-  errorTypeForm.name = ''
-  errorTypeForm.subject_id = localStorage.getItem('lastEtSubject') ? parseInt(localStorage.getItem('lastEtSubject')) : null
-  showErrorTypeDialog.value = true
-}
-
-// 关闭错误类型弹窗
-const closeErrorTypeDialog = () => {
-  showErrorTypeDialog.value = false
-  editErrorTypeData.value = null
-  errorTypeForm.name = ''
-  errorTypeForm.subject_id = localStorage.getItem('lastEtSubject') ? parseInt(localStorage.getItem('lastEtSubject')) : null
-}
-
-// 编辑错误类型
-const editErrorType = (row) => {
-  editErrorTypeData.value = row
-  errorTypeForm.name = row.name
-  errorTypeForm.subject_id = row.subject_id
-  showErrorTypeDialog.value = true
-}
-
-// 保存错误类型（新增或编辑）
-const saveErrorType = async () => {
-  if (!errorTypeForm.name.trim()) {
-    ElMessage.warning('请输入类型名称')
-    return
-  }
-  try {
-    if (editErrorTypeData.value) {
-      await questionApi.updateErrorType(editErrorTypeData.value.id, {
-        name: errorTypeForm.name,
-        subject_id: errorTypeForm.subject_id,
-      })
-      ElMessage.success('更新成功')
-    } else {
-      await questionApi.createErrorType({
-        name: errorTypeForm.name,
-        subject_id: errorTypeForm.subject_id,
-      })
-      ElMessage.success('创建成功')
-      localStorage.setItem('lastEtSubject', errorTypeForm.subject_id || '')
-    }
-    closeErrorTypeDialog()
-    fetchErrorTypes()
-  } catch (e) {
-    ElMessage.error(editErrorTypeData.value ? '更新失败' : '创建失败')
-  }
-}
-
-// 删除错误类型
-const deleteErrorType = async (row) => {
-  try {
-    await ElMessageBox.confirm('确定要删除该错误类型吗？', '删除确认', { type: 'warning' })
-    await questionApi.deleteErrorType(row.id)
-    ElMessage.success('删除成功')
-    fetchErrorTypes()
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败')
-  }
-}
-
 // 获取两级目录与待处理旧目录
 const fetchKnowledgePoints = async () => {
   try {
@@ -920,7 +785,6 @@ const fetchKnowledgePoints = async () => {
 
 const onKnowledgeSubjectChange = () => {
   knowledgeForm.parent_id = null
-  knowledgeForm.error_type_ids = []
 }
 
 const onKnowledgeParentChange = (parentId) => {
@@ -944,7 +808,6 @@ const openKnowledgeDialog = (level = 2, parent = null) => {
   knowledgeForm.semester = localStorage.getItem('lastKpSemester')
     ? parseInt(localStorage.getItem('lastKpSemester'))
     : appConfigStore.defaultSemester
-  knowledgeForm.error_type_ids = []
   showKnowledgeDialog.value = true
 }
 
@@ -963,7 +826,6 @@ const editKnowledgePoint = (row) => {
   knowledgeForm.sort_order = row.sort_order || 0
   knowledgeForm.grade = row.grade
   knowledgeForm.semester = row.semester
-  knowledgeForm.error_type_ids = (row.error_types || []).map(item => item.id)
   showKnowledgeDialog.value = true
 }
 
@@ -995,7 +857,6 @@ const saveKnowledgePoint = async () => {
       sort_order: knowledgeForm.sort_order || 0,
       grade: knowledgeForm.grade,
       semester: knowledgeForm.semester,
-      error_type_ids: knowledgeForm.level === 2 ? knowledgeForm.error_type_ids : [],
     }
     if (knowledgeForm.code.trim()) payload.code = knowledgeForm.code.trim()
     if (editKnowledgeData.value) {
@@ -1335,7 +1196,6 @@ const fetchAll = async () => {
   if (kpFilters.semester == null) kpFilters.semester = appConfigStore.defaultSemester
   fetchSubjects()
   fetchTags()
-  fetchErrorTypes()
   fetchKnowledgePoints()
   fetchErrorBooks()
   fetchStarActions()
@@ -1448,10 +1308,6 @@ onMounted(() => {
   color:var(--accent-blue)}
 .kp-tip {
   margin-bottom:12px}
-.kp-errors {
-  display:flex;
-  flex-wrap:wrap;
-  gap:4px}
 .legacy-panel {
   margin-top:20px;
   padding-top:14px;

@@ -225,19 +225,6 @@
             </div>
           </div>
 
-          <div class="subsection">
-            <h4>错误类型分布</h4>
-            <div class="distribution-bars">
-              <div v-for="(count, type) in currentReport.content.question_analysis.error_type_distribution" :key="type" class="bar-item">
-                <span class="bar-label">{{ type }}</span>
-                <div class="bar-wrapper">
-                  <div class="bar" :style="{ width: getPercentage(count, currentReport.total_questions) + '%', backgroundColor: '#409eff' }"></div>
-                </div>
-                <span class="bar-value">{{ count }}</span>
-              </div>
-            </div>
-          </div>
-
           <div v-if="currentReport.content.question_analysis.top_error_knowledge_points?.length" class="subsection">
             <h4>高频收录错题模块（旧口径）</h4>
             <SubjectKnowledgeRanking :items="currentReport.content.question_analysis.top_error_knowledge_points" :subjects="subjects" :subject-id="currentReport.subject_id || null" count-label="题数（旧口径）" :show-accuracy="false" />

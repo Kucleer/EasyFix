@@ -25,7 +25,6 @@ cloudflare/scripts/knowledge_grade6_catalog.json，只取 --subject 学科、符
 考点编号的规则：编号 = 这个考点在文件 points 数组里的位置（从 1 开始数，一级、二级都算位置）。
 只要不改这个文件，同一个考点每次的编号都一样；对照结果里的考点编号时按这个规则回查文件。
 这些编号和线上数据库的编号不同，只在本脚本里有意义。
-错因清单用本文件里的 ERROR_TYPES（和本机测试服务的一样）。
 
 【跑完得到什么】结果目录里有：
 - 每张图一个 <图名>.json：状态、题目草稿、识别原文 ocr_text、重扫后的原文 ocr_text_enhanced、
@@ -70,8 +69,6 @@ DEFAULT_OUT_ROOT = pathlib.Path.home() / '.easyfix' / 'scan-regression'
 DEFAULT_OCR_URL = 'http://127.0.0.1:11436'
 HOST_KEY_HEADER = 'X-EasyFix-OCR-Key'
 CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
-# 错因清单，照抄本机测试服务 local_dev_server.ERROR_TYPES：(名称, 学科编号)，学科编号见 SUBJECT_IDS
-ERROR_TYPES = [('计算错误', 1), ('审题不清', 1), ('概念错误', 1), ('完全不会', 1), ('背诵拼写', 2), ('语法', 2)]
 SUBJECT_IDS = {'数学': 1, '英语': 2}
 # 文本模型的调用参数，和 settings.generate_json 一致
 MODEL_TIMEOUT_SECONDS = 120
@@ -177,12 +174,6 @@ def load_catalog(subject_name, grade, semester, catalog_file=CATALOG_FILE):
         if group is not None:
             group['points'].append({'id': index, 'name': point['name']})
     return [group for group in groups.values() if group['points']]
-
-
-def load_error_type_names(subject_name):
-    """这个学科可用的错因名称。"""
-    subject_id = SUBJECT_IDS.get(subject_name)
-    return {name for name, owner in ERROR_TYPES if owner == subject_id}
 
 
 # ---------------------------------------------------------------- 识别主机和文本模型（真实的，用 httpx）
@@ -305,9 +296,9 @@ def build_model_client(config):
 async def recognize_image(image_path, host, model, context, rescan_enabled):
     """把一张图交给 scan_model.run_page 走完整流程，返回它的结果。
 
-    context 是 (学科名, 年级, 学期, 考点清单, 错因名称集合)。
+    context 是 (学科名, 年级, 学期, 考点清单)。
     """
-    subject_name, grade, semester, catalog, error_type_names = context
+    subject_name, grade, semester, catalog = context
     content = image_path.read_bytes()
     content_type = IMAGE_TYPES[image_path.suffix.lower()]
     catalog_ids = {point['id'] for group in catalog for point in group['points']}
@@ -324,8 +315,8 @@ async def recognize_image(image_path, host, model, context, rescan_enabled):
     async def analyze(ocr_text, enhanced_text):
         """拼提示词、调模型、清洗结果；模型失败时抛异常，由 run_page 处理。"""
         prompt = scan_model.build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text,
-                                              catalog, sorted(error_type_names))
-        return scan_model.clean_items(model(prompt), catalog_ids, error_type_names)
+                                              catalog)
+        return scan_model.clean_items(model(prompt), catalog_ids)
 
     return await scan_model.run_page(read_text, analyze, rescan_enabled)
 
@@ -426,8 +417,7 @@ def run_regression(arguments, make_host=build_host_client, make_model=build_mode
     if arguments.subject not in SUBJECT_IDS:
         raise RegressionError('不认识的学科：%s（可选：%s）' % (arguments.subject, '、'.join(SUBJECT_IDS)))
     catalog = load_catalog(arguments.subject, arguments.grade, arguments.semester)
-    context = (arguments.subject, arguments.grade, arguments.semester, catalog,
-               load_error_type_names(arguments.subject))
+    context = (arguments.subject, arguments.grade, arguments.semester, catalog)
 
     try:
         host = make_host(arguments.ocr_url, ocr_key)

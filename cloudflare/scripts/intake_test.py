@@ -292,35 +292,33 @@ def test_paper_date_and_images_rules():
 def test_question_page_rules():
     """有照片时页码必填且在范围内；没有照片时页码必须为空。"""
     base = {'parsed_question': '题干', 'wrong_evidence': '老师打叉'}
-    assert normalize_question({**base, 'page': 2}, 2, None)['page'] == 2
+    assert normalize_question({**base, 'page': 2}, 2)['page'] == 2
     for bad in [{**base}, {**base, 'page': 0}, {**base, 'page': 3}, {**base, 'page': '1'}]:
-        expect_intake_error('第几张', lambda bad=bad: normalize_question(bad, 2, None))
-    assert normalize_question(base, 0, None)['page'] is None
-    expect_intake_error('第几张', lambda: normalize_question({**base, 'page': 1}, 0, None))
+        expect_intake_error('第几张', lambda bad=bad: normalize_question(bad, 2))
+    assert normalize_question(base, 0)['page'] is None
+    expect_intake_error('第几张', lambda: normalize_question({**base, 'page': 1}, 0))
 
 
 def test_question_required_and_ranges():
     """题干必填，难度默认 3 且限定 1 到 5。"""
-    expect_intake_error('题干', lambda: normalize_question({'parsed_question': '  '}, 0, None))
-    assert normalize_question({'parsed_question': '题干'}, 0, None)['difficulty'] == 3
-    expect_intake_error('难度', lambda: normalize_question({'parsed_question': '题干', 'difficulty': 6}, 0, None))
+    expect_intake_error('题干', lambda: normalize_question({'parsed_question': '  '}, 0))
+    assert normalize_question({'parsed_question': '题干'}, 0)['difficulty'] == 3
+    expect_intake_error('难度', lambda: normalize_question({'parsed_question': '题干', 'difficulty': 6}, 0))
 
 
-def test_question_error_type_rules():
-    """错因逐项对照清单；清单为空或没传时不校验。"""
-    names = {'计算错误', '概念错误'}
-    ok = normalize_question({'parsed_question': '题干', 'error_type': '计算错误, 概念错误'}, 0, names)
-    assert ok['error_type'] == '计算错误,概念错误'
-    expect_intake_error('错因', lambda: normalize_question({'parsed_question': '题干', 'error_type': '粗心'}, 0, names))
-    assert normalize_question({'parsed_question': '题干', 'error_type': '粗心'}, 0, set())['error_type'] == '粗心'
+def test_question_error_type_ignored():
+    """错因已停用：旧版技能传了错因（哪怕不在任何清单里、类型不对）也不报错，整理结果里也没有它。"""
+    for value in ('计算错误', '粗心', 5):
+        result = normalize_question({'parsed_question': '题干', 'error_type': value}, 0)
+        assert 'error_type' not in result
 
 
 def test_question_review_fields_rules():
     """标记待核对必须给出合法原因；考点编号必须是整数。"""
     base = {'parsed_question': '题干'}
-    expect_intake_error('原因', lambda: normalize_question({**base, 'needs_review': True}, 0, None))
-    expect_intake_error('原因', lambda: normalize_question({**base, 'needs_review': True, 'review_reasons': ['blurry']}, 0, None))
-    expect_intake_error('考点', lambda: normalize_question({**base, 'knowledge_point_ids': ['101']}, 0, None))
+    expect_intake_error('原因', lambda: normalize_question({**base, 'needs_review': True}, 0))
+    expect_intake_error('原因', lambda: normalize_question({**base, 'needs_review': True, 'review_reasons': ['blurry']}, 0))
+    expect_intake_error('考点', lambda: normalize_question({**base, 'knowledge_point_ids': ['101']}, 0))
 
 
 def test_decide_review():
@@ -452,7 +450,7 @@ def guide_request(db):
 
 
 def test_guide_returns_catalog_for_grade():
-    """六年级数学返回目录、错因和选项标签。"""
+    """六年级数学返回目录和选项标签；错因已停用，不再返回。"""
     c = build_database()
     db = adapter(c)
     data = run(intake.guide(guide_request(db), subject_id=1, grade=6, semester=1))
@@ -462,7 +460,7 @@ def test_guide_returns_catalog_for_grade():
     assert data['knowledge_modules'] == [{'id': 100, 'name': '分数运算',
                                           'points': [{'id': 101, 'name': '分数乘法'},
                                                      {'id': 102, 'name': '分数除法'}]}]
-    assert data['error_types'] == ['概念错误', '计算错误']
+    assert 'error_types' not in data
     assert data['paper_types'] == {'homework': '作业', 'chapter_practice': '章节练习', 'exam': '考试'}
     assert data['exam_kinds'] == {'unit': '单元测', 'midterm': '期中', 'final': '期末', 'other': '其他'}
     assert data['review_reasons'] == {'wrong_unclear': '不确定这题是否做错了', 'text_unclear': '照片模糊或题干拿不准',
@@ -513,14 +511,6 @@ def test_load_catalog_filters_and_skips_deleted():
     assert run(intake.load_catalog(db, 2, 6, 1)) == [{'id': 200, 'name': '语法', 'points': [{'id': 201, 'name': '一般现在时'}]}]
     c.execute('UPDATE knowledge_point SET deleted=1 WHERE id=201')
     assert run(intake.load_catalog(db, 2, 6, 1)) == []
-
-
-def test_load_error_type_names_includes_general():
-    """错因含本学科的和通用的；英语只有通用的。"""
-    c = build_database()
-    db = adapter(c)
-    assert run(intake.load_error_type_names(db, 1)) == {'计算错误', '概念错误'}
-    assert run(intake.load_error_type_names(db, 2)) == {'概念错误'}
 
 
 # ---------------------------------------------------------------- 任务 5：试提交与正式提交
@@ -606,6 +596,9 @@ def test_submit_writes_paper_and_questions():
     assert [tuple(r) for r in rows] == [
         (1, '2026/11/aaaaaaaa_p1.jpg', '["2026/11/aaaaaaaa_p1.jpg"]', 'approved', 6, 1),
         (2, '2026/11/bbbbbbbb_p2.jpg', '["2026/11/bbbbbbbb_p2.jpg"]', 'approved', 6, 1)]
+    # 示例里带了错因（模拟旧版技能），错因已停用，写进库里的应为空
+    assert c.execute('SELECT COUNT(*) FROM question WHERE paper_id=? AND error_type IS NOT NULL',
+                     (body['paper']['id'],)).fetchone()[0] == 0
     sources = {r[0] for r in c.execute('SELECT source FROM question_knowledge_point WHERE question_id IN (SELECT id FROM question WHERE paper_id=?)', (body['paper']['id'],))}
     assert sources == {'agent'}
     # 返回的题带两级考点；旧文字字段是主考点名称
@@ -783,7 +776,7 @@ def test_question_count_limits():
 
 @with_noop_validator
 def test_malformed_paper_and_question_items_are_reported():
-    """paper 不是对象、题目项不是对象、错因不在清单里，都按错误报告而不是崩溃。"""
+    """paper 不是对象、题目项不是对象，都按错误报告而不是崩溃；错因不在清单里不再算错。"""
     c = build_database(); db = adapter(c)
     bad_paper = sample_payload(); bad_paper['paper'] = 'x'
     status, body = check_only(db, bad_paper)
@@ -793,8 +786,8 @@ def test_malformed_paper_and_question_items_are_reported():
     payload = sample_payload(); payload['questions'][0] = 'not a dict'
     payload['questions'][1]['error_type'] = '粗心'
     status, body = submit(db, payload)
-    assert status == 422 and [e['index'] for e in body['errors']] == [0, 1]
-    assert '格式不对' in body['errors'][0]['detail'] and '错因' in body['errors'][1]['detail']
+    assert status == 422 and [e['index'] for e in body['errors']] == [0]
+    assert '格式不对' in body['errors'][0]['detail']
 
 
 @with_noop_validator
@@ -1068,15 +1061,15 @@ def test_find_broken_backslash():
 
 def test_question_and_paper_reject_broken_backslash():
     """题目各字段和卷子名称、备注里的坏反斜杠整理时被拒绝，说明里带字段名。"""
-    expect_intake_error('题干', lambda: normalize_question({'parsed_question': '\\(\x0crac{1}{2}\\)'}, 0, None))
-    expect_intake_error('孩子的答案', lambda: normalize_question({'parsed_question': '题干', 'wrong_answer': '2\times 3'}, 0, None))
-    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '题干', 'analysis': '\\(a\neq b\\)'}, 0, None))
+    expect_intake_error('题干', lambda: normalize_question({'parsed_question': '\\(\x0crac{1}{2}\\)'}, 0))
+    expect_intake_error('孩子的答案', lambda: normalize_question({'parsed_question': '题干', 'wrong_answer': '2\times 3'}, 0))
+    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '题干', 'analysis': '\\(a\neq b\\)'}, 0))
     expect_intake_error('名称', lambda: normalize_paper({'name': '第\t三章'}, '数学', '2026-11-10'))
     expect_intake_error('备注', lambda: normalize_paper({'notes': '\\(a\neq b\\)'}, '数学', '2026-11-10'))
     # 其余字段也逐个检查
     for key, label in [('answer', '正确答案'), ('wrong_evidence', '判错依据'), ('review_note', '疑问说明'), ('question_no', '题号')]:
-        expect_intake_error(label, lambda key=key: normalize_question({'parsed_question': '题干', key: '\x0c'}, 0, None))
-    expect_intake_error('题干：公式里的反斜杠没有写对', lambda: normalize_question({'parsed_question': '\x08'}, 0, None))
+        expect_intake_error(label, lambda key=key: normalize_question({'parsed_question': '题干', key: '\x0c'}, 0))
+    expect_intake_error('题干：公式里的反斜杠没有写对', lambda: normalize_question({'parsed_question': '\x08'}, 0))
 
 
 @with_noop_validator
@@ -1229,7 +1222,7 @@ def test_lost_matrix_row_break_is_reported():
     assert find_broken_backslash('\\(\\begin{pmatrix} a \\\n b \\end{pmatrix}\\)') is not None
     assert find_broken_backslash(r'\(\begin{pmatrix} a \\ b \\\end{pmatrix}\)') is None
     assert find_broken_backslash(r'\(\begin{pmatrix} a \\ b \end{pmatrix}\)') is None
-    expect_intake_error('换行', lambda: normalize_question({'parsed_question': bad}, 0, None))
+    expect_intake_error('换行', lambda: normalize_question({'parsed_question': bad}, 0))
     assert find_broken_backslash(bad) == '矩阵或多行公式里的换行没有写对：换行要写成两个反斜杠 \\\\（手写 JSON 时是四个）。请改好后重新提交。'
 
 
@@ -1265,7 +1258,7 @@ def test_backslash_outside_math_is_reported():
     assert '公式外面' in find_broken_backslash('价格是 $\\frac{1}{2}$ 元')          # 单个美元符号不算公式边界
     assert find_broken_backslash('计算 \\(\\frac{1}{2}\\) 的值\n第二行') is None
     assert find_broken_backslash('\\[x^{2}\\] 和 $$y$$ 都可以') is None
-    expect_intake_error('公式外面', lambda: normalize_question({'parsed_question': '结论是（ ）\\N(A) 1'}, 0, None))
+    expect_intake_error('公式外面', lambda: normalize_question({'parsed_question': '结论是（ ）\\N(A) 1'}, 0))
     assert find_broken_backslash('结论\\N') == '公式要写在 \\( \\) 或 \\[ \\] 里面，公式外面不能出现反斜杠（文字换行就直接换行，不要写成 \\n 两个字符）。请改好后重新提交。'
 
 
@@ -1314,10 +1307,10 @@ def test_find_broken_backslash_gives_separate_text_for_newline_in_formula():
 
 def test_windows_line_break_is_normalized_but_lone_carriage_return_is_rejected():
     """Windows 换行当作普通换行，存下来的是单个换行；单独的回车字符（写坏的回车命令）仍被拒绝。"""
-    question = normalize_question({'parsed_question': '第一行\r\n第二行'}, 0, None)
+    question = normalize_question({'parsed_question': '第一行\r\n第二行'}, 0)
     assert question['parsed_question'] == '第一行\n第二行'
-    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '\\(a\right)\\)'}, 0, None))
-    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '甲\r乙'}, 0, None))
+    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '\\(a\right)\\)'}, 0))
+    expect_intake_error('反斜杠', lambda: normalize_question({'parsed_question': '甲\r乙'}, 0))
 
 
 def test_image_key_and_date_patterns_are_strict():
@@ -1423,7 +1416,7 @@ TESTS = [
     test_paper_date_and_images_rules,
     test_question_page_rules,
     test_question_required_and_ranges,
-    test_question_error_type_rules,
+    test_question_error_type_ignored,
     test_question_review_fields_rules,
     test_decide_review,
     test_max_questions_constant,
@@ -1437,7 +1430,6 @@ TESTS = [
     test_guide_uses_app_default_grade,
     test_guide_rejects_out_of_range_grade_and_semester,
     test_load_catalog_filters_and_skips_deleted,
-    test_load_error_type_names_includes_general,
     test_submit_writes_paper_and_questions,
     test_check_writes_nothing,
     test_one_bad_question_rejects_whole_paper,

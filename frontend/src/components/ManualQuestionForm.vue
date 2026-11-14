@@ -91,11 +91,6 @@
           <el-form-item label="难度">
             <el-rate v-model="form.difficulty" :max="5" show-text :texts="['很简单', '简单', '一般', '较难', '很难']" />
           </el-form-item>
-          <el-form-item label="错误类型">
-            <el-select v-model="form.error_type" multiple placeholder="选择错误类型" style="width: 100%">
-              <el-option v-for="et in filteredErrorTypes" :key="et.id" :label="et.name" :value="et.name" />
-            </el-select>
-          </el-form-item>
           <el-form-item label="知识点">
             <KnowledgePointPicker
               v-model="form.knowledge_point_ids"
@@ -200,9 +195,6 @@ const uploadImagePaths = ref([...props.presetImages])
 
 const subjects = ref([])
 const allTags = ref([])
-const knowledgePoints = ref([])
-const errorTypes = ref([])
-const filteredErrorTypes = ref([])
 
 // 表单 - 学科/年级/学期优先用传入的初值，没有时从 localStorage 恢复
 const form = reactive({
@@ -211,7 +203,6 @@ const form = reactive({
   answer: '',
   analysis: '',
   difficulty: 3,
-  error_type: [],
   knowledge_point_ids: [],
   primary_knowledge_point_id: null,
   grade: props.grade ?? read_last_choice('lastGrade'),
@@ -250,62 +241,11 @@ const loadMetaData = async () => {
   }
 }
 
-// 加载知识点
-const fetchKnowledgePoints = async () => {
-  if (!form.subject_id) {
-    knowledgePoints.value = []
-    return
-  }
-  try {
-    const { data } = await questionApi.listKnowledgePoints({ subject_id: form.subject_id })
-    knowledgePoints.value = Array.isArray(data) ? data : (data.items || [])
-  } catch (e) {
-    console.error('加载知识点失败:', e)
-  }
-}
-
-// 加载错误类型
-const fetchErrorTypes = async () => {
-  if (!form.subject_id) {
-    errorTypes.value = []
-    return
-  }
-  try {
-    const { data } = await questionApi.listErrorTypes({ subject_id: form.subject_id })
-    errorTypes.value = Array.isArray(data) ? data : (data.items || [])
-  } catch (e) {
-    console.error('加载错误类型失败:', e)
-  }
-}
-
-// 监听学科变化
+// 切换学科时清空已选考点（考点属于学科）。错因已停用，不再加载错误类型
 watch(() => form.subject_id, () => {
   form.knowledge_point_ids = []
   form.primary_knowledge_point_id = null
-  form.error_type = []
-  filteredErrorTypes.value = []
-  fetchKnowledgePoints()
-  fetchErrorTypes()
 })
-
-// 监听所选二级知识点：错误类型取并集，未配置时回退到全学科
-watch(() => form.knowledge_point_ids, () => {
-  const selected = knowledgePoints.value.filter(kp => form.knowledge_point_ids.includes(kp.id))
-  if (!selected.length) {
-    filteredErrorTypes.value = errorTypes.value
-    return
-  }
-  const union = new Map()
-  selected.forEach(kp => (kp.error_types || []).forEach(et => union.set(et.id, et)))
-  filteredErrorTypes.value = union.size ? [...union.values()] : errorTypes.value
-  const allowed = new Set(filteredErrorTypes.value.map(et => et.name))
-  form.error_type = form.error_type.filter(name => allowed.has(name))
-}, { deep: true })
-
-// 监听错误类型加载
-watch(errorTypes, (newVal) => {
-  if (!form.knowledge_point_ids.length) filteredErrorTypes.value = newVal
-}, { immediate: true })
 
 // 获取学科名称
 const getSubjectName = (subjectId) => {
@@ -339,7 +279,6 @@ const submitQuestion = async () => {
   try {
     const submitData = {
       ...form,
-      error_type: Array.isArray(form.error_type) ? form.error_type.join(',') : form.error_type,
       original_images: uploadImagePaths.value,
       original_image: uploadImagePaths.value[0] || null,
     }
@@ -357,7 +296,6 @@ const submitQuestion = async () => {
     form.answer = ''
     form.analysis = ''
     form.difficulty = 3
-    form.error_type = []
     form.knowledge_point_ids = []
     form.primary_knowledge_point_id = null
     form.tag_ids = []
@@ -382,10 +320,6 @@ onMounted(async () => {
   if (form.grade == null) form.grade = appConfigStore.defaultGrade
   if (form.semester == null) form.semester = appConfigStore.defaultSemester
   loadMetaData()
-  if (form.subject_id) {
-    fetchKnowledgePoints()
-    fetchErrorTypes()
-  }
 })
 </script>
 

@@ -39,9 +39,6 @@
         <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchQuestions" style="width: 150px">
           <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
         </el-select>
-        <el-select v-model="filters.error_type" placeholder="错误类型" multiple clearable @change="fetchQuestions" style="width: 330px">
-          <el-option v-for="et in filterOptions.error_types" :key="et" :label="et" :value="et" />
-        </el-select>
         <el-select v-model="filters.semester" placeholder="学期" clearable @change="fetchQuestions" style="width: 135px">
           <el-option label="上学期" :value="1" />
           <el-option label="下学期" :value="2" />
@@ -67,9 +64,6 @@
         <span class="filter-label">已选条件：</span>
         <el-tag v-if="filters.difficulty?.length" v-for="d in filters.difficulty" :key="d" size="small" closable @close="removeFilter('difficulty', d)" :class="'difficulty-filter-' + d">
           {{ getDifficultyStars(d) }}
-        </el-tag>
-        <el-tag v-if="filters.error_type?.length" v-for="et in filters.error_type" :key="et" :type="getErrorTypeType(et)" size="small" closable @close="removeFilter('error_type', et)">
-          {{ et }}
         </el-tag>
         <el-tag v-if="filters.tag_ids?.length" v-for="tagId in filters.tag_ids" :key="tagId" size="small" closable @close="removeFilter('tag_ids', tagId)" :style="getTagStyle(tagId)">
           {{ getTagName(tagId) }}
@@ -118,7 +112,6 @@
               </div>
               <span v-else-if="row.legacy_knowledge_point" class="legacy-knowledge">原标签：{{ row.legacy_knowledge_point }}</span>
               <span v-else class="text-muted">未分类</span>
-              <span v-if="row.error_type">{{ row.error_type }}</span>
               <div class="question-tags"><el-tag v-for="tag in row.tags || []" :key="tag.id" size="small">{{ tag.name }}</el-tag></div>
               <small>#{{ row.id }} · {{ formatDate(row.created_at) }}</small>
             </div>
@@ -256,13 +249,6 @@
               </div>
             </div>
             <div class="meta-row">
-              <div class="meta-item">
-                <label>错误类型：</label>
-                <el-tag v-if="currentQuestion.error_type" :type="getErrorTypeType(currentQuestion.error_type)" size="small">
-                  {{ currentQuestion.error_type }}
-                </el-tag>
-                <span v-else class="text-muted">暂无</span>
-              </div>
               <div class="meta-item knowledge-meta-item">
                 <label>知识点：</label>
                 <div v-if="currentQuestion.knowledge_points?.length" class="detail-knowledge">
@@ -379,16 +365,6 @@
         <el-form-item label="难度">
           <el-rate v-model="editForm.difficulty" :max="5" />
         </el-form-item>
-        <el-form-item label="错误类型">
-          <el-select v-model="editForm.error_type" multiple placeholder="选择错误类型">
-            <el-option
-              v-for="et in editFilteredErrorTypes"
-              :key="et.id"
-              :label="et.name"
-              :value="et.name"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item label="年级">
           <el-select v-model="editForm.grade" placeholder="选择年级" clearable>
             <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
@@ -486,10 +462,6 @@ const questions = ref({ total: 0, items: [] })
 const subjects = ref([])
 const allTags = ref([])
 
-// 编辑弹窗中的知识点和错误类型
-const editKnowledgePoints = ref([])
-const editErrorTypes = ref([])
-const editFilteredErrorTypes = ref([])
 
 const filters = reactive({
   subject_id: null,
@@ -498,7 +470,6 @@ const filters = reactive({
   knowledge_parent_id: null,
   knowledge_point_id: null,
   unclassified: false,
-  error_type: null,
   keyword: '',
   grade: null,
   semester: null,
@@ -507,7 +478,6 @@ const filters = reactive({
 
 // 动态筛选选项
 const filterOptions = reactive({
-  error_types: [],
   knowledge_modules: [],
   knowledge_point_options: [],
 })
@@ -522,14 +492,12 @@ const filterPointOptions = computed(() => {
 // 获取筛选选项（按学科）
 const fetchFilterOptions = async (subjectId) => {
   if (!subjectId) {
-    filterOptions.error_types = []
     filterOptions.knowledge_modules = []
     filterOptions.knowledge_point_options = []
     return
   }
   try {
     const { data } = await questionApi.getFilterOptions(subjectId)
-    filterOptions.error_types = data.error_types || []
     filterOptions.knowledge_modules = data.knowledge_modules || []
     filterOptions.knowledge_point_options = data.knowledge_point_options || []
   } catch (error) {
@@ -550,13 +518,12 @@ const onUnclassifiedChange = () => {
   fetchQuestions()
 }
 
-// 监听学科变化，获取对应的错误类型和知识点选项
+// 监听学科变化，获取对应的知识点选项
 watch(() => filters.subject_id, (newVal, oldVal) => {
   if (newVal !== oldVal) {
     filters.knowledge_parent_id = null
     filters.knowledge_point_id = null
     filters.unclassified = false
-    filters.error_type = null
     fetchFilterOptions(newVal)
   }
 })
@@ -597,7 +564,6 @@ const editForm = reactive({
   analysis: '',
   analysis_image: '',
   difficulty: 3,
-  error_type: [],
   knowledge_point_ids: [],
   primary_knowledge_point_id: null,
   knowledge_revision: 0,
@@ -622,7 +588,6 @@ const fetchQuestions = async () => {
     if (filters.keyword) params.keyword = filters.keyword
     if (filters.grade) params.grade = filters.grade
     if (filters.semester) params.semester = filters.semester
-    if (filters.error_type && filters.error_type.length) params.error_type = filters.error_type.join(',')
     if (filters.accuracy_range) params.accuracy_range = filters.accuracy_range
 
     const { data } = await questionApi.list(params)
@@ -650,62 +615,11 @@ const fetchTags = async () => {
   }
 }
 
-// 编辑弹窗中根据学科获取知识点
-const fetchEditKnowledgePoints = async () => {
-  if (!editForm.subject_id) {
-    editKnowledgePoints.value = []
-    return
-  }
-  try {
-    const { data } = await questionApi.listKnowledgePoints({ subject_id: editForm.subject_id })
-    editKnowledgePoints.value = Array.isArray(data) ? data : (data.items || [])
-  } catch (e) {
-    console.error('加载知识点失败:', e)
-  }
-}
-
-// 编辑弹窗中根据学科获取错误类型
-const fetchEditErrorTypes = async () => {
-  if (!editForm.subject_id) {
-    editErrorTypes.value = []
-    return
-  }
-  try {
-    const { data } = await questionApi.listErrorTypes({ subject_id: editForm.subject_id })
-    editErrorTypes.value = Array.isArray(data) ? data : (data.items || [])
-  } catch (e) {
-    console.error('加载错误类型失败:', e)
-  }
-}
-
-// 监听编辑弹窗中学科变化，重新加载知识点和错误类型
+// 编辑弹窗中切换学科时清空已选考点（考点属于学科）
 watch(() => editForm.subject_id, () => {
   editForm.knowledge_point_ids = []
   editForm.primary_knowledge_point_id = null
-  editForm.error_type = []
-  editFilteredErrorTypes.value = []
-  fetchEditKnowledgePoints()
-  fetchEditErrorTypes()
 })
-
-// 监听所选二级知识点：错误类型取并集，未配置时回退到全学科
-watch(() => editForm.knowledge_point_ids, () => {
-  const selected = editKnowledgePoints.value.filter(kp => editForm.knowledge_point_ids.includes(kp.id))
-  if (!selected.length) {
-    editFilteredErrorTypes.value = editErrorTypes.value
-    return
-  }
-  const union = new Map()
-  selected.forEach(kp => (kp.error_types || []).forEach(et => union.set(et.id, et)))
-  editFilteredErrorTypes.value = union.size ? [...union.values()] : editErrorTypes.value
-  const allowed = new Set(editFilteredErrorTypes.value.map(et => et.name))
-  editForm.error_type = editForm.error_type.filter(name => allowed.has(name))
-}, { deep: true })
-
-// 监听errorTypes加载完成，更新filteredErrorTypes
-watch(editErrorTypes, (newVal) => {
-  if (!editForm.knowledge_point_ids.length) editFilteredErrorTypes.value = newVal
-}, { immediate: true })
 
 const getImageList = (row) => {
   if (!row) return []
@@ -800,7 +714,6 @@ const editQuestion = (row) => {
   editForm.analysis = row.analysis || ''
   editForm.analysis_image = row.analysis_image || ''
   editForm.difficulty = row.difficulty || 3
-  editForm.error_type = row.error_type ? (Array.isArray(row.error_type) ? row.error_type : row.error_type.split(',').map(e => e.trim()).filter(e => e)) : []
   const points = row.knowledge_points || []
   editForm.knowledge_point_ids = points.map(point => point.id)
   editForm.primary_knowledge_point_id = points.find(point => point.is_primary)?.id ?? null
@@ -808,9 +721,6 @@ const editQuestion = (row) => {
   editForm.grade = row.grade || null
   editForm.semester = row.semester || null
   editForm.tag_ids = row.tags ? row.tags.map(t => t.id) : []
-  // 先加载知识点和错误类型，再设置知识点（触发联动）
-  fetchEditKnowledgePoints()
-  fetchEditErrorTypes()
   editVisible.value = true
 }
 
@@ -821,10 +731,7 @@ const saveEdit = async () => {
   }
   editLoading.value = true
   try {
-    const submitData = {
-      ...editForm,
-      error_type: Array.isArray(editForm.error_type) ? editForm.error_type.join(',') : editForm.error_type,
-    }
+    const submitData = { ...editForm }
     await questionApi.update(currentQuestion.value.id, submitData)
     ElMessage.success('更新成功')
     editVisible.value = false
@@ -888,17 +795,6 @@ const getYellowStars = (difficulty) => {
   return '★'.repeat(d) + '☆'.repeat(5 - d)
 }
 
-const getErrorTypeType = (errorType) => {
-  const typeMap = {
-    '计算': 'danger',
-    '概念': 'warning',
-    '审题': 'info',
-    '粗心': 'success',
-    '其他': '',
-  }
-  return typeMap[errorType] || ''
-}
-
 const getAccuracyDisplay = (row) => {
   const correct = row.correct_count || 0
   const error = row.error_count || 0
@@ -924,7 +820,6 @@ const visibleKnowledgePoints = (row) => {
 
 const hasActiveFilters = computed(() => {
   return filters.difficulty?.length ||
-    filters.error_type?.length ||
     filters.tag_ids?.length ||
     filters.knowledge_parent_id ||
     filters.knowledge_point_id ||
@@ -938,8 +833,6 @@ const hasActiveFilters = computed(() => {
 const removeFilter = (key, val) => {
   if (key === 'difficulty') {
     filters.difficulty = (filters.difficulty || []).filter(d => d !== val)
-  } else if (key === 'error_type') {
-    filters.error_type = (filters.error_type || []).filter(e => e !== val)
   } else if (key === 'tag_ids') {
     filters.tag_ids = (filters.tag_ids || []).filter(id => id !== val)
   } else if (key === 'unclassified') {
@@ -957,7 +850,6 @@ const removeFilter = (key, val) => {
 
 const clearAllFilters = () => {
   filters.difficulty = null
-  filters.error_type = null
   filters.tag_ids = null
   filters.knowledge_parent_id = null
   filters.knowledge_point_id = null
@@ -976,11 +868,6 @@ const removeDifficulty = (d) => {
 
 const removeTag = (tagId) => {
   filters.tag_ids = filters.tag_ids.filter(id => id !== tagId)
-  fetchQuestions()
-}
-
-const removeErrorType = (et) => {
-  filters.error_type = filters.error_type.filter(e => e !== et)
   fetchQuestions()
 }
 

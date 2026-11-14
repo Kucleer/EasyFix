@@ -74,11 +74,6 @@
             :subject-id="editing?.subject_id"
           />
         </el-form-item>
-        <el-form-item label="错因">
-          <el-select v-model="form.error_type" multiple placeholder="选择错因" style="width: 100%">
-            <el-option v-for="name in errorTypeOptions" :key="name" :label="name" :value="name" />
-          </el-select>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
@@ -112,7 +107,6 @@ const groups = computed(() => groupByPaper(questions.value))
 const editVisible = ref(false)
 const saving = ref(false)
 const editing = ref(null)
-const errorTypeOptions = ref([])
 const form = reactive({
   question_no: '',
   parsed_question: '',
@@ -121,14 +115,8 @@ const form = reactive({
   analysis: '',
   knowledge_point_ids: [],
   primary_knowledge_point_id: null,
-  error_type: [],
   knowledge_revision: 0,
 })
-
-// 把逗号分隔的错因文字拆成数组
-function splitErrorTypes(text) {
-  return (text || '').split(',').map(s => s.trim()).filter(Boolean)
-}
 
 // 加载待核对的题
 async function fetchPending() {
@@ -204,20 +192,6 @@ async function reject(question) {
   }
 }
 
-// 加载这道题所属学科的错因选项，并保留题目上已有的错因
-async function loadErrorTypes(question) {
-  const current = splitErrorTypes(question.error_type)
-  errorTypeOptions.value = [...current]
-  if (!question.subject_id) return
-  try {
-    const { data } = await questionApi.listErrorTypes({ subject_id: question.subject_id })
-    const list = Array.isArray(data) ? data : (data.items || [])
-    errorTypeOptions.value = [...new Set([...list.map(et => et.name), ...current])]
-  } catch (e) {
-    console.error('加载错因失败:', e)
-  }
-}
-
 // 打开编辑框，带入这道题当前的内容和读取时的考点版本号
 function openEdit(question) {
   editing.value = question
@@ -229,9 +203,7 @@ function openEdit(question) {
   const points = question.knowledge_points || []
   form.knowledge_point_ids = points.map(p => p.id)
   form.primary_knowledge_point_id = points.find(p => p.is_primary)?.id ?? null
-  form.error_type = splitErrorTypes(question.error_type)
   form.knowledge_revision = question.knowledge_revision || 0
-  loadErrorTypes(question)
   editVisible.value = true
 }
 
@@ -251,7 +223,6 @@ async function saveAndApprove() {
       wrong_answer: form.wrong_answer,
       answer: form.answer,
       analysis: form.analysis,
-      error_type: form.error_type.join(','),
       knowledge_point_ids: form.knowledge_point_ids,
       primary_knowledge_point_id: form.primary_knowledge_point_id,
       knowledge_revision: form.knowledge_revision,

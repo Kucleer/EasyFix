@@ -32,7 +32,7 @@ PARENT_REPLY_TEXT = ('还没有写明家长是怎么回答的。提交前要问�
 # 题目表里由本接口写入的列；每一项在传给数据库的 JSON 里同名
 QUESTION_FIELDS = ('id', 'subject_id', 'student_id', 'paper_id', 'paper_page', 'question_no', 'original_image',
                    'original_images', 'original_text', 'parsed_question', 'answer', 'analysis', 'wrong_answer',
-                   'wrong_evidence', 'difficulty', 'error_type', 'grade', 'semester', 'knowledge_point',
+                   'wrong_evidence', 'difficulty', 'grade', 'semester', 'knowledge_point',
                    'knowledge_revision', 'review_status', 'review_reasons', 'review_note')
 
 PAPER_TYPE_LABELS = {'homework': '作业', 'chapter_practice': '章节练习', 'exam': '考试'}
@@ -59,17 +59,10 @@ async def load_catalog(db, subject_id, grade, semester):
     return [module for module in modules.values() if module['points']]
 
 
-async def load_error_type_names(db, subject_id):
-    """该学科可用的错因名称（本学科的加上通用的）。"""
-    rows = await db.all('SELECT name FROM error_type WHERE deleted=0 AND (subject_id=? OR subject_id IS NULL)',
-                        (subject_id,))
-    return {row['name'] for row in rows}
-
-
 @router.get('/api/intake/guide')
 async def guide(request: Request, subject_id: int | None = None, subject: str | None = None,
                 grade: int | None = None, semester: int | None = None):
-    """返回录题规范版本、学科、考点目录、错因和各选项的中文名称。"""
+    """返回录题规范版本、学科、考点目录和各选项的中文名称（错因已停用，不再返回）。"""
     if grade is not None and not 1 <= grade <= 12:
         raise HTTPException(422, '年级应在 1 到 12 之间')
     if semester is not None and semester not in (1, 2):
@@ -93,7 +86,6 @@ async def guide(request: Request, subject_id: int | None = None, subject: str | 
     if semester is None:
         semester = default_semester
     modules = await load_catalog(db, current['id'], grade, semester)
-    error_types = sorted(await load_error_type_names(db, current['id']))
     return {
         'spec_version': SPEC_VERSION,
         'subject': {'id': current['id'], 'name': current['name']},
@@ -102,7 +94,6 @@ async def guide(request: Request, subject_id: int | None = None, subject: str | 
         'default_grade': default_grade, 'default_semester': default_semester,
         'catalog_available': bool(modules),
         'knowledge_modules': modules,
-        'error_types': error_types,
         'paper_types': {key: PAPER_TYPE_LABELS[key] for key in PAPER_TYPES},
         'exam_kinds': {key: EXAM_KIND_LABELS[key] for key in EXAM_KINDS},
         'review_reasons': {key: REVIEW_REASON_LABELS[key] for key in REVIEW_REASONS},
@@ -186,7 +177,7 @@ def count_images(raw_paper):
     return len(images) if isinstance(images, list) else None
 
 
-def normalize_all_questions(raw_questions, image_count, error_type_names):
+def normalize_all_questions(raw_questions, image_count):
     """逐题整理，收集全部错误而不是遇到第一处就停；返回 (整理后的题 {序号: 题}, 问题列表)。"""
     questions, errors = {}, []
     for index, raw in enumerate(raw_questions):
@@ -194,7 +185,7 @@ def normalize_all_questions(raw_questions, image_count, error_type_names):
             errors.append(error_item(index, '这道题的格式不对，应是一个对象'))
             continue
         try:
-            questions[index] = normalize_question(raw, image_count, error_type_names)
+            questions[index] = normalize_question(raw, image_count)
         except IntakeError as error:
             errors.append(error_item(index, error.detail))
     return questions, errors
@@ -290,8 +281,7 @@ async def validate_submission(request, db, payload):
     image_count = count_images(raw_paper)
     if not questions_count_ok(raw_questions) or image_count is None:
         return result
-    names = await load_error_type_names(db, subject['id'])
-    questions, question_errors = normalize_all_questions(raw_questions, image_count, names)
+    questions, question_errors = normalize_all_questions(raw_questions, image_count)
     question_errors += await resolve_knowledge(db, subject['id'], questions)
     # 前面没有任何错时才送检公式，整份卷子只调用一次
     if not paper_errors and not question_errors and subject['name'] == '数学':
@@ -391,7 +381,7 @@ def build_question_records(checked, student_id):
             'original_text': question['parsed_question'], 'parsed_question': question['parsed_question'],
             'answer': question['answer'], 'analysis': question['analysis'],
             'wrong_answer': question['wrong_answer'], 'wrong_evidence': question['wrong_evidence'],
-            'difficulty': question['difficulty'], 'error_type': question['error_type'],
+            'difficulty': question['difficulty'],
             'grade': paper['grade'], 'semester': paper['semester'],
             # 旧的文字字段保存主考点名称，没有考点时为空
             'knowledge_point': plan['points'][plan['primary']]['name'] if plan['primary'] else None,

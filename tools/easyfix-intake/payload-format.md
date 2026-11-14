@@ -56,7 +56,6 @@
 | `wrong_answer` |  | 孩子写的答案，**逐字照抄能认清的字；哪怕一个字拿不准，整条留空**，绝不编造、不写近似或音译的读法。孩子的答案有涂改或订正时，你读到的可能是订正后的内容，别当成孩子的答案、也别据此判孩子做对——留空即可。留空不会让这道题变成待核对。近似读法只有在这题已因别的原因待核对时，才能写进 `review_note`（"看起来像…，不确定"），不进 `wrong_answer`、也不进 `wrong_evidence`。 |
 | `wrong_evidence` |  | 判错依据，如"老师打叉""有红笔订正""老师没有批改这一题，验算得数不对"。老师判错但孩子字迹看不清时，写"老师判错，孩子字迹看不清"——这类直接入库、不标待核对。**不填的话系统会自动把这道题标成待核对（`wrong_unclear`）**，所以凡是确定做错的题都要写清依据。 |
 | `difficulty` |  | 难度 1–5，默认 3。 |
-| `error_type` |  | 错因，逗号分隔。每一项**必须在 `guide` 返回的 `error_types` 清单里**（清单为空时可不填，也不校验）。不要因为题型复杂就随手标"计算"。 |
 | `knowledge_point_ids` |  | 考点编号数组，**只能用 `guide` 清单里的二级考点编号，不能用文字名称**。 |
 | `primary_knowledge_point_id` |  | 主考点编号，取自上面的数组。清单里确实没有合适的考点、或清单为空（`catalog_available` 为 false）时留空，题目直接入库为未分类，不算待核对。 |
 | `needs_review` |  | 是否待核对，`true` / `false`（默认 `false`）。标 `true` 时 `review_reasons` 不能为空。 |
@@ -164,7 +163,6 @@ JSON 里一个反斜杠要写成**两个**。`\frac` 直接写进文件会被当
       "wrong_answer": "\\(\\frac{3}{9}\\)",
       "wrong_evidence": "老师打叉",
       "difficulty": 3,
-      "error_type": "计算错误",
       "knowledge_point_ids": [12, 15],
       "primary_knowledge_point_id": 12,
       "needs_review": false,
@@ -180,7 +178,6 @@ JSON 里一个反斜杠要写成**两个**。`\frac` 直接写进文件会被当
       "wrong_answer": "",
       "wrong_evidence": "老师没有批改这一题，验算得数不对",
       "difficulty": 4,
-      "error_type": "概念错误",
       "knowledge_point_ids": [15],
       "primary_knowledge_point_id": 15,
       "needs_review": true,
@@ -196,7 +193,6 @@ JSON 里一个反斜杠要写成**两个**。`\frac` 直接写进文件会被当
       "wrong_answer": "(2) 写成 20",
       "wrong_evidence": "老师在 (2) 上打叉，(1) 正确",
       "difficulty": 4,
-      "error_type": "概念错误",
       "knowledge_point_ids": [15],
       "primary_knowledge_point_id": 15,
       "needs_review": false,
@@ -212,7 +208,6 @@ JSON 里一个反斜杠要写成**两个**。`\frac` 直接写进文件会被当
       "wrong_answer": "",
       "wrong_evidence": "老师打叉，孩子的字迹看不清",
       "difficulty": 3,
-      "error_type": "计算错误",
       "knowledge_point_ids": [15],
       "primary_knowledge_point_id": 15,
       "needs_review": false,

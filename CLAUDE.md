@@ -72,9 +72,9 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `/questions` | 错题列表 |
 | `/upload` | 录入错题 |
 | `/stats`、`/learning-analysis` | 统计与学习分析 |
-| `/practice-sets` | 练习集 |
+| `/practice-sets` | 练习中心：所有练习一个列表（错题练习卷、单词、阅读），待批改的卷子也在这里筛选和批改 |
 | `/targeted-paper` | 考点卷：出卷页（选科目、题量、分法，预览后生成） |
-| `/grade`、`/grade/:id` | 错题练习卷批改（电脑、手机共用）：待批改列表与批改页（拍照 → 识别预批 → 复核） |
+| `/grade/:id` | 错题练习卷批改（电脑、手机共用）：拍照 → 识别预批 → 复核；`/grade` 跳到练习中心并只看待批改的卷子 |
 | `/words` | 单词本 |
 | `/reading`、`/reading-test/:id` | 阅读理解 |
 | `/learning-reports` | 学习报告 |

@@ -25,7 +25,6 @@
             :data-seq="item.seq"
             :item="item"
             :subject-id="page.subject_id"
-            :error-types="error_type_names"
             :knowledge-names="knowledge_names"
             :server-error="server_errors[item.seq] || ''"
             :busy="accepting_all || Boolean(busy_seqs[item.seq])"
@@ -104,7 +103,6 @@ const emit = defineEmits(['update', 'next'])
 // 补成错题没补上时给的提示
 const FILL_FAILED_TEXT = '没补上答案和解析，可以点修改自己填'
 
-const error_type_names = ref([])   // 这一学科的错因名称
 const knowledge_names = ref({})    // 考点编号 -> 名称
 const busy_seqs = ref({})          // 有请求在进行的题
 const server_errors = ref({})      // 录入被拒等提示：seq -> 文字
@@ -361,16 +359,9 @@ const request_next = async () => {
 
 // ---------------------------------------------------------------- 加载目录
 
-/** 读这一学科的错因名称和考点名称（接口有短时缓存，不会重复请求）。 */
+/** 读这一学科的考点名称（接口有短时缓存，不会重复请求）。 */
 const load_catalog = async () => {
   const subject_id = props.page.subject_id
-  try {
-    const { data } = await questionApi.listErrorTypes({ subject_id })
-    const list = Array.isArray(data) ? data : (data.items || [])
-    error_type_names.value = list.map(one => one.name)
-  } catch (error) {
-    console.error('加载错因失败:', error)
-  }
   try {
     const { data } = await questionApi.listKnowledgePoints({ subject_id })
     const list = Array.isArray(data) ? data : (data.items || [])

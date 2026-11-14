@@ -30,8 +30,8 @@ description: Use when a parent shares photos of a child's marked homework or tes
 
 ## 工作步骤
 
-1. **取资料。** 运行 `guide --subject <学科>`（学科从卷面内容判断）。拿到考点清单、
-   错因清单，以及 `catalog_available`（这个年级有没有考点目录）。
+1. **取资料。** 运行 `guide --subject <学科>`（学科从卷面内容判断）。拿到考点清单，
+   以及 `catalog_available`（这个年级有没有考点目录）。
 2. **问家长一次，把回答写进 `parent_reply`（顶层必填）。** 家长还没说这是哪份东西、
    也没说不用问时，问一次，照原文：
    **"这是哪份作业或卷子？如果是考试，多少分？可以回'跳过'。"**
@@ -40,7 +40,7 @@ description: Use when a parent shares photos of a child's marked homework or tes
    卷子名称、类型、分数都不填，交给系统给默认值。
 3. **判错**（见下一节）。只录错题。
 4. **写每道题**：第几张照片、题号、题干、正确答案、解析、孩子的答案、判错依据、
-   错因、考点。字段怎么填、怎么把文件写对，看 `payload-format.md`。
+   考点。不填错因（系统已停用错因）。字段怎么填、怎么把文件写对，看 `payload-format.md`。
 5. **上传照片。** 运行 `upload 照片1 照片2 ...`，把返回的路径按页顺序填进 `paper.images`。
    家长说不用上传就跳过这步，`images` 留空、题目不写 `page`。
 6. **提交。** 把内容写成一个 JSON 文件，先 `check <文件>`，按退出码处理，通过后 `submit <文件>`。

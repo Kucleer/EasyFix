@@ -58,18 +58,16 @@ const routes = [
     meta: { title: '出练习卷' },
   },
   {
-    // 手机批改：待批改列表；不进侧栏菜单，从首页"专项练习"那一格进入
+    // 练习只有一个列表：旧的待批改地址跳到练习中心，只看待批改的卷子
     path: '/grade',
-    name: 'GradeList',
-    component: () => import('@/views/GradeList.vue'),
-    meta: { title: '待批改' },
+    redirect: { path: '/practice-sets', query: { pending: '1' } },
   },
   {
     // 手机批改：批改一份卷子（拍照 → 点对错 → 结果）
     path: '/grade/:id',
     name: 'GradePaper',
     component: () => import('@/views/GradePaper.vue'),
-    meta: { title: '待批改' },
+    meta: { title: '批改' },
   },
   {
     path: '/reading',

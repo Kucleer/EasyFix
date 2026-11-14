@@ -73,18 +73,6 @@ export const questionApi = {
   deleteKnowledgePoint(id) {
     return api.delete(`/knowledge-points/${id}`)
   },
-  listErrorTypes(params) {
-    return api.get('/error-types', { params })
-  },
-  createErrorType(data) {
-    return api.post('/error-types', data)
-  },
-  updateErrorType(id, data) {
-    return api.put(`/error-types/${id}`, data)
-  },
-  deleteErrorType(id) {
-    return api.delete(`/error-types/${id}`)
-  },
   batchGenerateSimilar(data) {
     return api.post('/questions/batch-similar', data)
   },

@@ -94,21 +94,19 @@ test('修改表单的初值是可编辑字段的副本', () => {
   const item = {
     seq: 1, question_no: '2', parsed_question: 'q', wrong_answer: 'w', answer: 'a', analysis: 'n',
     knowledge_point_ids: [5], primary_knowledge_point_id: 5, error_types: ['计算错误'], difficulty: 4,
-    state: 'open', flags: ['merged'],
+    state: 'open', flags: ['merged'],  // error_types 是错因停用前的旧草稿字段，不再进修改表单
   }
   const fields = editableFields(item)
   assert.deepEqual(fields, {
     question_no: '2', parsed_question: 'q', wrong_answer: 'w', answer: 'a', analysis: 'n',
-    knowledge_point_ids: [5], primary_knowledge_point_id: 5, error_types: ['计算错误'], difficulty: 4,
+    knowledge_point_ids: [5], primary_knowledge_point_id: 5, difficulty: 4,
   })
   fields.knowledge_point_ids.push(6)
-  fields.error_types.push('x')
   assert.deepEqual(item.knowledge_point_ids, [5])
-  assert.deepEqual(item.error_types, ['计算错误'])
   // 空值补成默认
   assert.deepEqual(editableFields({ seq: 0 }), {
     question_no: '', parsed_question: '', wrong_answer: '', answer: '', analysis: '',
-    knowledge_point_ids: [], primary_knowledge_point_id: null, error_types: [], difficulty: 3,
+    knowledge_point_ids: [], primary_knowledge_point_id: null, difficulty: 3,
   })
 })
 

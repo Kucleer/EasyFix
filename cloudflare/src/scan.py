@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 import ocr_client
 from database import Database
-from intake import load_catalog, load_error_type_names, read_payload
+from intake import load_catalog, read_payload
 from intake_model import IMAGE_KEY_PATTERN, is_plain_int
 from question_scope import current_student_id
 from questions import save as save_question, stamp_now
@@ -135,11 +135,10 @@ def make_read_text(env, page):
 
 
 async def load_prompt_context(db, page):
-    """读这一页学科的名称、考点清单、错因名称，整页整理和补成错题都要用。"""
+    """读这一页学科的名称和考点清单，整页整理和补成错题都要用。"""
     subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (page['subject_id'],))
     catalog = await load_catalog(db, page['subject_id'], page['grade'], page['semester'])
-    error_type_names = await load_error_type_names(db, page['subject_id'])
-    return (subject['name'] if subject else ''), catalog, error_type_names
+    return (subject['name'] if subject else ''), catalog
 
 
 def catalog_point_ids(catalog):
@@ -168,11 +167,11 @@ def make_analyze(request, db, page, timings=None):
 
     async def analyze(ocr_text, enhanced_text):
         """拼提示词、调模型、清洗结果。"""
-        subject_name, catalog, error_type_names = await load_prompt_context(db, page)
+        subject_name, catalog = await load_prompt_context(db, page)
         prompt = build_page_prompt(subject_name, page['grade'], page['semester'], ocr_text, enhanced_text,
-                                   catalog, sorted(error_type_names))
+                                   catalog)
         raw = await call_model(request, prompt)
-        items = clean_items(raw, catalog_point_ids(catalog), error_type_names)
+        items = clean_items(raw, catalog_point_ids(catalog))
         if timings is not None:
             # 排查用：模型给了多少个考点编号、清洗后留下多少个（只记数量，不记内容）
             timings['kp_from_model'] = count_model_point_ids(raw)
@@ -448,7 +447,7 @@ async def restore_item(page_id: int, seq: int, request: Request):
 async def promote_item(page_id: int, seq: int, request: Request):
     """补成错题：把模型认为做对的一道移到主列表，再调一次模型补全这一道。
 
-    模型拿到整页文字和这道题的题号、题干开头，返回完整题干、学生的答案、答案、解析、考点、错因、难度。
+    模型拿到整页文字和这道题的题号、题干开头，返回完整题干、学生的答案、答案、解析、考点、难度。
     先写入移动（source、verdict、reason），模型失败时不回滚移动，返回 fill_error 让前端进入修改状态；
     失败的异常类型名记进这一页的 timings.model_error_type，方便排查。
     """
@@ -460,9 +459,9 @@ async def promote_item(page_id: int, seq: int, request: Request):
     moved = dict(item, source='promoted', verdict='wrong', reason=PROMOTED_REASON)
     if not await write_item(db, page_id, seq, 'open', moved):
         await raise_write_conflict(db, page_id, student_id)
-    subject_name, catalog, error_type_names = await load_prompt_context(db, page)
+    subject_name, catalog = await load_prompt_context(db, page)
     prompt = build_fill_prompt(subject_name, page['grade'], moved, page['ocr_text'], page['ocr_text_enhanced'],
-                               catalog, sorted(error_type_names))
+                               catalog)
     fill_error = None
     try:
         raw = await call_model(request, prompt)
@@ -471,7 +470,7 @@ async def promote_item(page_id: int, seq: int, request: Request):
         if error_type:
             await record_model_error_type(db, page_id, error_type)
     if fill_error is None:
-        filled = merge_fill(moved, clean_fill(raw, catalog_point_ids(catalog), error_type_names))
+        filled = merge_fill(moved, clean_fill(raw, catalog_point_ids(catalog)))
         # 补全结果也用条件写：这期间这道题被录入或去掉了就不再覆盖
         await write_item(db, page_id, seq, 'open', filled)
     return {'page': page_view(await load_page(db, page_id, student_id)), 'fill_error': fill_error}

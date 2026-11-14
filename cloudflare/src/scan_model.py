@@ -90,14 +90,13 @@ def _scope_line(subject_name, grade):
     return '学科：%s，%s。' % (subject_name, grade_text)
 
 
-def _knowledge_rules(catalog, error_type_names):
-    """考点与错因的选择规则，整页提示词和单题补全提示词共用。"""
+def _knowledge_rules(catalog):
+    """考点和难度的选择规则，整页提示词和单题补全提示词共用（错因已停用，不再让模型填）。"""
     return (
         '考点只能从下面的清单里选编号（knowledge_point_ids 是编号数组，primary_knowledge_point_id '
         '是其中最主要的一个；选了考点就必须给主考点）。清单里没有合适的就留空，不要编造编号：\n%s\n\n'
-        '错因（error_types）只能从这些名称里选：%s。没有合适的就留空数组。\n'
         '难度 difficulty 是 1 到 5 的整数。'
-        % (format_catalog(catalog), '、'.join(error_type_names) if error_type_names else '（无）')
+        % format_catalog(catalog)
     )
 
 
@@ -116,7 +115,7 @@ def _ocr_block(ocr_text, enhanced_text):
     return parts
 
 
-def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, catalog, error_type_names):
+def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, catalog):
     """拼整页整理的提示词：要求模型逐题判断对错并返回 {"questions": [...]}。"""
     parts = [
         '你是一位中小学老师，要把一张作业或试卷照片读出来的文字整理成逐题的结构化结果。',
@@ -141,9 +140,9 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         'merged（像是两道题或题干和演算混在了一起）、'
         'figure_needed（题目依赖图形或表格，但文字里没有相应条件）。',
         '- verdict 为 wrong 或 unsure 的题，还要给：answer（正确答案）、analysis（解析）、'
-        'knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
+        'knowledge_point_ids、primary_knowledge_point_id、difficulty。',
         '- verdict 为 right 的题只给四个字段：question_no、parsed_question（只写题干开头，不超过 40 个字，'
-        '不要完整题干）、solution、verdict。不要给学生的答案、判断理由、答案、解析、考点、错因和难度，'
+        '不要完整题干）、solution、verdict。不要给学生的答案、判断理由、答案、解析、考点和难度，'
         '这样整页返回得快，也不会超出长度。',
         '',
         '判断对错的规则：先在 solution 里自己把题做一遍，再和学生的最终答案比对。',
@@ -159,7 +158,7 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '带分数系数要化成假分数（1\\frac{2}{5}x 写成 \\frac{7}{5}x）；除法写成分数形式（(36-x)÷a 写成 \\frac{36-x}{a}）；'
         '和或差后面带单位时要加括号。值相等但违反任意一条的，判 wrong，reason 写明违反哪条。',
         '',
-        _knowledge_rules(catalog, error_type_names),
+        _knowledge_rules(catalog),
         '',
         '文字里看得出不对劲时一定要打 flags 标记，不要硬猜。不要输出 JSON 以外的任何内容。',
         JSON_BACKSLASH_RULE,
@@ -167,7 +166,7 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
     return '\n'.join(parts)
 
 
-def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalog, error_type_names):
+def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalog):
     """拼单题补全的提示词：给整页文字和这道题的题号、题干开头，只补全这一道（设计 8.4）。"""
     parts = [
         '你是一位中小学老师。下面是一张作业或试卷照片读出来的整页文字。'
@@ -185,11 +184,11 @@ def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalo
         '- wrong_answer：学生写的答案，读不出就留空字符串，不许猜。',
         '- answer：正确答案。',
         '- analysis：解析。',
-        '- knowledge_point_ids、primary_knowledge_point_id、error_types、difficulty。',
+        '- knowledge_point_ids、primary_knowledge_point_id、difficulty。',
         '数学公式用 LaTeX：行内 \\(...\\)，独立 \\[...\\]。每个字段里的每个公式都要写在 \\(...\\) 里，'
         '不能直接写 \\frac{1}{2} 这样不带边界的公式。',
         '',
-        _knowledge_rules(catalog, error_type_names),
+        _knowledge_rules(catalog),
         '不要输出 JSON 以外的任何内容。',
         JSON_BACKSLASH_RULE,
     ]
@@ -245,15 +244,6 @@ def _clean_knowledge(raw, catalog_ids):
     return ids, primary
 
 
-def _clean_error_types(raw_types, error_type_names):
-    """错因名：只留清单里的，去重保序。"""
-    result = []
-    for value in raw_types if isinstance(raw_types, list) else []:
-        if isinstance(value, str) and value in error_type_names and value not in result:
-            result.append(value)
-    return result
-
-
 def _clean_difficulty(value):
     """难度必须是 1–5 的整数，否则取 3。"""
     if _is_int(value) and 1 <= value <= 5:
@@ -266,7 +256,7 @@ def blank_item(seq):
     return {
         'seq': seq, 'question_no': '', 'parsed_question': '', 'wrong_answer': '',
         'verdict': 'wrong', 'reason': '', 'flags': [], 'answer': '', 'analysis': '',
-        'knowledge_point_ids': [], 'primary_knowledge_point_id': None, 'error_types': [],
+        'knowledge_point_ids': [], 'primary_knowledge_point_id': None,
         'difficulty': DEFAULT_DIFFICULTY, 'state': 'open', 'question_id': None,
         'edited': False, 'source': 'manual',
     }
@@ -307,7 +297,7 @@ def wrap_bare_math(text):
     return ''.join(pieces)
 
 
-def _clean_item(raw, seq, catalog_ids, error_type_names):
+def _clean_item(raw, seq, catalog_ids):
     """清洗模型返回的一道题，得到完整的草稿项。"""
     item = blank_item(seq)
     item['source'] = 'model'
@@ -334,18 +324,17 @@ def _clean_item(raw, seq, catalog_ids, error_type_names):
     elif item['verdict'] == 'unsure' and verdict not in VERDICTS and not item['reason']:
         item['reason'] = NO_VERDICT_REASON
     if item['verdict'] == 'right':
-        # 做对的题不带答案、解析、考点、错因，难度取默认值；
+        # 做对的题不带答案、解析、考点，难度取默认值；
         # 题干只留开头（模型没照做、给了完整题干时这里截短），补成错题时再补全
         item['answer'] = item['analysis'] = ''
         item['parsed_question'] = item['parsed_question'][:RIGHT_STEM_CHARS]
         return item
     item['knowledge_point_ids'], item['primary_knowledge_point_id'] = _clean_knowledge(raw, catalog_ids)
-    item['error_types'] = _clean_error_types(raw.get('error_types'), error_type_names)
     item['difficulty'] = _clean_difficulty(raw.get('difficulty'))
     return item
 
 
-def clean_items(raw, catalog_ids, error_type_names):
+def clean_items(raw, catalog_ids):
     """清洗模型返回的整页结果：不信任模型，坏的字段丢掉或降级为"拿不准"。"""
     questions = raw.get('questions') if isinstance(raw, dict) else None
     if not isinstance(questions, list):
@@ -356,7 +345,7 @@ def clean_items(raw, catalog_ids, error_type_names):
             continue  # 不是对象的项丢掉，不占序号
         if len(items) >= MAX_ITEMS:
             break
-        items.append(_clean_item(entry, len(items), catalog_ids, error_type_names))
+        items.append(_clean_item(entry, len(items), catalog_ids))
     return items
 
 
@@ -366,8 +355,8 @@ def _text_or_empty(raw, field):
     return wrap_bare_math(value) if isinstance(value, str) else ''
 
 
-def clean_fill(raw, catalog_ids, error_type_names):
-    """清洗单题补全的结果，返回八个字段（完整题干、学生的答案、答案、解析、考点、主考点、错因、难度），规则同 clean_items。"""
+def clean_fill(raw, catalog_ids):
+    """清洗单题补全的结果，返回七个字段（完整题干、学生的答案、答案、解析、考点、主考点、难度），规则同 clean_items。"""
     raw = raw if isinstance(raw, dict) else {}
     ids, primary = _clean_knowledge(raw, catalog_ids)
     return {
@@ -377,7 +366,6 @@ def clean_fill(raw, catalog_ids, error_type_names):
         'analysis': _text_or_empty(raw, 'analysis'),
         'knowledge_point_ids': ids,
         'primary_knowledge_point_id': primary,
-        'error_types': _clean_error_types(raw.get('error_types'), error_type_names),
         'difficulty': _clean_difficulty(raw.get('difficulty')),
     }
 
@@ -708,11 +696,7 @@ def clean_edit(payload):
             raise ScanError('主考点必须是所选考点之一')
         if edit['knowledge_point_ids'] and primary is None:
             raise ScanError('选了考点就要选一个主考点')
-    if 'error_types' in payload:
-        types = payload['error_types']
-        if not isinstance(types, list) or not all(isinstance(value, str) for value in types):
-            raise ScanError('错因格式不对')
-        edit['error_types'] = list(dict.fromkeys(types))
+    # 错因已停用：旧页面如果还传 error_types，直接忽略
     if 'difficulty' in payload:
         if not _is_int(payload['difficulty']) or not 1 <= payload['difficulty'] <= 5:
             raise ScanError('难度必须是 1 到 5')
@@ -726,7 +710,7 @@ def question_payload(page, item):
         'subject_id': page['subject_id'], 'grade': page['grade'], 'semester': page['semester'],
         'question_no': item['question_no'], 'parsed_question': item['parsed_question'],
         'answer': item['answer'], 'analysis': item['analysis'], 'wrong_answer': item['wrong_answer'],
-        'difficulty': item['difficulty'], 'error_type': ','.join(item['error_types']),
+        'difficulty': item['difficulty'],
         'knowledge_point_ids': item['knowledge_point_ids'],
         'primary_knowledge_point_id': item['primary_knowledge_point_id'],
         'original_image': page['image'], 'original_images': [page['image']],

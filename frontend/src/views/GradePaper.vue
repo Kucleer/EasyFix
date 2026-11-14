@@ -1,7 +1,7 @@
 <template>
   <div class="grade-paper" :class="{ 'is-wide': wideReview }" v-loading="loading">
     <div class="paper-head">
-      <RouterLink to="/grade" class="back-link"><el-icon><ArrowLeft /></el-icon>待批改</RouterLink>
+      <RouterLink to="/practice-sets" class="back-link"><el-icon><ArrowLeft /></el-icon>练习中心</RouterLink>
       <h2 v-if="paper" class="paper-title">{{ paperLabel(paper) }}</h2>
       <p v-if="reviewedText && step !== 'result'" class="reviewed-line">{{ reviewedText }}</p>
     </div>
@@ -217,7 +217,7 @@
 
         <div class="step-footer">
           <el-button size="large" @click="step = 'review'">再改改</el-button>
-          <el-button type="primary" size="large" @click="router.push('/grade')">返回待批改</el-button>
+          <el-button type="primary" size="large" @click="router.push('/practice-sets')">返回练习中心</el-button>
         </div>
       </section>
     </template>

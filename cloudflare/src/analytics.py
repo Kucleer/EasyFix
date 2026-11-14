@@ -19,8 +19,8 @@ def now():
 
 
 async def grouped(db, field, grade=None, subject_id=None):
-    """只允许固定字段进行分组统计。"""
-    assert field in ('difficulty', 'error_type', 'grade', 'semester')
+    """只允许固定字段进行分组统计（错因已停用，不再参与统计）。"""
+    assert field in ('difficulty', 'grade', 'semester')
     filters, values = [COUNTED], []
     for key, value in [('grade', grade), ('subject_id', subject_id)]:
         if value is not None:
@@ -32,9 +32,9 @@ async def grouped(db, field, grade=None, subject_id=None):
     for row in rows:
         if row['name'] is None:
             continue
-        for name in (str(row['name']).split(',') if field == 'error_type' else [str(row['name'])]):
-            if name.strip():
-                result[name.strip()] = result.get(name.strip(), 0) + row['count']
+        name = str(row['name']).strip()
+        if name:
+            result[name] = result.get(name, 0) + row['count']
     return result
 
 
@@ -70,7 +70,6 @@ async def summary(request: Request, grade: int | None = Query(None, ge=1, le=12)
         practices = await db.first('SELECT COUNT(*) AS count FROM practice_set WHERE subject_id=? AND deleted=0', (s['id'],))
         by_subject.append({'subject_id': s['id'], 'subject_name': s['name'], 'question_count': s['count'],
                            'practice_count': practices['count'],
-                           'error_type_counts': await grouped(db, 'error_type', grade, s['id']),
                            'difficulty_distribution': await grouped(db, 'difficulty', grade, s['id']),
                            'knowledge_point_counts': module_counts.get(s['id'], {})})
     wg = await db.all('SELECT grade,COUNT(*) AS count FROM word WHERE deleted=0 AND grade IS NOT NULL GROUP BY grade')
@@ -91,7 +90,6 @@ async def summary(request: Request, grade: int | None = Query(None, ge=1, le=12)
     return {'total_questions': q['total'], 'total_subjects': totals['subjects'], 'total_error_books': totals['books'],
             'active_days': q['days'], 'to_review_questions': q['due'] or 0,
             'difficulty_distribution': await grouped(db, 'difficulty', grade),
-            'error_type_distribution': await grouped(db, 'error_type', grade),
             'by_subject': by_subject, 'by_grade': by_grade, 'by_semester': by_semester,
             'word_stats': {'total_words': word['total'], 'reviewed_words': word['reviewed'] or 0,
                            'total_reviews': sessions['total'],
@@ -196,7 +194,6 @@ async def full(request: Request, subject_id: int | None = Query(None, ge=1)):
         'question_stats': {
             'total': q['total'],
             'by_difficulty': await grouped(db, 'difficulty', subject_id=subject_id),
-            'by_error_type': await grouped(db, 'error_type', subject_id=subject_id),
             'top_error_knowledge_points': [{
                 'point': item['name'], 'module_id': item['id'], 'count': item['question_count'],
                 'share_percent': item['share_percent'], 'accuracy': item['accuracy'],

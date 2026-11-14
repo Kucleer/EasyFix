@@ -44,11 +44,6 @@
           :subject-id="subjectId"
         />
       </el-form-item>
-      <el-form-item label="错因">
-        <el-select v-model="form.error_types" multiple placeholder="选择错因" style="width: 100%">
-          <el-option v-for="name in error_type_options" :key="name" :label="name" :value="name" />
-        </el-select>
-      </el-form-item>
       <el-form-item label="难度">
         <el-rate v-model="form.difficulty" :max="5" show-text :texts="DIFFICULTY_TEXTS" />
       </el-form-item>
@@ -87,10 +82,6 @@
           <span class="field-label">考点</span>
           <span>{{ knowledge_label || '未分类' }}</span>
         </div>
-        <div class="field">
-          <span class="field-label">错因</span>
-          <span>{{ item.error_types.length ? item.error_types.join('、') : '—' }}</span>
-        </div>
       </div>
       <div v-if="item.reason && item.verdict !== 'unsure'" class="reason">判断理由：<MathText :text="item.reason" /></div>
       <div class="card-actions">
@@ -118,7 +109,6 @@ import {
 const props = defineProps({
   item: { type: Object, required: true },                  // 草稿里的一道题
   subjectId: { type: Number, default: null },              // 这一页的学科，考点选择用
-  errorTypes: { type: Array, default: () => [] },          // 这一学科的错因名称
   knowledgeNames: { type: Object, default: () => ({}) },   // 考点编号 -> 名称
   serverError: { type: String, default: '' },              // 录入被拒等提示；非空时自动进修改状态
   busy: { type: Boolean, default: false },                 // 这道题有请求在进行
@@ -152,13 +142,6 @@ const warning_list = computed(() => {
 
 const knowledge_label = computed(() =>
   knowledgeText(props.item.knowledge_point_ids, props.item.primary_knowledge_point_id, props.knowledgeNames))
-
-// 错因选项：学科的错因，加上题里已有但不在清单里的，避免打开表单就丢掉
-const error_type_options = computed(() => {
-  const names = new Set(props.errorTypes)
-  form.value.error_types.forEach(name => names.add(name))
-  return [...names]
-})
 
 /** 进入修改状态，表单按这道题的当前内容重新填。 */
 const start_edit = () => {

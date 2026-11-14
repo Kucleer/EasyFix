@@ -6,7 +6,7 @@
         <div class="card-header">
           <span>练习集管理</span>
           <div class="header-actions">
-            <el-link v-if="pendingGradeCount > 0" type="warning" :underline="false" @click="router.push('/grade')">待批改 {{ pendingGradeCount }}</el-link>
+            <el-link v-if="pendingGradeCount > 0" type="warning" :underline="false" @click="showPendingGrading">待批改 {{ pendingGradeCount }}</el-link>
             <el-button type="primary" @click="router.push('/targeted-paper')">出练习卷</el-button>
           </div>
         </div>
@@ -17,9 +17,15 @@
         <el-select v-model="filters.subject_id" placeholder="选择学科" clearable @change="fetchPracticeSets" style="width: 130px">
           <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-select v-model="filters.reviewed" placeholder="复习状态" clearable @change="fetchPracticeSets" style="width: 120px">
-          <el-option label="未复习" :value="false" />
-          <el-option label="已复习" :value="true" />
+        <el-select v-model="filters.source_type" placeholder="类型" clearable @change="fetchPracticeSets" style="width: 120px">
+          <el-option label="错题练习" value="question" />
+          <el-option label="单词复习" value="word" />
+          <el-option label="阅读理解" value="reading" />
+        </el-select>
+        <!-- 错题练习卷叫"待批改/已批改"，单词和阅读叫"未复习/已复习"，筛选时合成"没做完/做完了" -->
+        <el-select v-model="filters.reviewed" placeholder="状态" clearable @change="fetchPracticeSets" style="width: 150px">
+          <el-option label="待批改 / 未复习" :value="false" />
+          <el-option label="已批改 / 已复习" :value="true" />
         </el-select>
         <el-date-picker
           v-model="filters.date_range"
@@ -91,8 +97,8 @@
         </el-table-column>
         <el-table-column prop="reviewed" label="状态" width="105" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.reviewed ? 'success' : 'info'" :style="{ fontSize: '14px' }">
-              {{ row.reviewed ? '已复习' : '未复习' }}
+            <el-tag :type="statusTagType(row)" :style="{ fontSize: '14px' }">
+              {{ statusText(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -101,7 +107,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => showDetail(row) }" :actions="[{ label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, { label: isQuestionSet(row) && row.reviewed ? '改批改' : '批改', disabled: !isQuestionSet(row) && row.reviewed, run: () => markReviewed(row) }, { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="needsGrading(row) ? { label: '批改', run: () => markReviewed(row) } : { label: '查看', run: () => showDetail(row) }" :actions="[...(needsGrading(row) ? [{ label: '查看', run: () => showDetail(row) }] : []), { label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, ...(needsGrading(row) ? [] : [{ label: isQuestionSet(row) && row.reviewed ? '改批改' : '批改', disabled: !isQuestionSet(row) && row.reviewed, run: () => markReviewed(row) }]), { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
       </el-table>
 
       <el-empty v-else description="暂无练习集" />
@@ -254,7 +260,6 @@
           </div>
           <span v-else-if="gradingQuestionDetail.legacy_knowledge_point" class="legacy-knowledge">原标签：{{ gradingQuestionDetail.legacy_knowledge_point }}</span>
           <span v-else-if="currentReviewPs?.source_type === 'question'" class="text-muted">未分类</span>
-          <span v-if="gradingQuestionDetail.error_type">错误类型: {{ gradingQuestionDetail.error_type }}</span>
         </div>
       </div>
 
@@ -283,9 +288,6 @@
               v-model:primary-id="gradingQuestionEditForm.primary_knowledge_point_id"
               :subject-id="gradingQuestionDetail.subject_id || currentReviewPs?.subject_id"
             />
-          </el-form-item>
-          <el-form-item label="错误类型">
-            <el-input v-model="gradingQuestionEditForm.error_type" placeholder="请输入错误类型" />
           </el-form-item>
           <el-form-item label="难度">
             <el-rate v-model="gradingQuestionEditForm.difficulty" :max="5" show-text :texts="['1星', '2星', '3星', '4星', '5星']" />
@@ -523,7 +525,7 @@ import MathEditor from '@/components/MathEditor.vue'
 import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
 import WordResultList from '@/components/WordResultList.vue'
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
@@ -532,6 +534,7 @@ import { targetedApi } from '@/api/targeted'
 import { resumeLink } from '@/composables/targetedPaper'
 
 const router = useRouter()
+const route = useRoute()
 
 const hasMathFormula = (text = '') => ['\\(', '\\[', '$$'].some(boundary => (text || '').includes(boundary))
 
@@ -541,6 +544,7 @@ const total = ref(0)
 const selectedIds = ref([])
 const filters = reactive({
   subject_id: null,
+  source_type: null,
   reviewed: null,
   date_range: null,
 })
@@ -580,6 +584,7 @@ const fetchPracticeSets = async () => {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit,
       subject_id: filters.subject_id,
+      source_type: filters.source_type,
       reviewed: filters.reviewed,
     }
     if (filters.date_range && filters.date_range.length === 2) {
@@ -638,6 +643,29 @@ const downloadPdf = (ps) => {
 // 错题练习集（考点卷和手动组的卷子）：单词、阅读以外的都是
 const isQuestionSet = (ps) => !['word', 'reading'].includes(ps.source_type)
 
+/** 状态文字：错题练习卷是家长批改的，叫"待批改/已批改"；单词、阅读叫"未复习/已复习"。 */
+const statusText = (ps) => {
+  if (isQuestionSet(ps)) return ps.reviewed ? '已批改' : '待批改'
+  return ps.reviewed ? '已复习' : '未复习'
+}
+
+/** 状态标签颜色：做完是绿色，待批改是橙色（要家长动手），未复习是灰色。 */
+const statusTagType = (ps) => {
+  if (ps.reviewed) return 'success'
+  return isQuestionSet(ps) ? 'warning' : 'info'
+}
+
+/** 这份是不是还没批改的错题练习卷。 */
+const needsGrading = (ps) => isQuestionSet(ps) && !ps.reviewed
+
+/** 只看待批改的卷子：类型选错题练习、状态选没做完。 */
+const showPendingGrading = () => {
+  filters.source_type = 'question'
+  filters.reviewed = false
+  pagination.page = 1
+  fetchPracticeSets()
+}
+
 const markReviewed = async (ps) => {
   // 所有错题练习集都在批改页里批改（电脑、手机共用），已批改的也能重新进去改；
   // 旧的批改弹窗只留给阅读练习
@@ -687,7 +715,6 @@ const gradingQuestionEditForm = reactive({
   knowledge_point_ids: [],
   primary_knowledge_point_id: null,
   knowledge_revision: 0,
-  error_type: '',
   difficulty: 3
 })
 
@@ -706,7 +733,6 @@ const startEditGradingQuestion = () => {
   gradingQuestionEditForm.knowledge_point_ids = points.map(point => point.id)
   gradingQuestionEditForm.primary_knowledge_point_id = points.find(point => point.is_primary)?.id ?? null
   gradingQuestionEditForm.knowledge_revision = gradingQuestionDetail.value.knowledge_revision || 0
-  gradingQuestionEditForm.error_type = gradingQuestionDetail.value.error_type || ''
   gradingQuestionEditForm.difficulty = gradingQuestionDetail.value.difficulty || 3
   isEditingGradingQuestion.value = true
 }
@@ -729,7 +755,6 @@ const saveGradingQuestion = async () => {
       knowledge_point_ids: gradingQuestionEditForm.knowledge_point_ids,
       primary_knowledge_point_id: gradingQuestionEditForm.primary_knowledge_point_id,
       knowledge_revision: gradingQuestionEditForm.knowledge_revision,
-      error_type: gradingQuestionEditForm.error_type,
       difficulty: gradingQuestionEditForm.difficulty
     })
     ElMessage.success('保存成功')
@@ -749,7 +774,6 @@ const saveGradingQuestion = async () => {
         knowledge_point: data.knowledge_point || null,
         legacy_knowledge_point: data.legacy_knowledge_point || null,
         knowledge_revision: data.knowledge_revision || 0,
-        error_type: data.error_type || '',
         difficulty: data.difficulty || 3,
       }
       gradingQuestionDetail.value = currentPsQuestions.value[idx]
@@ -1165,6 +1189,11 @@ const loadPendingGradeCount = async () => {
 }
 
 onMounted(() => {
+  // 从首页或旧的 /grade 地址进来（?pending=1）时只看待批改的卷子
+  if (route.query.pending === '1') {
+    filters.source_type = 'question'
+    filters.reviewed = false
+  }
   fetchPracticeSets()
   fetchSubjects()
   loadPendingGradeCount()

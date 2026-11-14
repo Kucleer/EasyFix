@@ -87,7 +87,8 @@ async def generate(request: Request):
     where = ' AND '.join(filters)
     q = await db.first('SELECT COUNT(*) AS total,COALESCE(SUM(review_count),0) AS reviews,COALESCE(SUM(correct_count),0) AS correct,SUM(COALESCE(review_count,0)=0) AS none,SUM(review_count=1) AS once,SUM(review_count BETWEEN 2 AND 5) AS several,SUM(review_count>5) AS many FROM question q WHERE ' + where, values)
     distributions = {}
-    for field in ('difficulty', 'error_type'):
+    # 错因已停用，报告只统计难度分布
+    for field in ('difficulty',):
         rows = await db.all('SELECT q.' + field + ' AS name,COUNT(*) AS count FROM question q WHERE ' + where + ' GROUP BY q.' + field, values)
         distributions[field] = {str(row['name']): row['count'] for row in rows if row['name'] is not None}
     modules = await module_stats(db, subject_id=subject_id, grade=grade, days=days,
@@ -109,7 +110,6 @@ async def generate(request: Request):
         raise HTTPException(400, '没有足够的数据生成报告，请调整筛选条件')
     summary = {
         'questions': {'total': q['total'], 'difficulty_distribution': distributions['difficulty'],
-                      'error_type_distribution': distributions['error_type'],
                       'knowledge_module_distribution': {item['name']: item['question_count'] for item in modules['items']},
                       'knowledge_modules': points,
                       'unclassified_count': modules['unclassified_count'],
@@ -144,7 +144,6 @@ async def generate(request: Request):
     # 分布类数值同样由服务端写入，避免模型输出计数；模块指标单独放在 metrics。
     content['question_analysis'] = {
         'difficulty_distribution': distributions['difficulty'],
-        'error_type_distribution': distributions['error_type'],
         'review_effectiveness': {
             'not_reviewed': q['none'] or 0,
             'reviewed_1': q['once'] or 0,

@@ -98,16 +98,16 @@ def test_health_endpoint_hides_host_details():
 # ---------------------------------------------------------------- 纯规则
 
 def test_clean_items_drops_bad_catalog_and_error_types():
-    """清洗：丢掉清单外的考点和错因，难度越界改 3，只留认识的标记。"""
+    """清洗：丢掉清单外的考点，难度越界改 3，只留认识的标记；错因已停用，模型给了也丢掉。"""
     raw = {'questions': [{'question_no': '3', 'parsed_question': '比 x 的立方少 3', 'wrong_answer': 'x^2+3',
            'verdict': 'wrong', 'reason': '应为 x^3-3', 'flags': ['broken_formula', 'nonsense'],
            'answer': 'x^3-3', 'analysis': '…', 'knowledge_point_ids': [101, 999, '101'],
            'primary_knowledge_point_id': 999, 'error_types': ['计算错误', '乱写'], 'difficulty': 9}]}
-    [item] = scan_model.clean_items(raw, {101, 102}, {'计算错误'})
+    [item] = scan_model.clean_items(raw, {101, 102})
     assert item['seq'] == 0 and item['state'] == 'open' and item['source'] == 'model' and item['edited'] is False
     assert item['knowledge_point_ids'] == [101]
     assert item['primary_knowledge_point_id'] == 101
-    assert item['error_types'] == ['计算错误'] and item['difficulty'] == 3
+    assert 'error_types' not in item and item['difficulty'] == 3
     assert item['flags'] == ['broken_formula']
 
 
@@ -122,11 +122,11 @@ def test_wrap_bare_math_and_clean_items_use_it():
     raw = {'questions': [{'question_no': '4', 'parsed_question': r'计算 \(\frac{1}{2}\)', 'verdict': 'wrong',
                           'wrong_answer': r'\frac{21}{40}', 'answer': r'\frac{61}{40}',
                           'reason': r'学生最终答案 \frac{21}{40}，正确答案 \frac{61}{40}', 'analysis': r'先算 \times'}]}
-    [item] = scan_model.clean_items(raw, set(), set())
+    [item] = scan_model.clean_items(raw, set())
     assert item['answer'] == r'\(\frac{61}{40}\)' and item['wrong_answer'] == r'\(\frac{21}{40}\)'
     assert item['reason'] == r'学生最终答案 \(\frac{21}{40}\)，正确答案 \(\frac{61}{40}\)'
     assert item['parsed_question'] == r'计算 \(\frac{1}{2}\)' and item['analysis'] == r'先算 \(\times\)'
-    fill = scan_model.clean_fill({'answer': r'\frac{2x}{a} 支'}, set(), set())
+    fill = scan_model.clean_fill({'answer': r'\frac{2x}{a} 支'}, set())
     assert fill['answer'] == r'\(\frac{2x}{a}\) 支'
 
 
@@ -135,7 +135,7 @@ def test_clean_items_accepts_string_and_float_point_ids():
     raw = {'questions': [{'parsed_question': '题', 'verdict': 'wrong',
                           'knowledge_point_ids': ['102', 101.0, True, 'x', ' 103 ', 999],
                           'primary_knowledge_point_id': '102'}]}
-    [item] = scan_model.clean_items(raw, {101, 102, 103}, set())
+    [item] = scan_model.clean_items(raw, {101, 102, 103})
     assert item['knowledge_point_ids'] == [102, 101, 103]
     assert item['primary_knowledge_point_id'] == 102
 
@@ -146,19 +146,19 @@ def test_clean_items_primary_none_when_several_points_left():
                           'primary_knowledge_point_id': 5},
                          {'parsed_question': 'b', 'verdict': 'wrong', 'knowledge_point_ids': [101, 102],
                           'primary_knowledge_point_id': 102}]}
-    first, second = scan_model.clean_items(raw, {101, 102}, set())
+    first, second = scan_model.clean_items(raw, {101, 102})
     assert first['primary_knowledge_point_id'] is None and second['primary_knowledge_point_id'] == 102
 
 
 def test_clean_items_right_items_drop_answer_fields():
-    """做对的题清空答案、解析、考点、错因；题干只留前 40 个字（模型给了完整题干也截短）。"""
+    """做对的题清空答案、解析、考点；题干只留前 40 个字（模型给了完整题干也截短）。"""
     [item] = scan_model.clean_items({'questions': [{'parsed_question': 'a', 'verdict': 'right', 'answer': '1',
-                                     'knowledge_point_ids': [101]}]}, {101}, set())
+                                     'knowledge_point_ids': [101]}]}, {101})
     assert item['answer'] == '' and item['knowledge_point_ids'] == [] and item['verdict'] == 'right'
     long_stem = '一' * 30 + '二' * 30
     right, wrong = scan_model.clean_items({'questions': [
         {'parsed_question': long_stem, 'verdict': 'right'},
-        {'parsed_question': long_stem, 'verdict': 'wrong'}]}, set(), set())
+        {'parsed_question': long_stem, 'verdict': 'wrong'}]}, set())
     assert right['parsed_question'] == '一' * 30 + '二' * 10 and len(right['parsed_question']) == 40
     assert wrong['parsed_question'] == long_stem  # 做错的题保留完整题干
 
@@ -166,7 +166,7 @@ def test_clean_items_right_items_drop_answer_fields():
 def test_clean_items_bad_types_mark_unsure():
     """字段类型不对或判断不认识的题标为拿不准；不是对象的项丢掉。"""
     items = scan_model.clean_items({'questions': [{'parsed_question': 5, 'verdict': 'wrong'}, 'junk',
-                                                  {'parsed_question': 'b', 'verdict': 'maybe'}]}, set(), set())
+                                                  {'parsed_question': 'b', 'verdict': 'maybe'}]}, set())
     assert [i['verdict'] for i in items] == ['unsure', 'unsure']
     assert [i['seq'] for i in items] == [0, 1]
     assert items[0]['parsed_question'] == '' and items[0]['reason']
@@ -178,17 +178,17 @@ def test_clean_items_numeric_question_no():
         {'question_no': 3, 'parsed_question': 'a', 'verdict': 'wrong'},
         {'question_no': 3.0, 'parsed_question': 'b', 'verdict': 'wrong'},
         {'question_no': 2.5, 'parsed_question': 'c', 'verdict': 'wrong'},
-        {'question_no': True, 'parsed_question': 'd', 'verdict': 'wrong'}]}, set(), set())
+        {'question_no': True, 'parsed_question': 'd', 'verdict': 'wrong'}]}, set())
     assert [i['question_no'] for i in items] == ['3', '3', '2.5', '']
     assert [i['verdict'] for i in items] == ['wrong', 'wrong', 'wrong', 'unsure']
 
 
 def test_clean_items_garbage_and_limit():
     """整体不是预期结构时返回空；题数不超过上限。"""
-    assert scan_model.clean_items(None, set(), set()) == []
-    assert scan_model.clean_items({'questions': 'x'}, set(), set()) == []
+    assert scan_model.clean_items(None, set()) == []
+    assert scan_model.clean_items({'questions': 'x'}, set()) == []
     many = {'questions': [{'parsed_question': str(n), 'verdict': 'wrong'} for n in range(200)]}
-    assert len(scan_model.clean_items(many, set(), set())) == scan_model.MAX_ITEMS
+    assert len(scan_model.clean_items(many, set())) == scan_model.MAX_ITEMS
 
 
 def test_parse_model_json_repairs_latex_backslashes():
@@ -228,17 +228,16 @@ def test_parse_model_json_failure_carries_hint_into_timings():
 
 
 def test_clean_fill():
-    """单题补全返回八个字段（含完整题干和学生的答案），规则同整页清洗。"""
+    """单题补全返回七个字段（含完整题干和学生的答案），规则同整页清洗；错因已停用，模型给了也丢掉。"""
     fill = scan_model.clean_fill({'parsed_question': '完整题干', 'wrong_answer': '3', 'answer': '1', 'analysis': 5,
                                   'knowledge_point_ids': [101, 7], 'primary_knowledge_point_id': 7,
                                   'error_types': ['计算错误', 'x'], 'difficulty': 0, 'extra': 'ignored'},
-                                 {101}, {'计算错误'})
+                                 {101})
     assert fill == {'parsed_question': '完整题干', 'wrong_answer': '3', 'answer': '1', 'analysis': '',
-                    'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101, 'error_types': ['计算错误'],
-                    'difficulty': 3}
-    empty = scan_model.clean_fill(None, {101}, set())
+                    'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101, 'difficulty': 3}
+    empty = scan_model.clean_fill(None, {101})
     assert empty['knowledge_point_ids'] == [] and empty['parsed_question'] == '' and empty['wrong_answer'] == ''
-    assert scan_model.clean_fill({'parsed_question': ['x'], 'difficulty': 5}, set(), set())['parsed_question'] == ''
+    assert scan_model.clean_fill({'parsed_question': ['x'], 'difficulty': 5}, set())['parsed_question'] == ''
 
 
 def test_merge_fill():
@@ -299,10 +298,13 @@ def test_clean_edit():
                                   'analysis': '', 'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101,
                                   'error_types': ['计算错误'], 'difficulty': 2, 'state': 'accepted'})
     assert edit['difficulty'] == 2 and edit['knowledge_point_ids'] == [101] and 'state' not in edit
+    # 错因已停用：旧页面传来的错因（格式对不对都一样）直接忽略
+    assert 'error_types' not in edit
+    assert scan_model.clean_edit({'error_types': '计算错误'}) == {}
     assert scan_model.clean_edit({'answer': 'x'}) == {'answer': 'x'}
     for bad in [{'difficulty': 6}, {'difficulty': True}, {'knowledge_point_ids': ['1']},
                 {'knowledge_point_ids': [101], 'primary_knowledge_point_id': 102}, {'parsed_question': 3},
-                {'error_types': '计算错误'}, None]:
+                None]:
         try:
             scan_model.clean_edit(bad)
         except scan_model.ScanError as error:
@@ -312,14 +314,14 @@ def test_clean_edit():
 
 
 def test_question_payload():
-    """入库字段拼装：错因逗号连接，原图单元素列表。"""
+    """入库字段拼装：原图单元素列表；错因已停用，旧草稿里留着的错因也不写入。"""
     page = {'subject_id': 1, 'grade': 6, 'semester': 1, 'image': '2026/11/aaaaaaaa_p.jpg'}
     item = {**scan_model.blank_item(0), 'question_no': '3', 'parsed_question': '题', 'answer': '1', 'analysis': '析',
             'wrong_answer': '2', 'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101,
             'error_types': ['计算错误', '概念错误'], 'difficulty': 4}
     assert scan_model.question_payload(page, item) == {
         'subject_id': 1, 'grade': 6, 'semester': 1, 'question_no': '3', 'parsed_question': '题', 'answer': '1',
-        'analysis': '析', 'wrong_answer': '2', 'difficulty': 4, 'error_type': '计算错误,概念错误',
+        'analysis': '析', 'wrong_answer': '2', 'difficulty': 4,
         'knowledge_point_ids': [101], 'primary_knowledge_point_id': 101,
         'original_image': '2026/11/aaaaaaaa_p.jpg', 'original_images': ['2026/11/aaaaaaaa_p.jpg'],
         'wrong_evidence': '页面识别，家长确认'}
@@ -338,10 +340,11 @@ def test_changes_library():
 
 
 def test_build_page_prompt():
-    """整页提示词含考点编号、错因名、OCR 文字（重扫文字）和关键规则。"""
+    """整页提示词含考点编号、OCR 文字（重扫文字）和关键规则，不再让模型填错因。"""
     catalog = [{'id': 1, 'name': '代数', 'points': [{'id': 101, 'name': '一元二次方程'}]}]
-    prompt = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', None, catalog, ['计算错误'])
-    assert '101' in prompt and '一元二次方程' in prompt and '计算错误' in prompt and '第一遍文字ABC' in prompt
+    prompt = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', None, catalog)
+    assert '101' in prompt and '一元二次方程' in prompt and '第一遍文字ABC' in prompt
+    assert 'error_types' not in prompt and '错因' not in prompt
     for rule in ['不许猜学生写了什么', '0.5 和 1/2 不算错', '没有作答', '按做错', 'questions']:
         assert rule in prompt, rule
     assert '分段重新读取' not in prompt
@@ -349,21 +352,22 @@ def test_build_page_prompt():
     assert '不超过 40 个字' in prompt and '题干开头' in prompt and '不要完整题干' in prompt
     right_rule = next(line for line in prompt.split('\n') if line.startswith('- verdict 为 right'))
     assert 'question_no' in right_rule and 'verdict' in right_rule
-    both = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', '重扫文字XYZ', catalog, ['计算错误'])
+    both = scan_model.build_page_prompt('数学', 6, 1, '第一遍文字ABC', '重扫文字XYZ', catalog)
     assert '重扫文字XYZ' in both and '分段重新读取' in both and '对照着用' in both
 
 
 def test_build_fill_prompt():
-    """单题补全提示词含整页文字（有重扫文字时两份）、这道题的题号和题干开头，以及要返回的八个字段。"""
+    """单题补全提示词含整页文字（有重扫文字时两份）、这道题的题号和题干开头，以及要返回的七个字段（不含错因）。"""
     item = {**scan_model.blank_item(2), 'question_no': '5', 'parsed_question': '题干QQQ', 'wrong_answer': ''}
     catalog = [{'id': 1, 'name': '代数', 'points': [{'id': 101, 'name': '方程'}]}]
-    prompt = scan_model.build_fill_prompt('数学', 6, item, '整页文字PAGE', None, catalog, ['计算错误'])
+    prompt = scan_model.build_fill_prompt('数学', 6, item, '整页文字PAGE', None, catalog)
     assert '整页文字PAGE' in prompt and '题号：5' in prompt and '题干QQQ' in prompt
-    assert '101' in prompt and '计算错误' in prompt and '分段重新读取' not in prompt
+    assert '101' in prompt and '分段重新读取' not in prompt
+    assert 'error_types' not in prompt and '错因' not in prompt
     for field in ['parsed_question', 'wrong_answer', 'answer', 'analysis', 'knowledge_point_ids',
-                  'primary_knowledge_point_id', 'error_types', 'difficulty']:
+                  'primary_knowledge_point_id', 'difficulty']:
         assert field in prompt, field
-    both = scan_model.build_fill_prompt('数学', 6, item, '整页文字PAGE', '重扫文字XYZ', catalog, ['计算错误'])
+    both = scan_model.build_fill_prompt('数学', 6, item, '整页文字PAGE', '重扫文字XYZ', catalog)
     assert '整页文字PAGE' in both and '重扫文字XYZ' in both
 
 
@@ -728,8 +732,8 @@ def test_advance_happy_path_without_rescan():
     assert host.calls == {'normal': 1, 'enhanced': 0} and len(model.prompts) == 1
     # 整理用低随机度、较大的返回长度（设计 6.2）
     assert model.options == [{'max_tokens': 8000, 'temperature': 0.2}]
-    # 提示词里有读图文字、考点清单和错因清单
-    assert FIRST_TEXT in model.prompts[0] and '101' in model.prompts[0] and '计算错误' in model.prompts[0]
+    # 提示词里有读图文字和考点清单（错因已停用，不再给错因清单）
+    assert FIRST_TEXT in model.prompts[0] and '101' in model.prompts[0] and '计算错误' not in model.prompts[0]
     row = page_row(connection, page_id)
     assert row['ocr_text'] == FIRST_TEXT and row['step_started_at'] is None
 
@@ -1091,7 +1095,8 @@ def test_accept_writes_approved_question_with_page_fields():
     assert row['student_id'] == 1 and row['original_image'] == ITEM_IMAGE
     assert json.loads(row['original_images']) == [ITEM_IMAGE]
     assert row['wrong_evidence'] == '页面识别，家长确认' and row['wrong_answer'] == '学生写 0'
-    assert row['question_no'] == '1' and row['error_type'] == '计算错误' and row['difficulty'] == 2
+    # 草稿里留着旧的错因也不写入（错因已停用）
+    assert row['question_no'] == '1' and row['error_type'] is None and row['difficulty'] == 2
     assert row['subject_id'] == 1 and row['grade'] == 6 and row['semester'] == 1
     assert row['parsed_question'] == '计算第 1 题' and row['answer'] == '答案 0' and row['analysis'] == '解析 0'
     links = connection.execute('SELECT knowledge_point_id,is_primary FROM question_knowledge_point '
@@ -1389,7 +1394,7 @@ def test_promote_fills_from_model_and_survives_model_failure():
     assert item['verdict'] == 'wrong' and item['source'] == 'promoted' and item['reason'] == '家长补成错题'
     assert item['answer'] == '2' and item['analysis'] == '一加一' and item['difficulty'] == 1
     assert item['knowledge_point_ids'] == [101] and item['primary_knowledge_point_id'] == 101
-    assert item['error_types'] == ['计算错误'] and item['state'] == 'open'
+    assert 'error_types' not in item and item['state'] == 'open'
     failing = FakeModel(HTTPException(502, '文本模型余额不足'))
     with items_patched(model=failing):
         other_id = ready_page(connection, db, [dict(right)])
@@ -1642,7 +1647,6 @@ def test_regression_catalog_and_model_request():
         for point in group['points']:
             source = points[point['id'] - 1]
             assert source['level'] == 2 and source['subject'] == '数学' and source['name'] == point['name']
-    assert scan_regression.load_error_type_names('数学') == {'计算错误', '审题不清', '概念错误', '完全不会'}
     url, headers, body, anthropic = scan_regression.build_model_request(
         {'api_key': 'k', 'base_url': 'https://x.example/v1/', 'model': 'm'}, '提示词')
     assert url == 'https://x.example/v1/chat/completions' and not anthropic

@@ -112,7 +112,7 @@ const MAX_ZOOM = 4
 // 修改表单里能改的字段及其空值
 const EDITABLE_DEFAULTS = {
   question_no: '', parsed_question: '', wrong_answer: '', answer: '', analysis: '',
-  knowledge_point_ids: [], primary_knowledge_point_id: null, error_types: [], difficulty: 3,
+  knowledge_point_ids: [], primary_knowledge_point_id: null, difficulty: 3,
 }
 
 /** 顶部统计：识别出几道（手工加的不算），模型判断几道做错（补成错题的原本判对，不算）。 */

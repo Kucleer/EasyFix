@@ -221,25 +221,6 @@ def normalize_question_page(raw_page, image_count):
     return raw_page
 
 
-def normalize_error_type(raw_error_type, error_type_names):
-    """整理错因：逗号分隔，去掉空格和重复项；有错因清单时逐项核对。"""
-    if raw_error_type is None:
-        return ''
-    if not isinstance(raw_error_type, str):
-        raise IntakeError('错因必须是文字')
-    names = []
-    # 同时接受中文逗号，避免手误
-    for part in raw_error_type.replace('，', ',').split(','):
-        part = part.strip()
-        if part and part not in names:
-            names.append(part)
-    if error_type_names:
-        for part in names:
-            if part not in error_type_names:
-                raise IntakeError('错因「%s」不在这个学科的错因清单里' % part)
-    return ','.join(names)
-
-
 def normalize_knowledge_points(raw):
     """检查考点编号：只看类型（整数列表、整数主考点），是否在目录里由调用方查。"""
     point_ids = raw.get('knowledge_point_ids')
@@ -277,8 +258,11 @@ def normalize_review_fields(raw):
     return needs_review, list(reasons)
 
 
-def normalize_question(raw, image_count, error_type_names):
-    """检查并补全一道题，返回整理后的字典；不合格时抛 IntakeError。"""
+def normalize_question(raw, image_count):
+    """检查并补全一道题，返回整理后的字典；不合格时抛 IntakeError。
+
+    错因已停用：旧版技能如果还传 error_type，这里直接忽略，不报错也不写入。
+    """
     texts = {key: read_text(raw, key, label) for key, label in QUESTION_TEXT_FIELDS}
     if not texts['parsed_question']:
         raise IntakeError('题干必须填写')
@@ -300,7 +284,6 @@ def normalize_question(raw, image_count, error_type_names):
         'wrong_answer': texts['wrong_answer'],
         'wrong_evidence': texts['wrong_evidence'],
         'difficulty': difficulty,
-        'error_type': normalize_error_type(raw.get('error_type'), error_type_names),
         'knowledge_point_ids': knowledge_point_ids,
         'primary_knowledge_point_id': primary_id,
         'needs_review': needs_review,

@@ -28,7 +28,7 @@ const navigation = [
 ]
 const mobileLinks = [navigation[0].items[0], navigation[0].items[1], navigation[1].items[0]]
 const isActive = (path) => route.path === path || (path === '/questions' && route.path === '/upload') || (path === '/reading' && route.path.startsWith('/reading-test/')) || (path === '/papers' && route.path.startsWith('/papers/'))
-const currentTitle = computed(() => route.path === '/upload' ? '录入错题' : route.path === '/targeted-paper' ? '出练习卷' : route.path.startsWith('/grade') ? '待批改' : route.path.startsWith('/reading-test/') ? '阅读练习' : route.path.startsWith('/papers/') ? '卷子和作业' : navigation.flatMap(g => g.items).find(i => i.path === route.path)?.label || '学习空间')
+const currentTitle = computed(() => route.path === '/upload' ? '录入错题' : route.path === '/targeted-paper' ? '出练习卷' : route.path.startsWith('/grade') ? '批改' : route.path.startsWith('/reading-test/') ? '阅读练习' : route.path.startsWith('/papers/') ? '卷子和作业' : navigation.flatMap(g => g.items).find(i => i.path === route.path)?.label || '学习空间')
 const appConfigStore = useAppConfigStore()
 const reviewCountStore = useReviewCountStore()
 // 进入应用时加载配置并刷新待核对数量
