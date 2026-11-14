@@ -2,7 +2,7 @@
   <div class="management">
     <PageHeading title="资料管理" description="整理学习资料，设置适合自己的学习偏好。" />
     <!-- 访问密码验证 -->
-    <el-dialog v-model="showPasswordDialog" title="请输入访问密码" width="400px" :close-on-click-modal="false" :show-close="false">
+    <el-dialog v-model="showPasswordDialog" title="请输入访问密码" :width="is_mobile ? '92%' : '400px'" :close-on-click-modal="false" :show-close="false">
       <el-form>
         <el-form-item label="访问密码">
           <el-input v-model="password" type="password" placeholder="请输入访问密码" @keyup.enter="verifyPassword" show-password />
@@ -59,7 +59,27 @@
                 新增学科
               </el-button>
             </div>
-            <el-table :data="subjects" stripe style="width: 100%; margin-top: 15px">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.subjects" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.subjects.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="subjects" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="学科名称" />
               <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '删除', run: () => deleteSubject(row), disabled: false, danger: true }" :actions="[]" /></template></el-table-column>
@@ -76,7 +96,27 @@
                 新增标签
               </el-button>
             </div>
-            <el-table :data="tags" stripe style="width: 100%; margin-top: 15px">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.tags" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.tags.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="tags" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="标签名称" />
               <el-table-column prop="color" label="颜色" width="120">
@@ -125,7 +165,27 @@
               </el-select>
               <el-input v-model="kpFilters.keyword" placeholder="搜索名称" clearable @change="fetchKnowledgePoints" style="width: 180px" />
             </div>
-            <el-table :data="knowledgePoints" row-key="id" :tree-props="{ children: 'children' }" default-expand-all stripe style="width: 100%; margin-top: 15px" empty-text="暂无目录数据">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.knowledgePoints" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.knowledgePoints.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="knowledgePoints" row-key="id" :tree-props="{ children: 'children' }" default-expand-all stripe style="width: 100%; margin-top: 15px" empty-text="暂无目录数据">
               <el-table-column label="知识点" min-width="230">
                 <template #default="{ row }">
                   <KnowledgeTag :point="row" :subject-id="row.subject_id" :show-path="row.level === 2" />
@@ -158,7 +218,27 @@
             </el-table>
             <div v-if="showLegacy" class="legacy-panel">
               <h4>待处理旧目录（level 为空，不参与新树与新统计）</h4>
-              <el-table :data="legacyKnowledgePoints" size="small" empty-text="没有待处理旧目录">
+              <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+              <div v-if="is_mobile" class="mg-list">
+                <div v-for="item in mobile_rows.legacyKnowledgePoints" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                  <div class="mg-main">
+                    <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                    <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                  </div>
+                  <div class="mg-side">
+                    <el-dropdown trigger="click" placement="bottom-end">
+                      <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </div>
+                </div>
+                <div v-if="!mobile_rows.legacyKnowledgePoints.length" class="mg-empty">暂无数据</div>
+              </div>
+              <el-table v-else :data="legacyKnowledgePoints" size="small" empty-text="没有待处理旧目录">
                 <el-table-column prop="id" label="ID" width="80" />
                 <el-table-column prop="name" label="原名称" />
                 <el-table-column prop="subject_name" label="学科" width="100" />
@@ -185,7 +265,27 @@
                 新增错题本
               </el-button>
             </div>
-            <el-table :data="errorBooks" stripe style="width: 100%; margin-top: 15px">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.errorBooks" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.errorBooks.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="errorBooks" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="错题本名称" />
               <el-table-column prop="subject_name" label="学科" width="100" />
@@ -238,7 +338,27 @@
                 新增行为
               </el-button>
             </div>
-            <el-table :data="starActions" stripe style="width: 100%; margin-top: 15px">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.starActions" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.starActions.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="starActions" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="code" label="行为代码" width="150" />
               <el-table-column prop="name" label="行为名称" width="120" />
@@ -273,7 +393,27 @@
                 新增成就
               </el-button>
             </div>
-            <el-table :data="achievements" stripe style="width: 100%; margin-top: 15px">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.achievements" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.achievements.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="achievements" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="成就名称" width="120" />
               <el-table-column prop="level" label="等级" width="80" />
@@ -299,7 +439,27 @@
                 新增奖励
               </el-button>
             </div>
-            <el-table :data="rewards" stripe style="width: 100%; margin-top: 15px">
+            <!-- 手机端：紧凑列表（名称 + 一行说明 + 右侧「⋯」操作） -->
+            <div v-if="is_mobile" class="mg-list">
+              <div v-for="item in mobile_rows.rewards" :key="item.key" class="mg-row" :class="{ 'is-child': item.is_child, 'is-parent': item.is_parent }">
+                <div class="mg-main">
+                  <div class="mg-name"><i v-if="item.color" class="mg-dot" :style="{ background: item.color }"></i>{{ item.name }}</div>
+                  <div v-if="item.desc" class="mg-desc">{{ item.desc }}</div>
+                </div>
+                <div class="mg-side">
+                  <el-dropdown trigger="click" placement="bottom-end">
+                    <el-button class="mg-more" aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="act in item.actions" :key="act.label" :disabled="act.disabled" :class="{ 'list-action-danger': act.danger }" @click="act.run()">{{ act.label }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+              <div v-if="!mobile_rows.rewards.length" class="mg-empty">暂无数据</div>
+            </div>
+            <el-table v-else :data="rewards" stripe style="width: 100%; margin-top: 15px">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="name" label="奖励名称" width="150" />
               <el-table-column prop="cost_stars" label="所需积分" width="100" />
@@ -326,7 +486,7 @@
     </el-card>
 
     <!-- 新增学科弹窗 -->
-    <el-dialog v-model="showSubjectDialog" title="新增学科" width="400px">
+    <el-dialog v-model="showSubjectDialog" title="新增学科" :width="is_mobile ? '92%' : '400px'">
       <el-form :model="subjectForm" label-width="80px">
         <el-form-item label="学科名称" required>
           <el-input v-model="subjectForm.name" placeholder="请输入学科名称" />
@@ -339,7 +499,7 @@
     </el-dialog>
 
     <!-- 新增标签弹窗 -->
-    <el-dialog v-model="showTagDialog" title="新增标签" width="400px">
+    <el-dialog v-model="showTagDialog" title="新增标签" :width="is_mobile ? '92%' : '400px'">
       <el-form :model="tagForm" label-width="80px">
         <el-form-item label="标签名称" required>
           <el-input v-model="tagForm.name" placeholder="请输入标签名称" />
@@ -355,7 +515,7 @@
     </el-dialog>
 
     <!-- 新增/编辑知识点弹窗 -->
-    <el-dialog v-model="showKnowledgeDialog" :title="editKnowledgeData ? '编辑知识点' : '新增知识点'" width="560px">
+    <el-dialog v-model="showKnowledgeDialog" :title="editKnowledgeData ? '编辑知识点' : '新增知识点'" :width="is_mobile ? '92%' : '560px'">
       <el-form :model="knowledgeForm" label-width="100px">
         <el-form-item label="层级" required>
           <el-radio-group v-model="knowledgeForm.level" :disabled="!!editKnowledgeData">
@@ -401,7 +561,7 @@
     </el-dialog>
 
     <!-- 新增/编辑错题本弹窗 -->
-    <el-dialog v-model="showErrorBookDialog" :title="editErrorBookData ? '编辑错题本' : '新增错题本'" width="500px">
+    <el-dialog v-model="showErrorBookDialog" :title="editErrorBookData ? '编辑错题本' : '新增错题本'" :width="is_mobile ? '92%' : '500px'">
       <el-form :model="errorBookForm" label-width="100px">
         <el-form-item label="错题本名称" required>
           <el-input v-model="errorBookForm.name" placeholder="请输入错题本名称" />
@@ -422,7 +582,7 @@
     </el-dialog>
 
     <!-- 新增/编辑行为弹窗 -->
-    <el-dialog v-model="showStarActionDialog" :title="editStarActionData ? '编辑行为' : '新增行为'" width="500px">
+    <el-dialog v-model="showStarActionDialog" :title="editStarActionData ? '编辑行为' : '新增行为'" :width="is_mobile ? '92%' : '500px'">
       <el-form :model="starActionForm" label-width="100px">
         <el-form-item label="行为代码" required>
           <el-input v-model="starActionForm.code" placeholder="如: upload_question" :disabled="!!editStarActionData" />
@@ -444,7 +604,7 @@
     </el-dialog>
 
     <!-- 新增/编辑成就弹窗 -->
-    <el-dialog v-model="showAchievementDialog" :title="editAchievementData ? '编辑成就' : '新增成就'" width="500px">
+    <el-dialog v-model="showAchievementDialog" :title="editAchievementData ? '编辑成就' : '新增成就'" :width="is_mobile ? '92%' : '500px'">
       <el-form :model="achievementForm" label-width="100px">
         <el-form-item label="成就名称" required>
           <el-input v-model="achievementForm.name" placeholder="如: 学习达人" />
@@ -471,7 +631,7 @@
     </el-dialog>
 
     <!-- 新增/编辑奖励弹窗 -->
-    <el-dialog v-model="showRewardDialog" :title="editRewardData ? '编辑奖励' : '新增奖励'" width="500px">
+    <el-dialog v-model="showRewardDialog" :title="editRewardData ? '编辑奖励' : '新增奖励'" :width="is_mobile ? '92%' : '500px'">
       <el-form :model="rewardForm" label-width="100px">
         <el-form-item label="奖励名称" required>
           <el-input v-model="rewardForm.name" placeholder="如: 免作业卡" />
@@ -523,8 +683,11 @@ import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { refreshKnowledgeColors } from '@/composables/knowledgeColors'
 import axios from '@/api/http'
+import { use_is_mobile } from '@/composables/useIsMobile'
 
 const appConfigStore = useAppConfigStore()
+// 手机宽度（≤768px）时，各表格换成紧凑列表
+const is_mobile = use_is_mobile()
 const activeTab = ref('system')
 const appConfigForm = reactive({
   defaultGrade: null,
@@ -1170,6 +1333,143 @@ const deleteReward = async (row) => {
   }
 }
 
+/* ---------- 手机端紧凑列表的数据 ----------
+ * 每一行统一成 { key, name, desc, color?, is_parent?, is_child?, actions }，
+ * actions 和电脑端表格里的操作按钮一一对应（同一个处理函数）。
+ */
+
+/**
+ * 把几个说明字段用「 · 」连成一行，自动跳过空值。
+ */
+function join_desc(...parts) {
+  return parts.filter(part => part !== null && part !== undefined && part !== '').join(' · ')
+}
+
+/**
+ * 库存 -1 表示无限，其余原样显示。
+ */
+function format_stock(value) {
+  return value === -1 ? '无限' : value
+}
+
+/**
+ * 积分值加上正负号，例如 +10、-5。
+ */
+function format_signed(value) {
+  return (value >= 0 ? '+' : '') + value
+}
+
+/**
+ * 把两级知识点树摊平成一列：一级在前，紧跟它的二级（二级缩进显示，相当于全部展开）。
+ */
+function flatten_knowledge_tree(tree) {
+  const rows = []
+  for (const parent of tree || []) {
+    rows.push(build_knowledge_row(parent, false))
+    for (const child of parent.children || []) {
+      rows.push(build_knowledge_row(child, true))
+    }
+  }
+  return rows
+}
+
+/**
+ * 生成一条知识点的手机列表行；操作和表格里的「编辑 / 新增二级 / 删除」一致。
+ */
+function build_knowledge_row(row, is_child) {
+  const is_module = row.level === 1
+  return {
+    key: row.id,
+    name: row.name,
+    desc: join_desc(
+      row.subject_name,
+      is_module ? `子级 ${row.child_count || 0} 个` : '',
+      `${row.question_count || 0} 题`,
+    ),
+    is_parent: is_module && !is_child,
+    is_child,
+    actions: [
+      { label: '编辑', run: () => editKnowledgePoint(row) },
+      ...(is_module ? [{ label: '新增二级', run: () => openKnowledgeDialog(2, row) }] : []),
+      { label: '删除', run: () => deleteKnowledgePoint(row), danger: true },
+    ],
+  }
+}
+
+// 8 张表各自对应的手机列表行
+const mobile_rows = computed(() => ({
+  subjects: subjects.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    desc: `ID ${row.id}`,
+    actions: [{ label: '删除', run: () => deleteSubject(row), danger: true }],
+  })),
+  tags: tags.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    color: row.color,
+    desc: row.color ? `颜色 ${row.color}` : '默认颜色',
+    actions: [{ label: '删除', run: () => deleteTag(row), danger: true }],
+  })),
+  knowledgePoints: flatten_knowledge_tree(knowledgePoints.value),
+  legacyKnowledgePoints: legacyKnowledgePoints.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    desc: join_desc(row.subject_name, `${row.question_count || 0} 题`, `ID ${row.id}`),
+    actions: [
+      { label: '转为二级', run: () => promoteLegacy(row) },
+      { label: '软删除', run: () => deleteKnowledgePoint(row), disabled: row.question_count > 0, danger: true },
+    ],
+  })),
+  errorBooks: errorBooks.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    desc: join_desc(row.subject_name, row.description),
+    actions: [
+      { label: '编辑', run: () => editErrorBook(row) },
+      { label: '删除', run: () => deleteErrorBook(row), danger: true },
+    ],
+  })),
+  starActions: starActions.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    desc: join_desc(
+      `${format_signed(row.star_value)} 积分`,
+      row.is_custom ? '自定义' : '预设',
+      row.enabled ? '' : '已停用',
+    ),
+    actions: [
+      { label: '编辑', run: () => editStarAction(row) },
+      { label: '删除', run: () => deleteStarAction(row), disabled: row.is_preset, danger: true },
+    ],
+  })),
+  achievements: achievements.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    desc: join_desc(
+      `等级 ${row.level}`,
+      `${row.trigger_action} × ${row.trigger_count}`,
+      `奖励 ${row.reward_stars} 积分`,
+    ),
+    actions: [
+      { label: '编辑', run: () => editAchievement(row), disabled: row.is_preset },
+      { label: '删除', run: () => deleteAchievement(row), disabled: row.is_preset, danger: true },
+    ],
+  })),
+  rewards: rewards.value.map(row => ({
+    key: row.id,
+    name: row.name,
+    desc: join_desc(
+      `${row.cost_stars} 积分`,
+      `剩余 ${format_stock(row.remaining_stock)} / 总 ${format_stock(row.total_stock)}`,
+    ),
+    actions: [
+      { label: '编辑', run: () => editReward(row) },
+      { label: '删除', run: () => deleteReward(row), danger: true },
+    ],
+  })),
+}))
+
 const verifyPassword = async () => {
   if (!password.value) {
     ElMessage.warning('请输入密码')
@@ -1315,4 +1615,60 @@ onMounted(() => {
 .legacy-panel h4 {
   margin:0 0 10px;
   color:var(--text-secondary)}
+
+/* ---------- 手机端：紧凑列表（8 张表共用同一套 mg-* 样式） ---------- */
+.mg-list {
+  margin-top: 12px; overflow: hidden; border-radius: 12px;
+  background: var(--el-bg-color, #fff);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+/* 一行：左边名称+说明，右边操作 */
+.mg-row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 56px; padding: 9px 10px 9px 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.mg-list > .mg-row:last-child { border-bottom: none; }
+/* 知识点二级缩进；一级加粗 */
+.mg-row.is-child { padding-left: 36px; background: var(--el-fill-color-lighter, #fafafa); }
+.mg-row.is-parent .mg-name { font-weight: 600; }
+.mg-main { flex: 1; min-width: 0; }
+.mg-name {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; line-height: 21px; color: var(--el-text-color-primary);
+  overflow-wrap: anywhere;
+}
+.mg-desc {
+  margin-top: 2px; font-size: 12px; line-height: 18px; color: var(--el-text-color-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mg-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.mg-side { flex: none; display: flex; align-items: center; gap: 8px; }
+.mg-more { width: 34px; height: 34px; padding: 0; border-radius: 8px; }
+.mg-empty { padding: 24px 0; text-align: center; font-size: 13px; color: var(--el-text-color-placeholder); }
+
+@media (max-width: 768px) {
+  .management :deep(.el-card__header) { padding: 14px 16px; }
+  .management :deep(.el-card__body) { padding: 12px; }
+  /* 标签页头：去掉左右箭头，改成手指横向滑动 */
+  .management :deep(.el-tabs__nav-wrap.is-scrollable) { padding: 0; }
+  .management :deep(.el-tabs__nav-prev),
+  .management :deep(.el-tabs__nav-next) { display: none; }
+  .management :deep(.el-tabs__nav-scroll) { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .management :deep(.el-tabs__nav-scroll::-webkit-scrollbar) { display: none; }
+  .management :deep(.el-tabs__nav) { transform: none !important; }
+  .management :deep(.el-tabs__item) { padding: 0 12px; }
+  /* 新增按钮一行放不下时自动换行 */
+  .action-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .action-bar :deep(.el-button + .el-button) { margin-left: 0; }
+  /* 知识点筛选：两列排开 */
+  .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 0; }
+  .filters :deep(.el-select),
+  .filters :deep(.el-input) { width: 100% !important; }
+  /* 积分调整：每项占满一行 */
+  .stars-adjust-section { padding: 12px; }
+  .stars-adjust-section :deep(.el-form-item) { display: flex; width: 100%; margin-right: 0; }
+  .stars-adjust-section :deep(.el-form-item__content) { flex: 1; min-width: 0; }
+  .stars-adjust-section :deep(.el-input) { width: 100% !important; }
+}
 </style>

@@ -23,7 +23,36 @@
           </div>
 
           <!-- 报告列表 -->
-          <el-table :data="reports.items" stripe style="width: 100%; margin-top: 20px">
+          <!-- 手机：卡片列表（表格 8 列，窄屏只看得到标题） -->
+          <div v-if="is_mobile" class="lr-mobile-list">
+            <div v-if="!reports.items?.length" class="lr-mobile-empty">暂无报告</div>
+            <div v-for="row in reports.items" :key="row.id" class="lr-mobile-card">
+              <!-- 第一层：标题 + 学科 -->
+              <div class="lr-mobile-top">
+                <div class="lr-mobile-title" @click="viewReport(row)">{{ row.title }}</div>
+                <span class="lr-mobile-pill">{{ row.subject_name || '全科' }}</span>
+              </div>
+              <!-- 第二层：年级，生成日期靠右 -->
+              <div class="lr-mobile-tags">
+                <span>{{ row.grade ? formatGrade(row.grade) : '全部年级' }}</span>
+                <em class="lr-mobile-date">{{ format_short_date(row.created_at) }} 生成</em>
+              </div>
+              <!-- 第三层：三个核心数字并排 -->
+              <div class="lr-mobile-stats">
+                <div><b>{{ row.total_questions ?? 0 }}</b>错题数</div>
+                <div><b>{{ row.total_words ?? 0 }}</b>单词数</div>
+                <div>
+                  <b :class="accuracy_level_class(row.overall_accuracy)">{{ row.overall_accuracy == null ? '—' : row.overall_accuracy + '%' }}</b>准确率
+                </div>
+              </div>
+              <!-- 底部：操作按钮，和表格那一行一样 -->
+              <div class="lr-mobile-foot">
+                <ListActions :primary="report_primary_action(row)" :actions="report_more_actions(row)" />
+              </div>
+            </div>
+          </div>
+
+          <el-table v-else :data="reports.items" stripe style="width: 100%; margin-top: 20px">
             <el-table-column prop="title" label="报告标题" min-width="200" />
             <el-table-column prop="subject_name" label="学科" width="100">
               <template #default="{ row }">
@@ -49,7 +78,7 @@
                 {{ formatDate(row.created_at) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => viewReport(row), disabled: false, danger: false }" :actions="[{ label: '删除', run: () => deleteReport(row), disabled: false, danger: true }]" /></template></el-table-column>
+            <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="report_primary_action(row)" :actions="report_more_actions(row)" /></template></el-table-column>
           </el-table>
 
           <!-- 分页 -->
@@ -59,7 +88,8 @@
               v-model:page-size="pagination.limit"
               :page-sizes="[10, 20, 50]"
               :total="reports.total"
-              layout="total, sizes, prev, pager, next"
+              :layout="is_mobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+              :small="is_mobile"
               @change="fetchReports"
             />
           </div>
@@ -161,7 +191,29 @@
         <div v-if="!currentReport.legacy_schema && currentReport.content?.metrics" class="report-section">
           <h3>一级知识模块指标</h3>
           <p class="chart-note">题数按任一关联去重；占比只按主考点归属，未分类单独计数。“模块练习正确率”来自练习最终批改状态，与题目累计批改次数不同。</p>
-          <el-table :data="currentReport.content.metrics.modules || []" empty-text="本次筛选没有一级模块记录" size="small">
+          <!-- 手机：一级模块改成条形列表，每个模块一行 -->
+          <div v-if="is_mobile" class="lr-module-list">
+            <div v-if="!(currentReport.content.metrics.modules || []).length" class="lr-mobile-empty">本次筛选没有一级模块记录</div>
+            <div v-for="(row, idx) in currentReport.content.metrics.modules || []" :key="row.name || idx" class="lr-module-item">
+              <div class="lr-module-head">
+                <span class="lr-module-name">{{ row.name }}</span>
+                <span class="lr-module-count"><b>{{ row.question_count }}</b> 题 · {{ row.share_percent }}%</span>
+              </div>
+              <!-- 细条：模块练习正确率 -->
+              <div class="lr-module-bar-row">
+                <span class="lr-module-label">练习正确率</span>
+                <template v-if="row.accuracy != null">
+                  <div class="lr-module-bar">
+                    <i :class="accuracy_level_class(row.accuracy)" :style="{ width: Math.min(100, Math.max(0, row.accuracy)) + '%' }"></i>
+                  </div>
+                  <span class="lr-module-value">{{ row.accuracy }}%</span>
+                </template>
+                <span v-else class="lr-module-value text-muted">暂无练习记录</span>
+              </div>
+              <div class="lr-module-sub">复习覆盖 {{ row.review_coverage == null ? '—' : row.review_coverage + '%' }}</div>
+            </div>
+          </div>
+          <el-table v-else :data="currentReport.content.metrics.modules || []" empty-text="本次筛选没有一级模块记录" size="small">
             <el-table-column prop="name" label="一级模块" min-width="150" />
             <el-table-column prop="question_count" label="收录题数" width="100" align="right" />
             <el-table-column label="占比" width="90" align="right">
@@ -323,8 +375,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { learningReportApi } from '@/api/learning_report'
 import { questionApi } from '@/api/question'
+import { use_is_mobile } from '@/composables/useIsMobile'
 
 const appConfigStore = useAppConfigStore()
+// 是否手机宽度：手机用卡片列表，电脑用表格
+const is_mobile = use_is_mobile()
 const reports = ref({ total: 0, items: [] })
 const subjects = ref([])
 const filters = reactive({
@@ -378,6 +433,29 @@ const getAccuracyColor = (accuracy) => {
   if (accuracy >= 60) return '#e6a23c'
   return '#f56c6c'
 }
+
+/** 手机卡片和模块细条的准确率档位：≥80 绿色，60–80 橙色（和电脑端表格一致），<60 红色，没有数据不加颜色。 */
+const accuracy_level_class = (accuracy) => {
+  if (accuracy == null) return ''
+  if (accuracy >= 80) return 'is-good'
+  if (accuracy >= 60) return 'is-warn'
+  return 'is-bad'
+}
+
+/** 手机卡片上的短日期，例如 11/14。 */
+const format_short_date = (date_str) => {
+  if (!date_str) return ''
+  const d = new Date(date_str)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`
+}
+
+/** 报告列表里的主按钮"查看"。表格和手机卡片共用。 */
+const report_primary_action = (row) => ({ label: '查看', run: () => viewReport(row), disabled: false, danger: false })
+
+/** 报告列表"更多"里的操作，目前只有删除。表格和手机卡片共用。 */
+const report_more_actions = (row) => [{ label: '删除', run: () => deleteReport(row), disabled: false, danger: true }]
 
 const getDifficultyColor = (level) => {
   const colors = { '1': '#67c23a', '2': '#85ce61', '3': '#e6a23c', '4': '#f56c6c', '5': '#f78989' }
@@ -740,4 +818,82 @@ onMounted(async () => {
   margin:0;
   line-height:1.9;
   color:var(--text-secondary)}
+
+/* ---------- 手机端：筛选、卡片列表、分页 ---------- */
+@media (max-width: 768px) {
+  .learning-reports :deep(.el-card__header) { padding: 14px 16px; }
+  .learning-reports :deep(.el-card__body) { padding: 12px; }
+  .card-header > span { font-size: 16px; font-weight: 600; }
+  /* 两个筛选一行，各占一半 */
+  .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .filters :deep(.el-select) { width: 100% !important; }
+  .pagination { justify-content: center; }
+  /* 详情弹窗里的标签和准确率允许换行 */
+  .report-meta { flex-wrap: wrap; }
+  .report-meta .accuracy { margin-left: 0; }
+}
+
+/* 手机卡片：标题+学科 / 标签 / 三个数字 / 操作 四层 */
+.lr-mobile-list { display: flex; flex-direction: column; gap: 10px; }
+.lr-mobile-empty { padding: 32px 0; text-align: center; font-size: 13px; color: var(--el-text-color-secondary); }
+.lr-mobile-card {
+  padding: 12px 14px; border-radius: 12px;
+  background: var(--el-bg-color, #fff);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.lr-mobile-top { display: flex; align-items: flex-start; gap: 10px; }
+.lr-mobile-title {
+  flex: 1; min-width: 0; font-size: 15px; font-weight: 600; line-height: 22px; cursor: pointer;
+  color: var(--el-text-color-primary); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.lr-mobile-pill {
+  flex: none; font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 10px;
+  color: var(--el-text-color-secondary); background: var(--el-fill-color, #f0f2f5);
+}
+.lr-mobile-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.lr-mobile-tags span {
+  font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 10px;
+  color: var(--el-text-color-regular); background: var(--el-fill-color-light, #f5f7fa);
+}
+.lr-mobile-date { margin-left: auto; font-style: normal; font-size: 12px; color: var(--el-text-color-placeholder); }
+.lr-mobile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.lr-mobile-stats > div {
+  padding: 8px 4px; border-radius: 10px; text-align: center;
+  font-size: 12px; color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light, #f5f7fa);
+}
+.lr-mobile-stats b { display: block; font-size: 18px; line-height: 1.3; color: var(--el-text-color-primary); }
+.lr-mobile-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--el-border-color-lighter, #ebeef5);
+}
+
+/* 准确率三档颜色：数字用文字色，细条用背景色 */
+b.is-good { color: var(--el-color-success); }
+b.is-warn { color: var(--el-color-warning); }
+b.is-bad { color: var(--el-color-danger); }
+
+/* 手机详情：一级模块条形列表 */
+.lr-module-list {
+  margin-bottom: 10px; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.lr-module-item { padding: 10px 12px; border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5); }
+.lr-module-item:last-child { border-bottom: 0; }
+.lr-module-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lr-module-name { flex: 1; min-width: 0; font-size: 14px; color: var(--el-text-color-primary); overflow-wrap: anywhere; }
+.lr-module-count { flex: none; font-size: 12px; color: var(--el-text-color-secondary); }
+.lr-module-count b { color: var(--el-text-color-primary); font-weight: 600; }
+.lr-module-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--el-text-color-secondary); }
+.lr-module-label { flex: none; }
+.lr-module-bar { flex: 1; height: 6px; border-radius: 3px; overflow: hidden; background: var(--el-fill-color, #f0f2f5); }
+.lr-module-bar i { display: block; height: 100%; border-radius: 3px; background: var(--el-color-primary); }
+.lr-module-bar i.is-good { background: var(--el-color-success); }
+.lr-module-bar i.is-warn { background: var(--el-color-warning); }
+.lr-module-bar i.is-bad { background: var(--el-color-danger); }
+.lr-module-value { flex: none; min-width: 36px; text-align: right; color: var(--el-text-color-primary); }
+.lr-module-value.text-muted { color: var(--el-text-color-placeholder); }
+.lr-module-sub { margin-top: 3px; font-size: 11px; color: var(--el-text-color-placeholder); }
 </style>

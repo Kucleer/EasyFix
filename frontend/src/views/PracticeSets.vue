@@ -40,15 +40,17 @@
       </div>
 
       <!-- 批量操作栏 -->
-      <div class="batch-actions">
+      <!-- 手机上没勾选时不占地方，勾选后浮在底部导航上方 -->
+      <div v-if="!is_mobile || selectedIds.length" class="batch-actions" :class="{ 'is-floating': is_mobile }">
         <span class="selected-count">已选择 {{ selectedIds.length }} 项</span>
+        <el-button v-if="is_mobile" link @click="selectedIds = []">取消</el-button>
         <el-button
           type="primary"
           size="default"
           :disabled="selectedIds.length === 0"
           @click="batchDownloadPdf"
         >
-          批量下载PDF
+          {{ is_mobile ? '下载PDF' : '批量下载PDF' }}
         </el-button>
         <el-button
           type="danger"
@@ -56,13 +58,49 @@
           :disabled="selectedIds.length === 0"
           @click="batchDelete"
         >
-          批量删除
+          {{ is_mobile ? '删除' : '批量删除' }}
         </el-button>
       </div>
 
       <!-- 练习集列表 -->
+      <!-- 手机：卡片列表（表格在窄屏只能看到名称和按钮，信息都被挤掉了） -->
+      <div v-if="practiceSets.length && is_mobile" class="ps-mobile-list">
+        <div
+          v-for="row in practiceSets"
+          :key="row.id"
+          class="ps-mobile-card"
+          :class="{ 'is-pending': needsGrading(row), 'is-selected': selectedIds.includes(row.id) }"
+        >
+          <div class="ps-mobile-top">
+            <el-checkbox
+              :model-value="selectedIds.includes(row.id)"
+              aria-label="选择这份练习"
+              @change="toggle_select(row.id)"
+            />
+            <div class="ps-mobile-title" @click="primary_action(row).run()">{{ row.name }}</div>
+            <el-tag :type="statusTagType(row)" size="small" effect="light" round>{{ statusText(row) }}</el-tag>
+          </div>
+          <div class="ps-mobile-tags">
+            <span>{{ row.subject_name || '未分科' }}</span>
+            <span>{{ source_type_text(row) }}</span>
+            <span v-if="row.kind === 'targeted'" class="tag-warn">考点卷</span>
+            <span v-else-if="isQuestionSet(row)">{{ row.question_type === 'original' ? '原题' : '相似题' }}</span>
+            <em class="ps-mobile-date">{{ format_short_date(row.created_at) }}</em>
+          </div>
+          <!-- 底部一行：左边数据，右边按钮 -->
+          <div class="ps-mobile-foot">
+            <div class="ps-mobile-meta">
+              <span><b>{{ row.total_questions ?? 0 }}</b> 题</span>
+              <span v-if="accuracy_text(row)">正确率 <b>{{ accuracy_text(row) }}</b></span>
+              <span v-if="row.review_count">复习 {{ row.review_count }} 次</span>
+            </div>
+            <ListActions :primary="primary_action(row)" :actions="more_actions(row)" />
+          </div>
+        </div>
+      </div>
+
       <el-table
-        v-if="practiceSets.length"
+        v-else-if="practiceSets.length"
         :data="practiceSets"
         row-key="id"
         @selection-change="handleSelectionChange"
@@ -107,7 +145,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="needsGrading(row) ? { label: '批改', run: () => markReviewed(row) } : { label: '查看', run: () => showDetail(row) }" :actions="[...(needsGrading(row) ? [{ label: '查看', run: () => showDetail(row) }] : []), { label: row.pdf_path ? '下载 PDF' : (row.source_type === 'word' ? '暂无 PDF' : (generatingPdfIds.includes(row.id) ? '生成中…' : '生成 PDF')), disabled: !row.pdf_path && (row.source_type === 'word' || generatingPdfIds.includes(row.id)), run: () => row.pdf_path ? downloadPdf(row) : generatePdf(row) }, ...(needsGrading(row) ? [] : [{ label: isQuestionSet(row) && row.reviewed ? '改批改' : '批改', disabled: !isQuestionSet(row) && row.reviewed, run: () => markReviewed(row) }]), { label: '删除', danger: true, run: () => deletePracticeSet(row) }]" /></template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="primary_action(row)" :actions="more_actions(row)" /></template></el-table-column>
       </el-table>
 
       <el-empty v-else description="暂无练习集" />
@@ -119,7 +157,8 @@
           v-model:page-size="pagination.limit"
           :page-sizes="[20, 50, 100, 500]"
           :total="total"
-          layout="total, sizes, prev, pager, next"
+          :layout="is_mobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+          :small="is_mobile"
           @change="fetchPracticeSets"
         />
       </div>
@@ -525,6 +564,7 @@ import MathEditor from '@/components/MathEditor.vue'
 import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
 import WordResultList from '@/components/WordResultList.vue'
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { use_is_mobile } from '@/composables/useIsMobile'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -657,6 +697,65 @@ const statusTagType = (ps) => {
 
 /** 这份是不是还没批改的错题练习卷。 */
 const needsGrading = (ps) => isQuestionSet(ps) && !ps.reviewed
+
+/** 类型文字：单词复习 / 阅读理解 / 错题练习。 */
+const source_type_text = (ps) => {
+  if (ps.source_type === 'word') return '单词复习'
+  if (ps.source_type === 'reading') return '阅读理解'
+  return '错题练习'
+}
+
+/** 正确率文字，没有数据时返回空字符串（卡片上就不显示这一项）。 */
+const accuracy_text = (ps) => {
+  if (ps.source_type === 'word' && ps.word_review_stats?.accuracy != null) return `${ps.word_review_stats.accuracy}%`
+  if (ps.accuracy != null) return `${ps.accuracy}%`
+  return ''
+}
+
+/** 列表里的主按钮：待批改的卷子是"批改"，其余是"查看"。表格和手机卡片共用。 */
+const primary_action = (ps) => needsGrading(ps)
+  ? { label: '批改', run: () => markReviewed(ps) }
+  : { label: '查看', run: () => showDetail(ps) }
+
+/** "更多"下拉里的操作：查看、PDF、批改、删除。表格和手机卡片共用。 */
+const more_actions = (ps) => {
+  const items = []
+  if (needsGrading(ps)) items.push({ label: '查看', run: () => showDetail(ps) })
+  // PDF：有就下载；单词复习没有 PDF；正在生成时禁用
+  const generating = generatingPdfIds.value.includes(ps.id)
+  items.push({
+    label: ps.pdf_path ? '下载 PDF' : (ps.source_type === 'word' ? '暂无 PDF' : (generating ? '生成中…' : '生成 PDF')),
+    disabled: !ps.pdf_path && (ps.source_type === 'word' || generating),
+    run: () => ps.pdf_path ? downloadPdf(ps) : generatePdf(ps),
+  })
+  if (!needsGrading(ps)) {
+    items.push({
+      label: isQuestionSet(ps) && ps.reviewed ? '改批改' : '批改',
+      disabled: !isQuestionSet(ps) && ps.reviewed,
+      run: () => markReviewed(ps),
+    })
+  }
+  items.push({ label: '删除', danger: true, run: () => deletePracticeSet(ps) })
+  return items
+}
+
+/** 手机卡片上的勾选：没选中就选上，选中了就取消。 */
+const toggle_select = (id) => {
+  selectedIds.value = selectedIds.value.includes(id)
+    ? selectedIds.value.filter(x => x !== id)
+    : [...selectedIds.value, id]
+}
+
+/** 手机卡片上的短日期，例如 11/14 16:20。 */
+const format_short_date = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// 是否手机宽度：手机用卡片列表，电脑用表格
+const is_mobile = use_is_mobile()
 
 /** 只看待批改的卷子：类型选错题练习、状态选没做完。 */
 const showPendingGrading = () => {
@@ -1198,6 +1297,7 @@ onMounted(() => {
   fetchSubjects()
   loadPendingGradeCount()
 })
+
 </script>
 
 <style scoped>
@@ -3012,6 +3112,60 @@ onMounted(() => {
   width:100%!important;
   min-width:0!important}
 }
+
+/* ---------- 手机端：筛选、卡片列表、浮动批量栏 ---------- */
+@media (max-width: 768px) {
+  .practice-sets :deep(.el-card__header) { padding: 14px 16px; }
+  .practice-sets :deep(.el-card__body) { padding: 12px; }
+  .card-header > span { font-size: 16px; font-weight: 600; }
+  .header-actions { gap: 12px; }
+  /* 三个下拉一行排开，日期单独一行 */
+  .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .filters :deep(.el-select) { width: 100% !important; }
+  .filters :deep(.el-date-editor) { grid-column: 1 / -1; }
+  /* 勾选后批量栏贴在底部导航上方 */
+  .batch-actions.is-floating {
+    position: fixed; left: 12px; right: 12px; z-index: 20;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    margin: 0; padding: 10px 12px; gap: 8px; flex-wrap: nowrap;
+    background: var(--el-bg-color, #fff); border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(15, 23, 42, .16);
+  }
+  .batch-actions.is-floating :deep(.el-button + .el-button) { margin-left: 0; }
+  .pagination { justify-content: center; }
+}
+
+/* 手机卡片：标题+状态 / 标签 / 数据 / 操作 四层 */
+.ps-mobile-list { display: flex; flex-direction: column; gap: 10px; }
+.ps-mobile-card {
+  padding: 12px 14px; border-radius: 12px;
+  background: var(--el-bg-color, #fff);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+  border-left: 3px solid transparent;
+}
+.ps-mobile-card.is-pending { border-left-color: var(--el-color-warning); }
+.ps-mobile-card.is-selected { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }
+.ps-mobile-top { display: flex; align-items: flex-start; gap: 10px; }
+.ps-mobile-top :deep(.el-checkbox) { height: 22px; }
+.ps-mobile-title {
+  flex: 1; min-width: 0; font-size: 15px; font-weight: 600; line-height: 22px;
+  color: var(--el-text-color-primary); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ps-mobile-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; padding-left: 24px; }
+.ps-mobile-tags span {
+  font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 10px;
+  color: var(--el-text-color-regular); background: var(--el-fill-color-light, #f5f7fa);
+}
+.ps-mobile-tags .tag-warn { color: var(--el-color-warning-dark-2); background: var(--el-color-warning-light-9); }
+.ps-mobile-date { margin-left: auto; font-style: normal; font-size: 12px; color: var(--el-text-color-placeholder); }
+.ps-mobile-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 10px; padding-top: 10px; padding-left: 24px;
+  border-top: 1px dashed var(--el-border-color-lighter, #ebeef5);
+}
+.ps-mobile-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; font-size: 13px; color: var(--el-text-color-secondary); }
+.ps-mobile-meta b { color: var(--el-text-color-primary); font-weight: 600; }
 
 .ps-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.7; }
 .grading-knowledge { display: flex; flex-wrap: wrap; gap: 4px; }

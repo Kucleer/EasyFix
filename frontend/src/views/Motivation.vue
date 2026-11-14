@@ -15,7 +15,7 @@
           <!-- 积分概览 -->
           <div class="points-overview">
             <el-row :gutter="20">
-              <el-col :xs="24" :md="12">
+              <el-col :xs="12" :md="12">
                 <div class="points-card balance-card">
                   <div class="points-icon">
                     <el-icon :size="40"><Coin /></el-icon>
@@ -26,7 +26,7 @@
                   </div>
                 </div>
               </el-col>
-              <el-col :xs="24" :md="12">
+              <el-col :xs="12" :md="12">
                 <div class="points-card today-card">
                   <div class="points-icon">
                     <el-icon :size="40"><Calendar /></el-icon>
@@ -149,7 +149,19 @@
 
         <!-- 积分明细 Tab -->
         <el-tab-pane label="积分明细" name="points">
-          <el-table :data="pointsRecords" stripe style="width: 100%">
+          <!-- 手机：账单式流水，左边行为+时间，右边积分变动 -->
+          <div v-if="is_mobile && pointsRecords.length" class="mo-mobile-list">
+            <div v-for="(row, index) in pointsRecords" :key="row.id ?? index" class="mo-mobile-row">
+              <div class="mo-mobile-main">
+                <div class="mo-mobile-title">{{ getActionName(row.action_code) }}</div>
+                <div class="mo-mobile-meta">{{ build_record_meta(row) }}</div>
+              </div>
+              <div class="mo-mobile-points" :class="get_delta_class(row.star_delta)">
+                {{ format_points_delta(row.star_delta) }}
+              </div>
+            </div>
+          </div>
+          <el-table v-else-if="!is_mobile" :data="pointsRecords" stripe style="width: 100%">
             <el-table-column prop="action_code" label="行为" width="150">
               <template #default="{ row }">
                 {{ getActionName(row.action_code) }}
@@ -176,7 +188,8 @@
             v-model:page-size="pageSize"
             :page-sizes="[20, 50, 100]"
             :total="pointsRecordsTotal"
-            layout="sizes, prev, pager, next"
+            :layout="is_mobile ? 'prev, pager, next' : 'sizes, prev, pager, next'"
+            :small="is_mobile"
             @size-change="handleSizeChange"
             @current-change="fetchRecords"
             style="margin-top: 16px; justify-content: center;"
@@ -187,7 +200,7 @@
     </el-card>
 
     <!-- 成就详情弹窗 -->
-    <el-dialog v-model="achievementDialogVisible" title="成就详情" width="500px">
+    <el-dialog v-model="achievementDialogVisible" title="成就详情" :width="is_mobile ? '92%' : '500px'">
       <div v-if="selectedAchievement" class="achievement-detail">
         <div class="detail-header">
           <div class="detail-icon" :style="{ backgroundColor: selectedAchievement.unlocked ? selectedAchievement.color : '#e0e0e0' }">
@@ -220,9 +233,21 @@
     </el-dialog>
 
     <!-- 积分明细弹窗 -->
-    <el-dialog v-model="pointsDetailVisible" title="积分明细" width="700px" destroy-on-close>
+    <el-dialog v-model="pointsDetailVisible" title="积分明细" :width="is_mobile ? '92%' : '700px'" destroy-on-close>
       <div class="points-detail">
-        <el-table :data="pointsRecords" stripe style="width: 100%">
+        <!-- 手机：账单式流水，左边原因+时间，右边积分 -->
+        <div v-if="is_mobile" class="mo-mobile-list">
+          <div v-for="(row, index) in pointsRecords" :key="row.id ?? index" class="mo-mobile-row">
+            <div class="mo-mobile-main">
+              <div class="mo-mobile-title">{{ row.reason || getTypeName(row.type) }}</div>
+              <div class="mo-mobile-meta">{{ build_detail_meta(row) }}</div>
+            </div>
+            <div class="mo-mobile-points" :class="row.type === 'earn' ? 'is-up' : 'is-down'">
+              {{ row.type === 'earn' ? '+' : '−' }}{{ row.points }}
+            </div>
+          </div>
+        </div>
+        <el-table v-else :data="pointsRecords" stripe style="width: 100%">
           <el-table-column prop="created_at" label="时间" width="160">
             <template #default="{ row }">
               {{ formatDate(row.created_at) }}
@@ -258,6 +283,10 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Coin, Calendar, Check, List, Star, Trophy, Medal, Present, Notebook, School, Timer, Aim } from '@element-plus/icons-vue'
 import { motivationApi } from '@/api/motivation'
+import { use_is_mobile } from '@/composables/useIsMobile'
+
+// 是否手机宽度（≤768px），手机上表格换成账单式列表
+const is_mobile = use_is_mobile()
 
 const activeTab = ref('achievements')
 
@@ -489,6 +518,49 @@ const actionNameMap = {
 }
 const getActionName = (actionCode) => {
   return actionNameMap[actionCode] || actionCode
+}
+
+/**
+ * 把积分变动格式化成带正负号的文字：获得显示 "+10"，消耗显示 "−30"
+ */
+const format_points_delta = (delta) => {
+  const value = Number(delta) || 0
+  if (value > 0) return `+${value}`
+  if (value < 0) return `−${Math.abs(value)}`
+  return '0'
+}
+
+/**
+ * 根据积分变动返回颜色类名：正数绿色，负数红色，0 为灰色
+ */
+const get_delta_class = (delta) => {
+  const value = Number(delta) || 0
+  if (value > 0) return 'is-up'
+  if (value < 0) return 'is-down'
+  return 'is-zero'
+}
+
+/**
+ * 拼出积分明细第二行："时间 · 余额 X · 备注"，没有的部分不显示
+ */
+const build_record_meta = (row) => {
+  const parts = []
+  if (row.created_at) parts.push(formatDate(row.created_at))
+  if (row.balance_after !== null && row.balance_after !== undefined && row.balance_after !== '') {
+    parts.push(`余额 ${row.balance_after}`)
+  }
+  if (row.reason) parts.push(row.reason)
+  return parts.join(' · ')
+}
+
+/**
+ * 拼出弹窗流水第二行："时间 · 类型"，没有的部分不显示
+ */
+const build_detail_meta = (row) => {
+  const parts = []
+  if (row.created_at) parts.push(formatDate(row.created_at))
+  if (row.type) parts.push(getTypeName(row.type))
+  return parts.join(' · ')
 }
 
 // 获取类型名称
@@ -1033,4 +1105,56 @@ onMounted(() => {
 .points-card {
   margin-bottom:12px}
 }
+
+/* ---------- 手机端：概览卡片收紧、奖励区高度、账单式积分流水 ---------- */
+@media (max-width: 768px) {
+  .motivation :deep(.el-card__header) { padding: 14px 16px; }
+  .motivation :deep(.el-card__body) { padding: 12px; }
+  /* 两张概览卡并排，缩小图标和数字 */
+  .points-overview { margin-bottom: 12px; }
+  .points-overview :deep(.el-row) { margin-left: -5px !important; margin-right: -5px !important; }
+  .points-overview :deep(.el-col) { padding-left: 5px !important; padding-right: 5px !important; }
+  .points-card.balance-card,
+  .points-card.today-card { padding: 12px; margin-bottom: 0; }
+  .points-icon { width: 36px; height: 36px; margin-right: 10px; flex-shrink: 0; }
+  .points-icon :deep(.el-icon) { font-size: 22px !important; }
+  .points-label { font-size: 12px; margin-bottom: 2px; }
+  .points-value { font-size: 22px; }
+  /* 成就网格固定两列 */
+  .achievement-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  /* 奖励区不再撑出大块空白 */
+  .rewards-section { margin-top: 8px; }
+  .rewards-layout { min-height: 0; gap: 12px; }
+  .reward-detail-placeholder { height: 180px; }
+  .reward-detail-image { max-height: 260px; }
+  .reward-detail-content { padding: 16px; }
+  .reward-empty { min-height: 200px; }
+}
+
+/* 手机账单式流水：左边行为/原因 + 时间等小字，右边积分变动 */
+.mo-mobile-list {
+  background: var(--el-bg-color, #fff);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.mo-mobile-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.mo-mobile-row:last-child { border-bottom: 0; }
+.mo-mobile-main { flex: 1; min-width: 0; }
+.mo-mobile-title {
+  font-size: 14px; line-height: 20px; color: var(--el-text-color-primary);
+  overflow-wrap: anywhere;
+}
+.mo-mobile-meta {
+  margin-top: 2px; font-size: 12px; line-height: 18px;
+  color: var(--el-text-color-placeholder); overflow-wrap: anywhere;
+}
+.mo-mobile-points { flex: none; font-size: 15px; font-weight: 700; }
+.mo-mobile-points.is-up { color: var(--el-color-success); }
+.mo-mobile-points.is-down { color: var(--el-color-danger); }
+.mo-mobile-points.is-zero { color: var(--el-text-color-secondary); }
 </style>

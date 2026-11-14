@@ -5,7 +5,22 @@
       <template #header>
         <div class="card-header">
           <span>单词本</span>
-          <div>
+          <!-- 手机：只留“开始复习”，其余四个收进“⋯”菜单 -->
+          <div v-if="is_mobile" class="w-mobile-head-actions">
+            <el-button type="success" @click="startReview">开始复习</el-button>
+            <el-dropdown trigger="click" @command="run_head_command">
+              <el-button aria-label="更多操作">⋯</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="add">新增单词</el-dropdown-item>
+                  <el-dropdown-item command="import">导入单词</el-dropdown-item>
+                  <el-dropdown-item command="print">打印默写</el-dropdown-item>
+                  <el-dropdown-item command="annotate">标注词组重点</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+          <div v-else>
             <el-button type="primary" @click="showAddDialog">
               <el-icon><Plus /></el-icon>
               新增单词
@@ -38,8 +53,65 @@
         </div>
       </div>
 
+      <!-- 手机筛选：搜索框 + “筛选”按钮（其余条件放进底部抽屉），下面一行类型快捷切换 -->
+      <template v-if="is_mobile">
+        <div class="w-mobile-search-row">
+          <el-input v-model="filters.keyword" placeholder="搜索单词" clearable @change="fetchWords" />
+          <el-button @click="filter_drawer_visible = true">
+            筛选<span v-if="active_filter_count" class="w-mobile-filter-dot">{{ active_filter_count }}</span>
+          </el-button>
+        </div>
+        <div class="w-mobile-chips">
+          <span
+            v-for="chip in TYPE_CHIPS"
+            :key="chip.value"
+            class="w-mobile-chip"
+            :class="{ 'is-active': filters.entry_type === chip.value }"
+            @click="select_type_chip(chip.value)"
+          >{{ chip.label }}</span>
+          <el-select v-model="mobile_sort" size="small" class="w-mobile-sort" @change="change_mobile_sort">
+            <el-option label="默认排序" value="default" />
+            <el-option label="正确率低→高" value="asc" />
+            <el-option label="正确率高→低" value="desc" />
+          </el-select>
+        </div>
+
+        <el-drawer v-model="filter_drawer_visible" direction="btt" size="auto" title="筛选">
+          <div class="w-mobile-drawer-body">
+            <el-select v-model="filters.grade" placeholder="年级" clearable @change="fetchWords">
+              <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
+            </el-select>
+            <el-select v-model="filters.semester" placeholder="学期" clearable @change="fetchWords">
+              <el-option label="上学期" :value="1" />
+              <el-option label="下学期" :value="2" />
+            </el-select>
+            <el-select v-model="filters.tag_id" placeholder="标签" clearable @change="fetchWords">
+              <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
+            </el-select>
+            <el-select v-model="filters.focus_status" placeholder="标注状态" clearable @change="onTypeFilterChange">
+              <el-option v-for="(label, key) in FOCUS_STATUS_LABELS" :key="key" :label="label" :value="key" />
+            </el-select>
+            <div class="w-mobile-drawer-label">正确率等级</div>
+            <div class="w-mobile-drawer-levels">
+              <el-tag
+                v-for="level in accuracyLevelOptions"
+                :key="level.value"
+                :type="filters.accuracy_level === level.value ? 'primary' : 'info'"
+                @click="toggleAccuracyLevel(level.value)"
+              >{{ level.label }}</el-tag>
+            </div>
+          </div>
+          <template #footer>
+            <div class="w-mobile-drawer-footer">
+              <el-button @click="reset_mobile_filters">重置</el-button>
+              <el-button type="primary" @click="filter_drawer_visible = false">确定</el-button>
+            </div>
+          </template>
+        </el-drawer>
+      </template>
+
       <!-- 筛选条件 -->
-      <div class="filters">
+      <div v-if="!is_mobile" class="filters">
         <el-input
           v-model="filters.keyword"
           placeholder="搜索单词"
@@ -67,7 +139,7 @@
       </div>
 
       <!-- 正确率等级快速筛选 -->
-      <div class="accuracy-level-filter" style="margin-top: 10px">
+      <div v-if="!is_mobile" class="accuracy-level-filter" style="margin-top: 10px">
         <el-tag
           v-for="level in accuracyLevelOptions"
           :key="level.value"
@@ -80,8 +152,64 @@
         </el-tag>
       </div>
 
+      <!-- 手机：勾选后浮在底部导航上方，可直接复习勾选的单词 -->
+      <div v-if="is_mobile && selectedWords.length" class="w-mobile-batch">
+        <span class="w-mobile-batch-count">已选择 {{ selectedWords.length }} 个</span>
+        <el-button link @click="selectedWords = []">取消</el-button>
+        <el-button type="success" @click="startReview">复习选中</el-button>
+      </div>
+
+      <!-- 手机：卡片列表（表格在窄屏只剩英文和操作，中文、音标、正确率都看不到） -->
+      <div v-if="is_mobile" class="w-mobile-list">
+        <div
+          v-for="row in words.items"
+          :key="row.id"
+          class="w-mobile-card"
+          :class="{ 'is-selected': is_word_selected(row) }"
+        >
+          <div class="w-mobile-top">
+            <el-checkbox
+              :model-value="is_word_selected(row)"
+              aria-label="选择这个单词"
+              @change="toggle_word_select(row)"
+            />
+            <div class="w-mobile-main" @click="viewDetail(row)">
+              <div class="w-mobile-english">
+                <span class="w-mobile-word">{{ row.english }}</span>
+                <template v-if="row.entry_type === 'phrase'">
+                  <el-tag size="small" type="warning">词组</el-tag>
+                  <el-tag size="small" :type="focusStatusTagType(row.focus_status)">{{ FOCUS_STATUS_LABELS[row.focus_status] || '未标注' }}</el-tag>
+                </template>
+              </div>
+              <div v-if="row.phonetic" class="w-mobile-phonetic">{{ row.phonetic }}</div>
+              <div class="w-mobile-chinese">{{ row.chinese }}</div>
+            </div>
+            <el-button class="w-mobile-audio" circle :loading="audioLoading" aria-label="播放读音" @click.stop="playWordAudio(row.id)">
+              <span v-if="!audioLoading">🔊</span>
+            </el-button>
+          </div>
+          <!-- 底部一行：左边年级和复习数据，右边按钮 -->
+          <div class="w-mobile-foot">
+            <div class="w-mobile-meta">
+              <span v-if="row.grade" class="w-mobile-grade">{{ row.grade }}年级</span>
+              <span>对 <b>{{ row.correct_count || 0 }}</b>/{{ row.review_count || 0 }}</span>
+              <span class="w-mobile-acc">
+                正确率 <b :style="{ color: getAccuracyColor(row) }">{{ getAccuracyText(row) }}</b>
+                <i class="w-mobile-acc-bar"><i :style="{ width: getAccuracy(row) + '%', background: getAccuracyColor(row) }" /></i>
+              </span>
+              <el-tag v-if="row.accuracy_level" size="small" :type="getAccuracyLevelTagType(row.accuracy_level)">
+                {{ getAccuracyLevelText(row.accuracy_level) }}
+              </el-tag>
+            </div>
+            <ListActions :primary="word_primary_action(row)" :actions="word_more_actions(row)" />
+          </div>
+        </div>
+        <el-empty v-if="!words.items.length" description="暂无单词" :image-size="80" />
+      </div>
+
       <!-- 单词列表 -->
       <el-table
+        v-else
         ref="tableRef"
         :data="words.items"
         stripe
@@ -131,7 +259,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="{ label: '查看', run: () => viewDetail(row), disabled: false, danger: false }" :actions="[{ label: '编辑', run: () => editWord(row), disabled: false, danger: false },{ label: '删除', run: () => deleteWord(row), disabled: false, danger: true }]" /></template></el-table-column>
+        <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><ListActions :primary="word_primary_action(row)" :actions="word_more_actions(row)" /></template></el-table-column>
       </el-table>
 
       <!-- 分页 -->
@@ -141,7 +269,8 @@
           v-model:page-size="pagination.limit"
           :page-sizes="[10, 20, 50, 100]"
           :total="words.total"
-          layout="total, sizes, prev, pager, next"
+          :layout="is_mobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+          :small="is_mobile"
           @change="fetchWords"
         />
       </div>
@@ -594,6 +723,7 @@ import { wordApi } from '@/api/word'
 import { questionApi } from '@/api/question'
 import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
+import { use_is_mobile } from '@/composables/useIsMobile'
 
 const route = useRoute()
 const router = useRouter()
@@ -1097,6 +1227,84 @@ const openPresetReview = (idsStr) => {
 const handleSelectionChange = (selection) => {
   selectedWords.value = selection
 }
+
+// ---------- 手机端：卡片列表、筛选抽屉、头部菜单 ----------
+const is_mobile = use_is_mobile()
+const filter_drawer_visible = ref(false)
+// 手机上的排序选择：'' 默认 / 'asc' 正确率低到高 / 'desc' 高到低
+const mobile_sort = ref('default')
+// 类型快捷切换的选项，值与 filters.entry_type 一致
+const TYPE_CHIPS = [
+  { label: '全部', value: '' },
+  { label: '单词', value: 'word' },
+  { label: '词组', value: 'phrase' },
+]
+
+/** 表格和卡片共用的主按钮：查看详情 */
+const word_primary_action = (row) => ({ label: '查看', run: () => viewDetail(row), disabled: false, danger: false })
+
+/** 表格和卡片共用的“更多”菜单：编辑、删除 */
+const word_more_actions = (row) => [
+  { label: '编辑', run: () => editWord(row), disabled: false, danger: false },
+  { label: '删除', run: () => deleteWord(row), disabled: false, danger: true },
+]
+
+/** 判断某个单词在手机卡片里是否已勾选（和表格共用 selectedWords） */
+const is_word_selected = (row) => selectedWords.value.some(w => w.id === row.id)
+
+/** 手机卡片勾选/取消勾选，复用表格的 handleSelectionChange 更新选中状态 */
+const toggle_word_select = (row) => {
+  const next = is_word_selected(row)
+    ? selectedWords.value.filter(w => w.id !== row.id)
+    : [...selectedWords.value, row]
+  handleSelectionChange(next)
+}
+
+/** 手机头部“⋯”菜单：按命令调用和电脑端按钮相同的方法 */
+const run_head_command = (command) => {
+  const handlers = { add: showAddDialog, import: showImportDialog, print: showPrintDialog, annotate: startAnnotate }
+  handlers[command]?.()
+}
+
+/** 点类型快捷标签：写入类型筛选，复用 onTypeFilterChange 重新查询 */
+const select_type_chip = (value) => {
+  if (filters.entry_type === value) return
+  filters.entry_type = value
+  onTypeFilterChange()
+}
+
+/** 手机排序下拉变化：转成表格排序事件的格式，复用 handleSortChange */
+const change_mobile_sort = (value) => {
+  if (!value || value === 'default') handleSortChange({ prop: null, order: null })
+  else handleSortChange({ prop: 'accuracy', order: value === 'asc' ? 'ascending' : 'descending' })
+}
+
+/** 抽屉里已生效的筛选条件个数，显示在“筛选”按钮上 */
+const active_filter_count = computed(() =>
+  [filters.grade, filters.semester, filters.tag_id, filters.focus_status, filters.accuracy_level]
+    .filter(v => v !== null && v !== undefined && v !== '').length
+)
+
+/** 抽屉“重置”：清空抽屉里的条件后回到第一页重新查询 */
+const reset_mobile_filters = () => {
+  filters.grade = null
+  filters.semester = null
+  filters.tag_id = null
+  filters.focus_status = ''
+  filters.accuracy_level = null
+  pagination.page = 1
+  fetchWords()
+}
+
+// 翻页或筛选后，像表格一样去掉已不在当前列表里的勾选
+watch(() => words.value.items, (items) => {
+  if (!is_mobile.value || !selectedWords.value.length) return
+  const ids = new Set((items || []).map(w => w.id))
+  const kept = selectedWords.value.filter(w => ids.has(w.id))
+  if (kept.length !== selectedWords.value.length) handleSelectionChange(kept)
+})
+// 在表格和卡片之间切换时清空勾选，避免两边状态对不上
+watch(is_mobile, () => { selectedWords.value = [] })
 
 const startReviewGame = async () => {
   if (reviewStarting.value) return
@@ -2990,6 +3198,85 @@ watch(() => route.query.review_ids, (val) => {
     padding: 10px 20px;
   }
 }
+/* ---------- 手机端：头部菜单、筛选、卡片列表、浮动选择栏 ---------- */
+@media (max-width: 768px) {
+  .words :deep(.el-card__header) { padding: 14px 16px; }
+  .words :deep(.el-card__body) { padding: 12px; }
+  .card-header > span { font-size: 16px; font-weight: 600; }
+  .type-stats { gap: 8px; }
+  .pagination { display: flex; justify-content: center; }
+}
+.w-mobile-head-actions { display: flex; align-items: center; gap: 8px; }
+.w-mobile-head-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.w-mobile-search-row { display: flex; gap: 8px; }
+.w-mobile-search-row .el-input { flex: 1; min-width: 0; }
+.w-mobile-filter-dot {
+  display: inline-block; min-width: 16px; height: 16px; margin-left: 4px; padding: 0 4px;
+  border-radius: 8px; font-size: 11px; line-height: 16px; text-align: center;
+  color: #fff; background: var(--el-color-primary);
+}
+.w-mobile-chips { display: flex; align-items: center; gap: 8px; margin: 10px 0 12px; }
+.w-mobile-chip {
+  padding: 0 12px; border-radius: 14px; font-size: 13px; line-height: 28px; cursor: pointer;
+  color: var(--el-text-color-regular); background: var(--el-fill-color-light, #f5f7fa);
+}
+.w-mobile-chip.is-active { color: var(--el-color-primary); background: var(--el-color-primary-light-9); font-weight: 600; }
+.w-mobile-sort { width: 120px; margin-left: auto; }
+.w-mobile-drawer-body { display: flex; flex-direction: column; gap: 10px; }
+.w-mobile-drawer-body .el-select { width: 100%; }
+.w-mobile-drawer-label { margin-top: 4px; font-size: 13px; color: var(--el-text-color-secondary); }
+.w-mobile-drawer-levels { display: flex; flex-wrap: wrap; gap: 8px; }
+.w-mobile-drawer-levels .el-tag { cursor: pointer; }
+.w-mobile-drawer-footer { display: flex; gap: 10px; }
+.w-mobile-drawer-footer .el-button { flex: 1; }
+
+/* 勾选后贴在底部导航上方 */
+.w-mobile-batch {
+  position: fixed; left: 12px; right: 12px; z-index: 20;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  background: var(--el-bg-color, #fff); border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, .16);
+}
+.w-mobile-batch-count { flex: 1; font-size: 14px; color: var(--el-text-color-primary); }
+.w-mobile-batch :deep(.el-button + .el-button) { margin-left: 0; }
+
+/* 手机卡片：单词+读音 / 年级、复习、正确率、操作 两层 */
+.w-mobile-list { display: flex; flex-direction: column; gap: 10px; }
+.w-mobile-card {
+  padding: 12px 14px; border-radius: 12px;
+  background: var(--el-bg-color, #fff);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.w-mobile-card.is-selected { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }
+.w-mobile-top { display: flex; align-items: flex-start; gap: 10px; }
+.w-mobile-top :deep(.el-checkbox) { height: 26px; }
+.w-mobile-main { flex: 1; min-width: 0; cursor: pointer; }
+.w-mobile-english { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.w-mobile-word {
+  font-size: 18px; font-weight: 700; line-height: 26px;
+  color: var(--accent-blue, var(--el-color-primary)); overflow-wrap: anywhere;
+}
+.w-mobile-phonetic { margin-top: 2px; font-size: 13px; color: var(--el-text-color-secondary); }
+.w-mobile-chinese { margin-top: 2px; font-size: 14px; line-height: 1.5; color: var(--el-text-color-regular); overflow-wrap: anywhere; }
+.w-mobile-audio { flex-shrink: 0; width: 36px; height: 36px; }
+.w-mobile-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 10px; padding-top: 10px; padding-left: 24px;
+  border-top: 1px dashed var(--el-border-color-lighter, #ebeef5);
+}
+.w-mobile-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; font-size: 13px; color: var(--el-text-color-secondary); }
+.w-mobile-meta b { color: var(--el-text-color-primary); font-weight: 600; }
+.w-mobile-grade {
+  padding: 0 8px; border-radius: 10px; font-size: 12px; line-height: 20px;
+  color: var(--el-text-color-regular); background: var(--el-fill-color-light, #f5f7fa);
+}
+.w-mobile-acc { display: inline-flex; align-items: center; gap: 4px; }
+.w-mobile-acc-bar {
+  display: inline-block; width: 36px; height: 4px; border-radius: 2px; overflow: hidden;
+  background: var(--el-fill-color, #f0f2f5);
+}
+.w-mobile-acc-bar > i { display: block; height: 100%; border-radius: 2px; }
 </style>
 
 <style>
