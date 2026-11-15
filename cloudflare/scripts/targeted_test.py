@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 import starmap_test  # noqa: E402  复用建库、适配器等助手
-from targeted_model import has_figure, plan_paper, question_state, reason_of  # noqa: E402
+from targeted_model import cut_stem, has_figure, plan_paper, question_state, reason_of  # noqa: E402
 
 MIGRATION_0015 = ROOT / 'migrations' / '0015_targeted_paper.sql'
 
@@ -358,6 +358,18 @@ def similar_fixture():
     original = dict(c.execute('SELECT q.*,s.name AS subject_name FROM question q JOIN subject s ON s.id=q.subject_id '
                               'WHERE q.id=11').fetchone())
     return c, db, starmap_test.FakeRequest(None, db), original
+
+
+def test_cut_stem_keeps_formulas_whole():
+    """预览题干截短时不截在公式中间：跨过截断点的公式整个去掉，没截的原样返回。"""
+    assert cut_stem(r'计算 \(1+2\)', 120) == r'计算 \(1+2\)'
+    assert cut_stem('', 5) == '' and cut_stem(None, 5) == ''
+    assert cut_stem('一二三四五六七八', 4) == '一二三四…'
+    stem = r'空白面积和 \(\frac12+\frac1{2^{2}}+\cdots+\frac1{2^{7}}\) 是多少'
+    assert cut_stem(stem, 20) == '空白面积和…'
+    assert cut_stem(r'\(a\) 和 \[b+c\] 以及更多文字', 15) == r'\(a\) 和 \[b+c\]…'
+    assert cut_stem(r'\(a\) 和 \[b+c\] 以及更多文字', 12) == r'\(a\) 和…'
+    assert cut_stem(r'前面 \(x 没有闭合的公式后面还有很多字', 8) == '前面…'
 
 
 def test_targeted_prompt_content():
@@ -1429,6 +1441,7 @@ def test_build_payload_groups_by_module_id():
 
 
 TESTS = [
+    test_cut_stem_keeps_formulas_whole,
     test_migration_adds_columns,
     test_migration_defaults_keep_old_rows_valid,
     test_add_set_helper_writes_rows,

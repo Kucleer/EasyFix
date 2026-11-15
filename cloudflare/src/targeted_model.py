@@ -22,6 +22,33 @@ FIGURE_WORDS = ('如图', '图中', '下图', '右图', '上图', '图示')
 RESERVE_LIMIT = 5       # 每个考点最多留几道备选
 
 
+MATH_PAIRS = {'\\(': '\\)', '\\[': '\\]', '$$': '$$'}   # 公式的起始边界 → 结束边界
+
+
+def cut_stem(text, limit):
+    """把题干截到大约 limit 个字给预览用，截断处不落在公式中间。
+
+    直接按字数截会把 \\(\\frac12+\\cdots\\) 截成 \\(\\frac12+\\cdots+\\fra，
+    公式没有结束边界，页面就显示源码和红字报错。这里先按字数截，
+    如果截断点在某个公式里面，就退到这个公式开头之前；截短了的末尾加省略号。
+    """
+    text = text or ''
+    if len(text) <= limit:
+        return text
+    i = 0
+    while i < limit:
+        opener = next((left for left in MATH_PAIRS if text.startswith(left, i)), None)
+        if not opener:
+            i += 1
+            continue
+        end = text.find(MATH_PAIRS[opener], i + len(opener))
+        if end == -1 or end + len(MATH_PAIRS[opener]) > limit:
+            # 公式跨过了截断点（或者压根没闭合）：整个公式都不要
+            return text[:i].rstrip() + '…'
+        i = end + len(MATH_PAIRS[opener])
+    return text[:limit] + '…'
+
+
 def question_state(results, entered, waive_at):
     """算一道错题的当前状态（设计 4.1）。
 

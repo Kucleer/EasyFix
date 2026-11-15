@@ -20,7 +20,8 @@ from knowledge import question_links
 from practices import batch_or_http, get as get_practice
 from prompts import PromptLibrary
 from question_scope import counted, grade_ready, stem_ready
-from targeted_model import (MODES, OPEN_PAPER_DAYS, SIZE_MAX, SIZE_MIN, SPOT_DEFAULT, has_figure, plan_paper)
+from targeted_model import (MODES, OPEN_PAPER_DAYS, SIZE_MAX, SIZE_MIN, SPOT_DEFAULT, cut_stem, has_figure,
+                            plan_paper)
 
 router = APIRouter(prefix='/api/practice-sets/targeted')
 
@@ -203,7 +204,7 @@ async def plan(request: Request):
         if row['id'] in details:
             continue                    # 防御：主考点不止一个时只取第一条
         stem = stem_of(row)
-        details[row['id']] = {'stem': stem[:STEM_LENGTH], 'has_figure': has_figure(stem, row['review_reasons'])}
+        details[row['id']] = {'stem': cut_stem(stem, STEM_LENGTH), 'has_figure': has_figure(stem, row['review_reasons'])}
         questions.append({'id': row['id'], 'point_id': row['point_id'], 'wrong_at': normal_time(row['wrong_at']),
                           'entered': normal_time(row['entered']), 'results': results.get(row['id'], []),
                           'blocked': row['id'] in blocked})
