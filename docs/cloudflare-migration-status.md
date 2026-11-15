@@ -251,3 +251,11 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 代码提交 `c8bdfdbd`；只改后端，无迁移。预览题干仍最多约 120 字，`targeted_model.cut_stem` 截断点落在公式里时退到公式前并加省略号（原来会把 `\frac` 截成 `\fra`、丢掉 `\)`，页面显示源码和红字报错）。
 - 部署：Worker `de2e3208`（上一版本 `bd5ea0b0`）；Pages、PDF Worker 不变。
 - 用线上错题 id 495、618、659 核对过新截法；未登录看出卷页。
+
+## 数据修正：题干不完整的错题（2026-11-15）
+
+- 只改 D1 数据，无代码、无部署。修改前整行导出在被忽略的 `backups/question-stem-fix-2026-11-15.json`。
+- id 309–321（卷子 4，早期录入）：题干是"原卷第N题：…；写6"这种摘要，混着孩子的答案。按原卷照片重写完整题干（`parsed_question`、`original_text`），孩子当时的答案挪到 `wrong_answer`，题号写进 `question_no`。
+- id 602–618：题干只多了"第N题："前缀（`original_text` 本身完整），`parsed_question` 改回 `original_text`，题号写进 `question_no`。
+- id 81：只有等式，补成"解方程：\(2(x+5)=7x-3\)。"。
+- 42 个公式先用 KaTeX 校验过。核对：没有题干再以"第N题："或"原卷第"开头；这些题只生成过一道相似题（id 8，来自 316），答案正确。
