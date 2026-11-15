@@ -245,3 +245,9 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 数据：改了 `similar_question` 3 行（id 11、12、13）的答案，id 13 的解析也一并改正；修改前的整行导出在被忽略的 `backups/similar-answer-fix-2026-11-14.json`。
 - 部署：Worker `bd5ea0b0`（上一版本 `178f91a8`）；Pages、PDF Worker 不变。
 - 未验证（需登录）：批改页重新识别后的公式显示、新生成相似题的答案。已知未改：id 9 的相似题答案 `\frac{9}{4}` 没有公式边界，页面会显示源码。
+
+## 变更记录：出卷预览题干截断不再截在公式中间（2026-11-15 已上线）
+
+- 代码提交 `c8bdfdbd`；只改后端，无迁移。预览题干仍最多约 120 字，`targeted_model.cut_stem` 截断点落在公式里时退到公式前并加省略号（原来会把 `\frac` 截成 `\fra`、丢掉 `\)`，页面显示源码和红字报错）。
+- 部署：Worker `de2e3208`（上一版本 `bd5ea0b0`）；Pages、PDF Worker 不变。
+- 用线上错题 id 495、618、659 核对过新截法；未登录看出卷页。
