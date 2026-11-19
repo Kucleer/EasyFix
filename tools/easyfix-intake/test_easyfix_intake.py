@@ -128,9 +128,6 @@ class IntakeToolTest(unittest.TestCase):
         self.assertNotIn(TOKEN, str(ctx.exception))
         self.assertIn('install.py', str(ctx.exception))
 
-    def test_chunk_keeps_order(self):
-        self.assertEqual(tool.chunk(list(range(23)), 10), [list(range(10)), list(range(10, 20)), [20, 21, 22]])
-
     def test_check_images_rejects_big_and_non_image(self):
         big = self.dir / 'big.jpg'
         with open(big, 'wb') as f:
@@ -146,18 +143,69 @@ class IntakeToolTest(unittest.TestCase):
         # 合格的图片不抛错
         tool.check_images(self.make_images(2))
 
-    def test_upload_batches_and_keeps_page_order(self):
+    def test_upload_sends_one_image_per_request_and_keeps_page_order(self):
         paths = self.make_images(23)
         opener = FakeOpener(upload_handler())
         code, out = self.run_main(['upload'] + paths, opener)
         self.assertEqual(code, 0)
-        # 23 张分 3 次请求，路径与路径参数
-        self.assertEqual(opener.paths(), ['/api/upload/batch-simple'] * 3)
+        # 23 张发 23 次请求，每次只带一张：一张出问题不会连累同批的其他图片
+        self.assertEqual(opener.paths(), ['/api/upload/batch-simple'] * 23)
         counts = [len(re.findall(rb'name="files"', r['body'])) for r in opener.requests]
-        self.assertEqual(counts, [10, 10, 3])
+        self.assertEqual(counts, [1] * 23)
         # 输出的 23 个路径与输入顺序一一对应
         expected = ['2026/11/img_%02d.jpg' % i for i in range(23)]
         self.assertEqual(json.loads(out), {'images': expected})
+
+    def test_upload_retries_502_then_succeeds(self):
+        """云端临时故障（502）会等几秒自动重试，重试成功后顺序不乱。"""
+        paths = self.make_images(3)
+        ok = upload_handler()
+        failures = {'img_01.jpg': 2}  # 第 2 张前两次都返回 502
+
+        def handler(method, url, headers, body):
+            name = re.findall(rb'filename="([^"]+)"', body)[0].decode('utf-8')
+            if failures.get(name, 0) > 0:
+                failures[name] -= 1
+                return 502, {'detail': '云端请求失败，请稍后重试'}
+            return ok(method, url, headers, body)
+
+        opener = FakeOpener(handler)
+        with mock.patch.object(tool.time, 'sleep') as sleep:
+            code, out = self.run_main(['upload'] + paths, opener)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {'images': ['2026/11/img_%02d.jpg' % i for i in range(3)]})
+        # 3 张图 + 2 次重试 = 5 次请求；两次重试前各等了一会儿，且越等越久
+        self.assertEqual(len(opener.requests), 5)
+        waits = [c.args[0] for c in sleep.call_args_list]
+        self.assertEqual(waits, list(tool.UPLOAD_RETRY_WAITS[:2]))
+        self.assertLess(waits[0], waits[1])
+
+    def test_upload_gives_up_after_retries(self):
+        """一直 502：重试到上限后整体失败，说明里有第几张、文件名和重试次数。"""
+        paths = self.make_images(2)
+        opener = FakeOpener(lambda m, u, h, b: (502, {'detail': '云端请求失败，请稍后重试'}))
+        with mock.patch.object(tool.time, 'sleep'):
+            code, out = self.run_main(['upload'] + paths, opener)
+        self.assertEqual(code, 4)
+        self.assertNotIn('images', out)
+        # 第 1 张就放弃，一共请求了 1 + 重试次数 次
+        self.assertEqual(len(opener.requests), 1 + len(tool.UPLOAD_RETRY_WAITS))
+        self.assertIn('第1张', out)
+        self.assertIn('img_00.jpg', out)
+        self.assertIn('502', out)
+        self.assertIn('重试%d次' % len(tool.UPLOAD_RETRY_WAITS), out)
+
+    def test_upload_does_not_retry_other_errors(self):
+        """口令不对、系统维护等不是临时故障，不重试、不等待。"""
+        paths = self.make_images(2)
+        for status, detail in ((401, '需要登录'), (503, '系统维护中，请稍后再试')):
+            opener = FakeOpener(lambda m, u, h, b: (status, {'detail': detail}))
+            with mock.patch.object(tool.time, 'sleep') as sleep:
+                code, out = self.run_main(['upload'] + paths, opener)
+            self.assertEqual(code, 4)
+            self.assertEqual(len(opener.requests), 1)
+            sleep.assert_not_called()
+            self.assertIn(detail, out)
 
     def test_upload_fails_as_a_whole_when_one_image_fails(self):
         paths = self.make_images(23)

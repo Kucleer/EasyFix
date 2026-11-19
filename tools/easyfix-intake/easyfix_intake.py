@@ -2,7 +2,7 @@
 
 用法：python easyfix_intake.py <命令> ...
   guide --subject 名称 [--grade N] [--semester N]   取录入规范
-  upload 图片路径...                                  上传照片，输出存储路径
+  upload 图片路径...                                  上传照片（一张一张传，云端临时故障会自动重试），输出存储路径
   check 文件.json                                     只检查试卷内容，不保存
   submit 文件.json                                    检查通过后正式提交
 
@@ -19,13 +19,17 @@ import json
 import os
 import pathlib
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 
 SPEC_VERSION = 1
-UPLOAD_BATCH = 10
+# 上传遇到 502（云端临时故障）时，每次重试前等待的秒数；有几项就最多重试几次。
+# 云端后端跑在 Cloudflare 免费计划上，CPU 用超了会被平台临时中止，过几秒换一个新实例就恢复，
+# 所以等一等再试通常就能成功。
+UPLOAD_RETRY_WAITS = (3, 6, 12)
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 IMAGE_SUFFIXES = ('.jpg', '.jpeg', '.png', '.webp')
 REQUEST_TIMEOUT = 120
@@ -66,11 +70,6 @@ def load_config(environ, config_path):
     if not (base_url and token):
         raise ToolError('还没有配置接口地址或访问口令，请先运行 install.py 并填写 ~/.easyfix/intake.json', EXIT_ENV)
     return {'base_url': base_url, 'token': token}
-
-
-def chunk(items, size):
-    """把列表按 size 切成多段，保持原有顺序。"""
-    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def check_images(paths):
@@ -207,25 +206,39 @@ def command_guide(config, args, opener):
     return EXIT_OK, data
 
 
-def command_upload(config, args, opener):
-    """upload 命令：先检查全部图片，再按批上传，任何一张失败就整体失败。"""
-    check_images(args.paths)
-    stored = []
-    for batch in chunk(args.paths, UPLOAD_BATCH):
-        body, content_type = build_multipart(batch)
+def upload_one(config, path, opener):
+    """上传一张图片，返回 (状态码, 响应字典, 重试了几次)；只有 502 才等几秒重试。"""
+    body, content_type = build_multipart([path])
+    retried = 0
+    while True:
         status, data = call(config, 'POST', '/api/upload/batch-simple', body=body,
                             content_type=content_type, opener=opener)
+        # 502 是云端临时故障；其他状态（成功、口令不对、系统维护等）重试也不会变，直接返回
+        if status != 502 or retried >= len(UPLOAD_RETRY_WAITS):
+            return status, data, retried
+        time.sleep(UPLOAD_RETRY_WAITS[retried])
+        retried += 1
+
+
+def command_upload(config, args, opener):
+    """upload 命令：先检查全部图片，再一张一张上传；任何一张最终失败就整体失败。"""
+    check_images(args.paths)
+    stored = []
+    for number, raw in enumerate(args.paths, start=1):  # number 是第几张（从 1 开始，按给出顺序）
+        name = pathlib.Path(raw).name
+        status, data, retried = upload_one(config, raw, opener)
         if status != 200:
-            raise ToolError(_failure_text(status, data), EXIT_ENV)
-        results = data.get('images') or []
-        for offset, raw in enumerate(batch):
-            number = len(stored) + 1  # 第几张（从 1 开始，按给出顺序）
-            name = pathlib.Path(raw).name
-            item = results[offset] if offset < len(results) else {}
-            if not item.get('success') or not item.get('path'):
-                reason = item.get('error') or '服务器没有返回这张图片的存储路径'
-                raise ToolError('第%d张图片上传失败（%s）：%s，本次没有保存任何结果' % (number, name, reason), EXIT_ENV)
-            stored.append(item['path'])
+            reason = _failure_text(status, data)
+            if retried:
+                reason += '，已重试%d次' % retried
+        else:
+            results = data.get('images') or []
+            item = results[0] if results else {}
+            if item.get('success') and item.get('path'):
+                stored.append(item['path'])
+                continue
+            reason = item.get('error') or '服务器没有返回这张图片的存储路径'
+        raise ToolError('第%d张图片上传失败（%s）：%s，本次没有保存任何结果' % (number, name, reason), EXIT_ENV)
     return EXIT_OK, {'images': stored}
 
 

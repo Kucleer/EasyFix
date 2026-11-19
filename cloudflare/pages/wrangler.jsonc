@@ -3,5 +3,6 @@
   "compatibility_date": "2026-11-08",
   "pages_build_output_dir": "../../tmp/cloudflare-pages-build",
   "services": [{"binding": "BACKEND", "service": "easyfix"}],
-  "r2_buckets":[{"binding":"IMAGES","bucket_name":"easyfix"}]
+  "r2_buckets":[{"binding":"IMAGES","bucket_name":"easyfix"}],
+  "d1_databases": [{"binding": "DB", "database_name": "easyfix", "database_id": "2de427ad-42be-412f-8afe-dfedd94f1c6a"}]
 }
