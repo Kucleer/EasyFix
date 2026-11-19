@@ -23,7 +23,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | 组件 | 位置 | 说明 |
 |------|------|------|
 | 前端 | `frontend/` | Vue 3 + Vite + Element Plus + Pinia + ECharts + KaTeX，构建后发布到 Cloudflare Pages（项目 `easyfix`） |
-| Pages 网关 | `cloudflare/pages/_worker.js` | 校验会话、提供静态资源、从 R2 直读 `/uploads/` 附件，`/api/` 请求经服务绑定转给后端 Worker |
+| Pages 网关 | `cloudflare/pages/_worker.js` | 校验会话、提供静态资源、从 R2 直读 `/uploads/` 附件，图片上传（`/api/upload/file`、`/api/upload/batch-simple`）直接写入 R2，其余 `/api/` 请求经服务绑定转给后端 Worker |
 | 后端 Worker | `cloudflare/src/` | Python Worker `easyfix`：FastAPI + 异步 D1，不开放 workers.dev |
 | PDF Worker | `cloudflare/pdf/` | 内部 Worker `easyfix-pdf`：KaTeX 校验 + Browser Run 生成 PDF，无公开路由 |
 | 数据库 | D1 `easyfix` | 结构变更只通过 `cloudflare/migrations/` 追加 |

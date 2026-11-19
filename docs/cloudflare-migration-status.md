@@ -30,7 +30,7 @@
 - 正式入口：https://easyfix-bl2.pages.dev ，沿用原访问密码；登录后才能读取业务数据与附件。
 - 没有购买域名或升级 Workers Paid。账号内暂无自有域名，使用免费 Pages 域名。
 - 账号：52ff92165ba654aa8260a45ded30e1ef。
-- Pages 项目 easyfix：Vue 静态资源、会话验证、R2 附件直读、后端服务绑定。
+- Pages 项目 easyfix：Vue 静态资源、会话验证、R2 附件直读、图片上传直写 R2（绑定 D1 `DB` 读维护开关、记操作日志）、后端服务绑定。
 - Python Worker easyfix：FastAPI 与异步 D1；不开放 workers.dev / preview_urls。
 - D1 easyfix：2de427ad-42be-412f-8afe-dfedd94f1c6a。
 - 私有 R2 easyfix：原图、历史 PDF、音频、历史上传目录。
@@ -259,3 +259,14 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - id 602–618：题干只多了"第N题："前缀（`original_text` 本身完整），`parsed_question` 改回 `original_text`，题号写进 `question_no`。
 - id 81：只有等式，补成"解方程：\(2(x+5)=7x-3\)。"。
 - 42 个公式先用 KaTeX 校验过。核对：没有题干再以"第N题："或"原卷第"开头；这些题只生成过一道相似题（id 8，来自 316），答案正确。
+
+## 变更记录：上传照片偶发 502（2026-11-19 已上线）
+
+- 代码提交 `42f9a926`；改 Pages 网关和录入小工具，后端 Worker 不变，无迁移。
+- 原因：Python 后端解析一张约 200KB 的照片要用约 0.8 秒 CPU，超过 Workers 免费计划每请求 10 毫秒的限额；连续传几张后平台中止后端（`wrangler tail` 里是 `exceededCpu`），网关把异常转成 502。
+- 网关：`POST /api/upload/batch-simple` 和 `POST /api/upload/file` 改在 `cloudflare/pages/_worker.js` 里直接写 R2，不再经过 Python；登录、维护写开关、来源检查和 `operation_log` 记录照旧。Pages 为此增加 D1 绑定 `DB`（`cloudflare/pages/wrangler.jsonc`）。测试：`node --test cloudflare/pages/worker.test.mjs`。
+- 小工具：`upload` 改为一张一张传，遇到 502 等 3、6、12 秒各重试一次；已用 `install.py` 更新本机技能。
+- 部署：只部署 Pages `f9317fa8`（上一部署 `c5afea6a`），Worker 不变。
+- 验证：用小工具连传 16 张 180KB 测试图全部成功，网关每个请求 CPU 2–8 毫秒；一次批量传 10 张（共 1.8MB）成功，CPU 10 毫秒。另一轮第 13 张网关已存好并记了日志，但响应没有回到本机，小工具等满 120 秒报超时（不是 502）。
+- 调查和验证留在 R2 的测试对象：文件名含 `debug502_probe`（5 个）和 `debug502_verify`（39 个），没有数据库记录引用；`operation_log` 里相应多了约 67 行 `upload`。
+- 未解决：后端其他接口同样超过 10 毫秒限额（热实例 20–100 毫秒，新实例约 500 毫秒），仍可能偶发 502；`check`、`submit` 没有加重试。
