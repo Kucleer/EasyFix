@@ -74,7 +74,7 @@
         <!-- 练习卷：一行数字 + 一句话 -->
         <section class="wr-block">
           <h2>练习卷</h2>
-          <p class="wr-hint">这一周批改的考点卷</p>
+          <p class="wr-hint">这一周批改的练习卷</p>
           <p v-if="practice_line" class="wr-number">{{ practice_line }}</p>
           <p v-if="captions.practice" class="wr-say">{{ captions.practice }}</p>
         </section>

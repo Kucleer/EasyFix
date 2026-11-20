@@ -21,7 +21,7 @@ import starmap_test  # noqa: E402  复用输出与检查助手
 import targeted_test  # noqa: E402  复用建库（starmap_test 的库 + 0015）
 from prompts import PromptLibrary  # noqa: E402
 from weekly_model import (FALLBACK_CHEERS, allowed_names, allowed_numbers, brief_of,  # noqa: E402
-                          check_text, fallback_text, calendar_days, classify_change, entry_streak, graduated_in_week,  # noqa: E402
+                          check_text, fallback_text, calendar_days, classify_change, drop_week_adjusts, entry_streak, graduated_in_week,  # noqa: E402
                           known_at, known_before, percent, pick_target, week_activity,
                           week_end_before, week_starts, window)
 
@@ -106,13 +106,20 @@ def test_week_activity_and_classify():
     adjust = {'kind': 'adjust', 'source': 'adjust', 'at': '2026-11-18 10:00:00.000000', 'adjust': 'set_mastered'}
     assert week_activity([right], start, end) == {'right': True, 'wrong': False}
     assert week_activity([adjust], start, end) == {'right': False, 'wrong': False}
-    assert classify_change('weak', 'fair', {'right': True, 'wrong': False}) == 'improved'
-    assert classify_change('weak', 'mastered', {'right': False, 'wrong': False}) is None     # 只有手动调整：不算变好
-    assert classify_change('good', 'fair', {'right': False, 'wrong': True}) == 'dropped'
-    assert classify_change('good', 'fair', {'right': False, 'wrong': False}) is None
-    assert classify_change('unlearned', 'weak', {'right': False, 'wrong': True}) == 'new_weak'
-    assert classify_change('unlearned', 'fair', {'right': True, 'wrong': False}) is None
-    assert classify_change('fair', 'fair', {'right': True, 'wrong': False}) is None
+    assert classify_change('weak', 'fair', 'fair', {'right': True, 'wrong': False}) == 'improved'
+    assert classify_change('weak', 'mastered', 'weak', {'right': False, 'wrong': False}) is None   # 只有手动调整：不算变好
+    # 本周手动调整 + 一次做对：去掉调整后没升档，不算变好；去掉调整后也升档，算变好
+    assert classify_change('weak', 'mastered', 'weak', {'right': True, 'wrong': False}) is None
+    assert classify_change('weak', 'mastered', 'fair', {'right': True, 'wrong': False}) == 'improved'
+    assert classify_change('good', 'fair', 'fair', {'right': False, 'wrong': True}) == 'dropped'
+    assert classify_change('good', 'fair', 'good', {'right': False, 'wrong': True}) is None      # 只因手动调整降档
+    assert classify_change('good', 'fair', 'fair', {'right': False, 'wrong': False}) is None
+    assert classify_change('unlearned', 'weak', 'weak', {'right': False, 'wrong': True}) == 'new_weak'
+    assert classify_change('unlearned', 'fair', 'fair', {'right': True, 'wrong': False}) is None
+    assert classify_change('fair', 'fair', 'fair', {'right': True, 'wrong': False}) is None
+    # 去掉本周的手动调整，更早的调整保留
+    old_adjust = dict(adjust, at='2026-11-10 10:00:00.000000')
+    assert drop_week_adjusts([old_adjust, right, adjust], start, end) == [old_adjust, right]
 
 
 def test_pick_target():
@@ -196,6 +203,7 @@ def test_check_text_rejects():
     assert broken(lambda t: t.update(summary='这周你默写了 5 天。')) is not None                 # 5 不是给过的数字
     assert broken(lambda t: t.update(summary='「因式分解」变好了。')) is not None                # 没给过的考点名
     assert broken(lambda t: t.update(summary='爸爸妈妈也很开心。')) is not None                  # 提到了父母
+    assert broken(lambda t: t.update(summary='「去括号」还是薄弱的。')) is not None              # 不说“薄弱”
     assert broken(lambda t: t.update(cheer='上一期的鼓励')) is not None                          # 和最近的重复
     assert broken(lambda t: t.update(cheer='很' * 31)) is not None                               # 超长
     assert broken(lambda t: t['captions'].pop('dictation')) is not None                          # 缺字段
@@ -222,6 +230,21 @@ def test_brief_and_allowed():
         assert value in numbers, value
     assert '0.52' not in numbers and '0.4' not in numbers                                        # 模块前后值不放进去
     assert allowed_names(brief) == {'数学', '合并同类项', '去括号', '整式'}
+    assert 'dropped' not in brief['subjects'][0] and 'new_weak' not in brief['subjects'][0]
+
+
+def test_dropped_names_not_allowed():
+    """变差、新出现的考点名不给模型，文字里点名它们会被拒。"""
+    facts = sample_facts()
+    facts['subjects'][0]['dropped'] = [{'id': 103, 'name': '因式分解'}]
+    facts['subjects'][0]['new_weak'] = [{'id': 104, 'name': '一元一次方程'}]
+    brief = brief_of(facts)
+    assert brief['subjects'][0]['dropped_count'] == 1                                            # 数量还在
+    assert '因式分解' not in allowed_names(brief) and '一元一次方程' not in allowed_names(brief)
+    for name in ('因式分解', '一元一次方程'):
+        text = good_text()
+        text['captions']['points']['1'] = '「%s」要多练。' % name
+        assert check_text(text, brief, []) is not None, name
 
 
 def test_fallback_text_passes_own_check():
@@ -237,6 +260,7 @@ def test_fallback_cheers_pass_check():
     brief = brief_of(sample_facts())
     assert len(FALLBACK_CHEERS) == 12
     for cheer in FALLBACK_CHEERS:
+        assert '薄弱' not in cheer, cheer
         text = good_text()
         text['cheer'] = cheer
         assert check_text(text, brief, []) is None, cheer
@@ -259,9 +283,9 @@ def test_fallback_quiet_week():
 
 def test_prompt_carries_rules():
     prompt = PromptLibrary()._build_weekly_report_prompt(brief_of(sample_facts()), ['上一期的鼓励'])
-    for needle in ('你', '「」', '阿拉伯数字', '上一期的鼓励', '合并同类项', '去括号'):
+    for needle in ('你', '「」', '阿拉伯数字', '上一期的鼓励', '合并同类项', '去括号', '不要用“薄弱”这个词'):
         assert needle in prompt
-    assert '薄弱' not in prompt
+    assert prompt.count('薄弱') == 1                                                              # 只在那条规则里出现
 
 
 # ---------------------------------------------------------------- 任务 5：取数 build_facts
@@ -381,6 +405,22 @@ def test_facts_point_changes():
     assert math['target'] == {'id': 111, 'name': '线段和差与中点'}
 
 
+def test_facts_adjust_plus_practice_not_improved():
+    """本周“直接设为掌握”又做对一题：这一题单独升不了档，不算变好；对照组做对两题能升档，照样算变好。"""
+    for right_count, expected in ((1, []), (2, [101])):
+        c = build_db()
+        # 考点 101：上周前录入 2 道错题（薄弱）
+        add_question(c, 1, 1, '2026-11-01 10:00:00.000000', [101])
+        add_question(c, 2, 1, '2026-11-02 10:00:00.000000', [101])
+        items = [(qid, True, 'original') for qid in (1, 2)[:right_count]]
+        add_set(c, 1, '2026-11-17 10:00:00.000000', '2026-11-18 10:00:00.000000', items)
+        add_adjustment(c, 101, 'set_mastered', '2026-11-19 10:00:00.000000')
+        math = facts_for(c)['subjects'][0]
+        assert [p['id'] for p in math['improved']] == expected, (right_count, math['improved'])
+        assert math['improved_count'] == len(expected)
+        assert math['status_counts']['mastered'] == 1                     # 环形图照实显示调整后的结果
+
+
 def test_facts_practice_and_graduated():
     """本周批改 1 份（3 题对 2 题），其中一道是连对第 2 次；上周批改 1 份（2 题对 1 题）。"""
     c = build_db()
@@ -410,8 +450,8 @@ def test_facts_quiet_week():
 def budget_fixture(extra):
     """查询条数测试的库：extra 为真时多 7 个考点、每个 2 道旧错题本周都做对（7 个考点变好）。"""
     c = build_db()
-    c.execute("INSERT INTO weekly_report(week_end,created_at,updated_at) "
-              "VALUES('2026-11-15 20:00:00','2026-11-15 20:00:05','2026-11-15 20:00:05')")
+    c.execute("INSERT INTO weekly_report(week_end,status,created_at,updated_at) "
+              "VALUES('2026-11-15 20:00:00','done','2026-11-15 20:00:05','2026-11-15 20:00:05')")
     add_question(c, 1, 1, '2026-11-17 10:00:00.000000', [101])
     add_dictation(c, 1, '2026-11-18 19:00:00.000000', True)
     if extra:
@@ -444,6 +484,17 @@ def test_facts_query_budget():
     assert math['improved_count'] == 7 and len(math['improved']) == 5            # 列表最多 5 个，计数是真实总数
     assert brief_of(facts_big)['subjects'][0]['improved_count'] == 7
     assert brief_of(facts_big)['improved_total'] == 7
+
+
+def test_report_number_skips_stuck_new():
+    """期数只数更早的、已算好数字的期：一直停在 new 的、已删除的都不算，不跳号。"""
+    c = build_db()
+    rows = [('2026-11-01 20:00:00', 'done', 0), ('2026-11-08 20:00:00', 'new', 0),
+            ('2026-11-15 20:00:00', 'facts_ready', 0), ('2026-10-25 20:00:00', 'done', 1)]
+    for week_end, status, deleted in rows:
+        c.execute("INSERT INTO weekly_report(week_end,status,created_at,updated_at,deleted) "
+                  "VALUES(?,?,'2026-11-01 20:00:05','2026-11-01 20:00:05',?)", (week_end, status, deleted))
+    assert facts_for(c)['week']['number'] == 3
 
 
 # ---------------------------------------------------------------- 任务 6：推进一步和接口
@@ -840,6 +891,7 @@ TESTS = [
     test_check_text_rejects,
     test_check_reason_does_not_echo_text,
     test_brief_and_allowed,
+    test_dropped_names_not_allowed,
     test_fallback_text_passes_own_check,
     test_fallback_cheers_pass_check,
     test_fallback_quiet_week,
@@ -848,9 +900,11 @@ TESTS = [
     test_facts_sunday_night_goes_to_next_week_count_but_same_day_cell,
     test_facts_dictation_only_counts_type_one,
     test_facts_point_changes,
+    test_facts_adjust_plus_practice_not_improved,
     test_facts_practice_and_graduated,
     test_facts_quiet_week,
     test_facts_query_budget,
+    test_report_number_skips_stuck_new,
     test_advance_two_steps_then_done,
     test_advance_claims_once,
     test_bad_text_falls_back_after_three,

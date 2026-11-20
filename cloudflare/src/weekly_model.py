@@ -25,7 +25,8 @@ CAPTION_MAX = 40      # 每张图的说明最多字数
 RECENT_CHEERS = 8     # 生成鼓励语时参考最近几期，避免重复
 TEXT_MAX_ATTEMPTS = 3  # 每期最多调用几次模型写文字
 
-BANNED_WORDS = ('爸爸', '妈妈', '父母', '家长', '爸妈')  # 文字是对学生说的，不能出现这些词
+# 文字是对学生说的，不能出现这些称呼；也不说"薄弱"（页面上叫"下一个要攻克的"）
+BANNED_WORDS = ('爸爸', '妈妈', '父母', '家长', '爸妈', '薄弱')
 
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 DATE_FORMAT = '%Y-%m-%d'
@@ -119,17 +120,28 @@ def week_activity(events, start, end):
     return activity
 
 
-def classify_change(before, after, activity):
-    """一个考点两周的档位变化：'improved' / 'dropped' / 'new_weak' / None（设计 5.2）。"""
+def drop_week_adjusts(events, start, end):
+    """去掉"知道的时间"在本周（[start, end)）的手动调整，更早的调整和其他事件保留，顺序不变。"""
+    return [event for event in events
+            if not (event.get('source') == 'adjust' and start <= known_at(event) < end)]
+
+
+def classify_change(before, after, plain_after, activity):
+    """一个考点两周的档位变化：'improved' / 'dropped' / 'new_weak' / None（设计 5.2）。
+
+    after 是周末真实的档位；plain_after 是去掉本周手动调整后重算的周末档位。
+    只由手动调整引起的变化不算变好也不算变差，所以升档、降档都要 plain_after 也成立。
+    """
     before_level = STATUS_ORDER.index(before)
     after_level = STATUS_ORDER.index(after)
+    plain_level = STATUS_ORDER.index(plain_after)
     if before == 'unlearned':
         # 上个时刻没学、这个时刻是薄弱：新出现，不算变差
         return 'new_weak' if after == 'weak' else None
-    if after_level > before_level and activity['right']:
-        return 'improved'     # 升档且本周有做对的练习结果
-    if after_level < before_level and activity['wrong']:
-        return 'dropped'      # 降档且本周有新错题或做错的练习结果
+    if after_level > before_level and plain_level > before_level and activity['right']:
+        return 'improved'     # 升档（不靠本周的手动调整也升了）且本周有做对的练习结果
+    if after_level < before_level and plain_level < before_level and activity['wrong']:
+        return 'dropped'      # 降档（不靠本周的手动调整也降了）且本周有新错题或做错的练习结果
     return None
 
 
@@ -204,9 +216,8 @@ def brief_of(facts):
         subjects.append({
             'subject_id': subject['subject_id'],
             'name': subject['name'],
+            # 变差、新出现的考点名不给模型，免得文字里点名不好的考点；只留变好的名字
             'improved': [point['name'] for point in subject['improved']],
-            'dropped': [point['name'] for point in subject['dropped']],
-            'new_weak': [point['name'] for point in subject['new_weak']],
             # 列表最多 5 个；有真实总数（improved_count / dropped_count）时用总数，没有时退回列表长度
             'improved_count': subject.get('improved_count', len(subject['improved'])),
             'dropped_count': subject.get('dropped_count', len(subject['dropped'])),
@@ -264,8 +275,6 @@ def allowed_names(brief):
     for subject in brief['subjects']:
         names.add(subject['name'])
         names.update(subject['improved'])
-        names.update(subject['dropped'])
-        names.update(subject['new_weak'])
         if subject['target']:
             names.add(subject['target'])
         for module in subject['modules']:

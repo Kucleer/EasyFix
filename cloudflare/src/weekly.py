@@ -26,14 +26,15 @@ from prompts import PromptLibrary
 from question_scope import counted, current_student_id
 from settings import generate_json
 from weekly_model import (CALENDAR_DAYS, STATUS_ORDER, STREAK_LOOKBACK, TIME_FORMAT, TREND_WEEKS, DATE_FORMAT,
-                          calendar_days, classify_change, entry_streak, graduated_in_week, known_before, percent,
-                          pick_target, week_activity, week_starts, window)
+                          calendar_days, classify_change, drop_week_adjusts, entry_streak, graduated_in_week,
+                          known_before, percent, pick_target, week_activity, week_starts, window)
 from weekly_model import RECENT_CHEERS, TEXT_MAX_ATTEMPTS, brief_of, check_text, fallback_text, week_end_before
 
 SCHEMA_VERSION = 1      # facts 结构的版本号
 LIST_MAX = 5            # improved / dropped / new_weak 列表最多放几个考点
 STALE_SECONDS = 180     # 认领一步后超过这么多秒还没做完，算卡住，可以被重新认领
-# 模型请求超时 120 秒（settings.py）比 STALE_SECONDS 短，模型调用进行中认领不会过期，所以每期最多调 TEXT_MAX_ATTEMPTS 次模型
+# 模型请求超时 120 秒（settings.py）比 STALE_SECONDS 短，模型调用进行中认领不会过期，所以正常情况下每期最多调
+# TEXT_MAX_ATTEMPTS 次模型；如果某次运行在模型返回之后、记下失败次数之前被中断，这一次不会被记上，可能多调一次
 LIST_LIMIT = 60         # 各期简表最多列几期
 MODEL_FAILED_TEXT = '文本模型请求失败'     # 写进 error 的固定短句，后面只跟状态码
 MODEL_ERROR_TEXT = '文本模型调用出错'      # 不是 HTTP 错误时的固定短句
@@ -63,9 +64,12 @@ def week_dates(monday):
 
 
 async def report_number(db, student_id, end):
-    """期数：这个学生 week_end 更早的未删除周报数 + 1。"""
-    row = await db.first('SELECT COUNT(*) AS n FROM weekly_report WHERE student_id=? AND deleted=0 AND week_end<?',
-                         (student_id, end))
+    """期数：这个学生 week_end 更早、已算好数字（facts_ready 或 done）的未删除周报数 + 1。
+
+    一直停在 new 的期不算，免得期数跳号（第 1 期后面直接是第 3 期）。
+    """
+    row = await db.first("SELECT COUNT(*) AS n FROM weekly_report WHERE student_id=? AND deleted=0 AND week_end<? "
+                         "AND status IN ('facts_ready','done')", (student_id, end))
     return row['n'] + 1
 
 
@@ -215,6 +219,10 @@ async def subject_part(db, subject, student_id, win, config, default_grade):
     progress = (config.get('progress') or {}).get(str(subject_id))
     before = leaves_at(points, events, sections, progress, default_grade, win['start'])
     after = leaves_at(points, events, sections, progress, default_grade, win['end'])
+    # 去掉本周的手动调整再算一遍周末档位，用来判断变化是不是只因为手动调整（纯计算，不多查库）
+    plain_events = {point_id: drop_week_adjusts(point_events, win['start'], win['end'])
+                    for point_id, point_events in events.items()}
+    plain_after = leaves_at(points, plain_events, sections, progress, default_grade, win['end'])
     status_counts = {status: 0 for status in STATUS_ORDER}
     changes = {'improved': [], 'dropped': [], 'new_weak': []}
     target_leaves = []
@@ -225,7 +233,8 @@ async def subject_part(db, subject, student_id, win, config, default_grade):
         status_counts[now['status']] += 1
         # 本周有没有做对/做错：用全部事件，week_activity 自己按"知道的时间"挑本周的
         activity = week_activity(events.get(leaf['id'], []), win['start'], win['end'])
-        change = classify_change(before[leaf['id']]['status'], now['status'], activity)
+        change = classify_change(before[leaf['id']]['status'], now['status'],
+                                 plain_after[leaf['id']]['status'], activity)
         if change:
             changes[change].append({'id': leaf['id'], 'name': leaf['name']})
         target_leaves.append({'id': leaf['id'], 'name': leaf['name'], **now})
