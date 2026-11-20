@@ -16,8 +16,9 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 import starmap_test  # noqa: E402  复用输出与检查助手
 import targeted_test  # noqa: E402  复用建库（starmap_test 的库 + 0015）
-from weekly_model import (calendar_days, entry_streak, percent, week_end_before,  # noqa: E402
-                          week_starts, window)
+from weekly_model import (calendar_days, classify_change, entry_streak, graduated_in_week,  # noqa: E402
+                          known_at, known_before, percent, pick_target, week_activity,
+                          week_end_before, week_starts, window)
 
 MIGRATION_0016 = ROOT / 'migrations' / '0016_weekly_report.sql'
 
@@ -85,11 +86,65 @@ def test_streak_calendar_percent():
     assert percent(34, 70) == 48.6 and percent(0, 0) is None
 
 
+def test_known_before_uses_entered_for_questions():
+    """错题按录入时间算"系统知道的时间"，卷子日期再早也不算。"""
+    late = {'kind': 'wrong', 'source': 'question', 'at': '2026-11-10', 'entered': '2026-11-23 09:00:00.000000', 'qid': 1}
+    paper = {'kind': 'right', 'source': 'practice', 'at': '2026-11-20 18:00:00.000000', 'qid': 2}
+    assert known_before([late, paper], '2026-11-22 20:00:00') == [paper]      # 卷子日期早、但录入在之后：不算
+    assert known_at(late) == '2026-11-23 09:00:00.000000'
+
+
+def test_week_activity_and_classify():
+    """本周有没有做对/做错，以及考点变好、变差、新出现的判定。"""
+    start, end = '2026-11-15 20:00:00', '2026-11-22 20:00:00'
+    right = {'kind': 'right', 'source': 'practice', 'at': '2026-11-18 10:00:00.000000'}
+    adjust = {'kind': 'adjust', 'source': 'adjust', 'at': '2026-11-18 10:00:00.000000', 'adjust': 'set_mastered'}
+    assert week_activity([right], start, end) == {'right': True, 'wrong': False}
+    assert week_activity([adjust], start, end) == {'right': False, 'wrong': False}
+    assert classify_change('weak', 'fair', {'right': True, 'wrong': False}) == 'improved'
+    assert classify_change('weak', 'mastered', {'right': False, 'wrong': False}) is None     # 只有手动调整：不算变好
+    assert classify_change('good', 'fair', {'right': False, 'wrong': True}) == 'dropped'
+    assert classify_change('good', 'fair', {'right': False, 'wrong': False}) is None
+    assert classify_change('unlearned', 'weak', {'right': False, 'wrong': True}) == 'new_weak'
+    assert classify_change('unlearned', 'fair', {'right': True, 'wrong': False}) is None
+    assert classify_change('fair', 'fair', {'right': True, 'wrong': False}) is None
+
+
+def test_pick_target():
+    """下一个要攻克的：薄弱或一般、有待重做题、掌握度最低；并列取待重做多的。"""
+    leaves = [{'id': 1, 'name': '甲', 'value': 0.35, 'status': 'weak', 'pending': 1},
+              {'id': 2, 'name': '乙', 'value': 0.20, 'status': 'weak', 'pending': 0},      # 没有待重做的题：不选
+              {'id': 3, 'name': '丙', 'value': 0.35, 'status': 'weak', 'pending': 3},
+              {'id': 4, 'name': '丁', 'value': 0.80, 'status': 'good', 'pending': 2}]      # 档位较好：不选
+    assert pick_target(leaves)['id'] == 3                                                  # 并列取待重做多的
+    assert pick_target([leaves[1], leaves[3]]) is None
+
+
+def test_graduated_in_week():
+    """本周毕业：end 时毕业、start 时没有，且本周有做对的结果；直接设为掌握不算。"""
+    start, end = '2026-11-15 20:00:00', '2026-11-22 20:00:00'
+    r = lambda at, correct: {'at': at, 'order': 0, 'correct': correct}
+    histories = {
+        1: {'entered': '2026-11-01 10:00:00', 'waives': [],                                # 本周连对第 2 次：算
+            'results': [r('2026-11-10 10:00:00', True), r('2026-11-18 10:00:00', True)]},
+        2: {'entered': '2026-11-01 10:00:00', 'waives': [],                                # 上周就毕业了：不算
+            'results': [r('2026-11-05 10:00:00', True), r('2026-11-10 10:00:00', True)]},
+        3: {'entered': '2026-11-01 10:00:00', 'waives': ['2026-11-18 10:00:00'], 'results': []},   # 只是被设为掌握：不算
+        4: {'entered': '2026-11-01 10:00:00', 'waives': [],                                # 第 2 次做对在 T_end 之后：不算
+            'results': [r('2026-11-18 10:00:00', True), r('2026-11-23 10:00:00', True)]},
+    }
+    assert graduated_in_week(histories, start, end) == 1
+
+
 TESTS = [
     test_migration_creates_weekly_report,
     test_week_end_boundaries,
     test_window_and_week_starts,
     test_streak_calendar_percent,
+    test_known_before_uses_entered_for_questions,
+    test_week_activity_and_classify,
+    test_pick_target,
+    test_graduated_in_week,
 ]
 
 

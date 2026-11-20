@@ -7,6 +7,9 @@
 
 from datetime import datetime, timedelta
 
+from targeted import normal_time
+from targeted_model import question_state
+
 REPORT_WEEKDAY = 6    # 周日（datetime.weekday() 里周一是 0）
 REPORT_HOUR = 20      # 每周日 20:00 出一期
 CALENDAR_DAYS = 42    # 日历热力图显示的天数
@@ -86,3 +89,81 @@ def percent(correct, total):
     if not total:
         return None
     return round(correct * 100 / total, 1)
+
+
+def known_at(event):
+    """这条事件"系统知道的时间"：错题用录入时间，练习结果和手动调整用它们自己的时间。"""
+    if event.get('source') == 'question':
+        return str(event.get('entered') or event.get('at') or '')
+    return str(event.get('at') or '')
+
+
+def known_before(events, cutoff):
+    """留下"知道的时间"早于 cutoff 的事件，顺序不变。"""
+    return [event for event in events if known_at(event) < cutoff]
+
+
+def week_activity(events, start, end):
+    """本周（[start, end)）这个考点有没有做对的练习结果、有没有新错题或做错的练习结果。手动调整不算。"""
+    activity = {'right': False, 'wrong': False}
+    for event in events:
+        if not (start <= known_at(event) < end):
+            continue
+        if event.get('source') == 'practice' and event.get('kind') == 'right':
+            activity['right'] = True
+        elif event.get('source') == 'question':
+            activity['wrong'] = True    # 新录入的错题
+        elif event.get('source') == 'practice' and event.get('kind') == 'wrong':
+            activity['wrong'] = True    # 做错的练习结果
+    return activity
+
+
+def classify_change(before, after, activity):
+    """一个考点两周的档位变化：'improved' / 'dropped' / 'new_weak' / None（设计 5.2）。"""
+    before_level = STATUS_ORDER.index(before)
+    after_level = STATUS_ORDER.index(after)
+    if before == 'unlearned':
+        # 上个时刻没学、这个时刻是薄弱：新出现，不算变差
+        return 'new_weak' if after == 'weak' else None
+    if after_level > before_level and activity['right']:
+        return 'improved'     # 升档且本周有做对的练习结果
+    if after_level < before_level and activity['wrong']:
+        return 'dropped'      # 降档且本周有新错题或做错的练习结果
+    return None
+
+
+def pick_target(leaves):
+    """下一个要攻克的：薄弱或一般、还有待重做错题的考点里掌握度最低的；没有返回 None。
+
+    并列时取待重做错题多的，再并列取编号小的。
+    """
+    candidates = [leaf for leaf in leaves if leaf['status'] in ('weak', 'fair') and leaf['pending'] > 0]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda leaf: (leaf['value'], -leaf['pending'], leaf['id']))
+
+
+def state_at(history, moment):
+    """一道错题在 moment 时刻的状态：只用时间早于 moment 的结果和"设为掌握"。"""
+    results = []
+    for row in history['results']:
+        at = normal_time(row['at'])
+        if at is not None and at < moment:
+            results.append({'at': at, 'order': row.get('order'), 'correct': row['correct']})
+    waives = [normal_time(value) for value in history['waives']]
+    earlier = [value for value in waives if value is not None and value < moment]
+    waive_at = max(earlier) if earlier else None
+    return question_state(results, normal_time(history['entered']), waive_at)['state']
+
+
+def graduated_in_week(histories, start, end):
+    """本周毕业的错题数：end 时已毕业、start 时还不是，并且本周内有做对的结果。"""
+    count = 0
+    for history in histories.values():
+        if state_at(history, end) != 'graduated' or state_at(history, start) == 'graduated':
+            continue
+        in_week = [row for row in history['results']
+                   if row['correct'] and start <= (normal_time(row['at']) or '') < end]
+        if in_week:
+            count += 1
+    return count
