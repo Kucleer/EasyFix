@@ -362,7 +362,11 @@ def fallback_summary(brief):
             parts.append('下一个要攻克的是「%s」。' % subject['target'])
             break
     if not parts:
-        parts.append('这周录了 %d 道错题，把它们一道道弄懂就好。' % brief['entries']['count'])
+        # 本周可能一道错题都没录（只做了练习卷，或默写只在周日 20:00 之后），此时不能对孩子说“录了 0 道”
+        if brief['entries']['count'] > 0:
+            parts.append('这周录了 %d 道错题，把它们一道道弄懂就好。' % brief['entries']['count'])
+        else:
+            parts.append('这周你做了练习，继续保持。')
     return ''.join(parts)
 
 

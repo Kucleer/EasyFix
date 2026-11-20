@@ -280,6 +280,30 @@ def test_fallback_quiet_week():
     assert check_text(text, brief, []) is None
     assert '歇' in text['summary']                                                               # 照实说，不硬夸
 
+def fallback_plain_week(count):
+    """不安静、没默写、没变好、没毕业、没目标，只做了 1 份练习卷的一周。"""
+    facts = sample_facts()
+    facts['entries'].update(count=count, streak_weeks=0)
+    facts['dictation'].update(count=0, correct=0, accuracy=None, days=0)
+    facts['practice'].update(papers=1, questions=5, correct=3, accuracy=60.0, graduated=0)
+    for subject in facts['subjects']:
+        subject.update(improved=[], dropped=[], new_weak=[], target=None)
+    brief = brief_of(facts)
+    return brief, fallback_text(brief, [])
+
+
+def test_fallback_summary_zero_entries_never_says_zero():
+    brief, text = fallback_plain_week(0)
+    assert text['summary'] == '这周你做了练习，继续保持。'
+    assert check_text(text, brief, []) is None
+
+
+def test_fallback_summary_with_entries_keeps_old_sentence():
+    brief, text = fallback_plain_week(3)
+    assert text['summary'] == '这周录了 3 道错题，把它们一道道弄懂就好。'
+    assert check_text(text, brief, []) is None
+
+
 
 def test_prompt_carries_rules():
     prompt = PromptLibrary()._build_weekly_report_prompt(brief_of(sample_facts()), ['上一期的鼓励'])
@@ -895,6 +919,8 @@ TESTS = [
     test_fallback_text_passes_own_check,
     test_fallback_cheers_pass_check,
     test_fallback_quiet_week,
+    test_fallback_summary_zero_entries_never_says_zero,
+    test_fallback_summary_with_entries_keeps_old_sentence,
     test_prompt_carries_rules,
     test_facts_entries_and_calendar,
     test_facts_sunday_night_goes_to_next_week_count_but_same_day_cell,
