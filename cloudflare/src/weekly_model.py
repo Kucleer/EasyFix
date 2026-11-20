@@ -162,6 +162,9 @@ def graduated_in_week(histories, start, end):
     for history in histories.values():
         if state_at(history, end) != 'graduated' or state_at(history, start) == 'graduated':
             continue
+        # 只因为"直接设为掌握"才毕业的不算：不带 waive 重算，end 时也得是已毕业
+        if state_at({**history, 'waives': []}, end) != 'graduated':
+            continue
         in_week = [row for row in history['results']
                    if row['correct'] and start <= (normal_time(row['at']) or '') < end]
         if in_week:

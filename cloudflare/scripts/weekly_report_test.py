@@ -134,6 +134,10 @@ def test_graduated_in_week():
             'results': [r('2026-11-18 10:00:00', True), r('2026-11-23 10:00:00', True)]},
     }
     assert graduated_in_week(histories, start, end) == 1
+    # 本周只有 1 次做对（连对 1），又被设为掌握：毕业只因设为掌握，不算
+    waived = {5: {'entered': '2026-11-01 10:00:00', 'waives': ['2026-11-19 10:00:00'],
+                  'results': [r('2026-11-18 10:00:00', True)]}}
+    assert graduated_in_week(waived, start, end) == 0
 
 
 TESTS = [
