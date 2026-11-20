@@ -41,7 +41,8 @@
           <div v-if="subjects.length > 1" class="wr-tabs">
             <button v-for="s in subjects" :key="s.subject_id" type="button" :class="{ on: s.subject_id === subject_id }" @click="subject_id = s.subject_id">{{ s.name }}</button>
           </div>
-          <div class="wr-two">
+          <!-- 手机上上下排，电脑上左右排 -->
+          <div class="wr-two" :class="{ 'wr-stack': is_mobile }">
             <div :class="{ 'wr-span': !modules_option }">
               <h2>考点星星</h2>
               <p class="wr-hint">和知识星空同一套颜色</p>
@@ -50,7 +51,7 @@
             <div v-if="modules_option">
               <h2>各模块</h2>
               <p class="wr-hint">虚线上周，实线本周</p>
-              <VChart :option="modules_option" autoresize class="wr-chart" style="height: 170px" />
+              <VChart :option="modules_option" autoresize class="wr-chart" :style="{ height: is_mobile ? '220px' : '170px' }" />
             </div>
           </div>
           <p v-if="point_caption" class="wr-say">{{ point_caption }}</p>
@@ -219,9 +220,19 @@ async function catch_up() {
     if (tries < ADVANCE_MAX_TRIES) await sleep(ADVANCE_WAIT_MS)
   }
   if (leaving) return
+  // 记下补做期间用户正在看的那一期（可能已经翻到上一期了）
+  const watching_id = report.value?.id
+  const was_newest = index.value === 0
   // 没做完也刷新一次：数字已经算好的那一期可以先看图表
   await load_list()
-  if (items.value.length) await go(0)
+  if (items.value.length && (done || was_newest || !watching_id)) {
+    // 做完了，或者用户本来就在看最新一期：显示最新一期
+    await go(0)
+  } else {
+    // 用户翻到了别的期：留在原地，只把位置对到刷新后的列表上
+    const i = items.value.findIndex(item => item.id === watching_id)
+    if (i >= 0) index.value = i
+  }
   notice.value = done ? '' : LATER_TEXT
 }
 
@@ -246,6 +257,9 @@ onBeforeUnmount(() => {
 .wr-head h1 { font-size: 18px; margin: 0; line-height: 1.4; }
 .wr-nav { display: flex; gap: 4px; white-space: nowrap; }
 .wr-nav .el-button { font-size: 13px; }
+/* 手机上标题单独一行，上一期 / 下一期放在下面一行 */
+.weekly:not(.is-wide) .wr-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+.weekly:not(.is-wide) .wr-head h1 { white-space: nowrap; }
 .wr-notice { background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: 14px; padding: 12px 14px; font-size: 14px; color: var(--text-secondary); margin: 0 0 10px; }
 
 .wr-cheer { background: #5b5bd6; color: #fff; border-radius: 14px; padding: 14px 16px; font-size: 17px; font-weight: 700; line-height: 1.5; }
@@ -275,6 +289,7 @@ onBeforeUnmount(() => {
 
 /* 块里左右两半（考点星星 / 各模块，仪表盘 / 近 6 周）；只有一半时占满 */
 .wr-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.wr-two.wr-stack { grid-template-columns: minmax(0, 1fr); }
 .wr-span { grid-column: 1 / -1; }
 
 .wr-target { display: flex; align-items: center; gap: 10px; background: var(--bg-secondary); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
