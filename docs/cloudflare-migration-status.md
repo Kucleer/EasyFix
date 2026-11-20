@@ -270,3 +270,13 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 验证：用小工具连传 16 张 180KB 测试图全部成功，网关每个请求 CPU 2–8 毫秒；一次批量传 10 张（共 1.8MB）成功，CPU 10 毫秒。另一轮第 13 张网关已存好并记了日志，但响应没有回到本机，小工具等满 120 秒报超时（不是 502）。
 - 调查和验证留在 R2 的测试对象：文件名含 `debug502_probe`（5 个）和 `debug502_verify`（39 个），没有数据库记录引用，2026-11-20 已全部删除，删后重新列出 `2026/11/` 确认没有残留（该目录剩 49 个对象）。wrangler 4.158 不能列出 R2 对象，其中 13 个没记下路径的是用 `wrangler auth token` 取登录令牌、调 Cloudflare 接口 `GET /accounts/<账号>/r2/buckets/easyfix/objects?prefix=…` 列出来的。`operation_log` 里相应多了约 67 行 `upload`，保留。
 - 未解决：后端其他接口同样超过 10 毫秒限额（热实例 20–100 毫秒，新实例约 500 毫秒），仍可能偶发 502；`check`、`submit` 没有加重试。
+
+## 变更记录：每周周报（2026-11-20 已上线）
+
+- 代码 `fc44fcc8..f987b9a3`（分支 `feature/weekly-report` 快进合并进 `main`）。设计 `docs/superpowers/specs/2026-11-20-weekly-report-design.md`，计划 `docs/superpowers/plans/2026-11-20-weekly-report.md`。
+- 迁移 `0016_weekly_report.sql`（只新建 `weekly_report` 表和唯一索引）。执行前备份 `backups/weekly_report_release_20261120T111546Z/remote.sql`（SHA-256 `3a0533ec7b4d16feed4fa16ad7220b6ff2634e9c056e3d204503589e8ca2baf3`），Time Travel 书签 `000000e0-00000000-00005129-e66fadb04255192ce27065b69f44ba6c`；先在备份副本上演练。执行后新表为空，其余 41 张表行数与备份一致。未开启维护开关（只建表）。
+- 部署：Worker `c39ee0ea`（上一版本 `de2e3208`），新增定时任务 `*/10 12 * * sun`（北京时间周日 20:00–20:50 每 10 分钟），开启 Workers Logs 但关闭请求记录（`invocation_logs: false`，日志里只有定时任务自己打印的一行）。Pages `c8af7451`（上一部署 `f9317fa8`），从提交 `f987b9a3` 构建。PDF Worker 不变。
+- 部署核对：`/health` 200、未登录 `/api/subjects` 401、登录页 200、录入小工具 `guide` 正常。用录入口令调 `POST /api/weekly-reports/advance` 补出第 1 期（11 月 9 日–15 日），三次调用后 `done`，文字来源是模型。
+- 入口验证（计划 Task 7 第 5 步）：走到第 1 条，本机 `wrangler dev` 加载真实 `main.py`，原有接口照常，定时入口能被 `/cdn-cgi/local/scheduled` 触发；没有部署临时测试 Worker。
+- 本机情况：主检出里的 `cloudflare/python_modules` 只有一部分，第一次部署报 `No module named 'fastapi'`（10021，未生效）；按 `pylock.toml` 的地址下载 13 个 wheel、逐个核对 SHA-256 后解压重建，依赖版本未变，原目录挪到 `tmp/python_modules_partial_20261120`。Cloudflare 会把 Python 默认的 `Python-urllib` 请求标识当机器人返回 403（1010），脚本调线上接口要带自己的 User-Agent。
+- 未验证：真实的定时任务要到上线后第一个周日（2026-11-22）20:20 之后才能验证——查 Workers Logs 里有没有 `weekly 2026-11-22 20:00:00 ...` 的日志行、`weekly_report` 里有没有那一期且为 `done`。维护开关的读取失败时按"维护中"处理，所以周日日志若是 `maintenance`，先确认是不是 D1 出错。
