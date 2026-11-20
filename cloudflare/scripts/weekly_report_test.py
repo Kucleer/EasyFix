@@ -261,6 +261,188 @@ def test_prompt_carries_rules():
     assert '薄弱' not in prompt
 
 
+# ---------------------------------------------------------------- 任务 5：取数 build_facts
+
+WEEK_END = datetime(2026, 11, 22, 20)
+add_question = starmap_test.add_question
+add_paper = starmap_test.add_paper
+add_set = targeted_test.add_set
+run = starmap_test.run
+
+
+def add_dictation(c, word_id, reviewed_at, correct, review_type=1):
+    """插入一条单词默写记录；单词不存在时先插一个。"""
+    if c.execute('SELECT id FROM word WHERE id=?', (word_id,)).fetchone() is None:
+        c.execute("INSERT INTO word(id,english,chinese,review_count,correct_count,deleted,created_at,updated_at) "
+                  "VALUES(?,?,'词',0,0,0,'2026-10-01 08:00:00','2026-10-01 08:00:00')", (word_id, 'word%d' % word_id))
+    c.execute('INSERT INTO word_review_log(word_id,is_correct,review_type,reviewed_at,deleted) VALUES(?,?,?,?,0)',
+              (word_id, correct, review_type, reviewed_at))
+
+
+def add_adjustment(c, point_id, kind, created_at):
+    """插入一条手动调整掌握度的记录。"""
+    c.execute('INSERT INTO mastery_adjustment(student_id,knowledge_point_id,kind,created_at,deleted) VALUES(1,?,?,?,0)',
+              (point_id, kind, created_at))
+
+
+def facts_of(db):
+    """用 db（异步接口）算 WEEK_END 那一期的 facts。"""
+    from weekly import build_facts
+    return run(build_facts(db, starmap_test.request_for(db), WEEK_END))
+
+
+def facts_for(c):
+    """提交 c 上的改动，再算 facts。"""
+    c.commit()
+    return facts_of(starmap_test.adapter(c))
+
+
+def test_facts_entries_and_calendar():
+    """录入按录入时间算周：卷子日期在上周、本周才录入的算本周；T_end 之后的不算。"""
+    c = build_db()
+    add_question(c, 1, 1, '2026-11-17 10:00:00.000000', [101])                 # 本周
+    add_paper(c, 1, 1, '2026-11-10')
+    add_question(c, 2, 1, '2026-11-16 09:00:00.000000', [101], paper_id=1)     # 卷子上周、本周录入
+    add_question(c, 3, 1, '2026-11-10 10:00:00.000000', [102])                 # 上周
+    add_question(c, 4, 1, '2026-11-22 21:00:00.000000', [102])                 # T_end 之后
+    add_question(c, 5, 1, '2026-11-18 10:00:00.000000', [102], status='pending')   # 没核对：不算
+    facts = facts_for(c)
+    assert facts['schema_version'] == 1
+    assert facts['week'] == {'start': '2026-11-15 20:00:00', 'end': '2026-11-22 20:00:00',
+                             'monday': '2026-11-16', 'sunday': '2026-11-22', 'number': 1}
+    assert facts['entries']['count'] == 2 and facts['entries']['prev_count'] == 1
+    assert facts['entries']['streak_weeks'] == 2
+    assert facts['entries']['by_subject'] == [{'subject_id': 1, 'name': '数学', 'count': 2}]
+    lit = [d['date'] for d in facts['calendar'] if d['entered']]
+    assert '2026-11-23' not in lit and len(facts['calendar']) == 42
+    assert lit == ['2026-11-10', '2026-11-16', '2026-11-17'], lit
+    assert facts['quiet'] is False
+
+
+def test_facts_sunday_night_goes_to_next_week_count_but_same_day_cell():
+    """上周日 20:00 之后默写的：条数算本周，格子亮在上周日，"默写 N 天"不含它。"""
+    c = build_db()
+    for word_id in (1, 2, 3):
+        add_dictation(c, word_id, '2026-11-15 21:00:00.000000', True)
+    facts = facts_for(c)
+    assert facts['dictation']['count'] == 3 and facts['dictation']['days'] == 0
+    assert [d for d in facts['calendar'] if d['date'] == '2026-11-15'][0]['dictated'] is True
+    assert facts['quiet'] is False
+
+
+def test_facts_dictation_only_counts_type_one():
+    """只算默写题型（review_type=1）：选择题型不算。"""
+    c = build_db()
+    for index, correct in enumerate((True, True, True, False)):
+        add_dictation(c, index + 1, '2026-11-18 19:00:0%d.000000' % index, correct)
+    add_dictation(c, 9, '2026-11-18 19:30:00.000000', True, review_type=2)
+    add_dictation(c, 9, '2026-11-19 19:30:00.000000', True, review_type=2)
+    add_dictation(c, 1, '2026-11-10 19:00:00.000000', False)                   # 上周 1 条
+    facts = facts_for(c)
+    dictation = facts['dictation']
+    assert (dictation['count'], dictation['correct'], dictation['accuracy']) == (4, 3, 75.0)
+    assert dictation['days'] == 1 and (dictation['prev_count'], dictation['prev_accuracy']) == (1, 0.0)
+    assert len(dictation['trend']) == 6 and dictation['trend'][-1]['count'] == 4
+    assert dictation['trend'][-1]['monday'] == '2026-11-16'
+    assert dictation['trend'][0] == {'monday': '2026-10-12', 'count': 0, 'accuracy': None}
+    assert [d['date'] for d in facts['calendar'] if d['dictated']] == ['2026-11-10', '2026-11-18']
+
+
+def test_facts_point_changes():
+    """考点变好、新出现、手动调整不算变好、下一个要攻克的。"""
+    c = build_db()
+    # 教材：4.1 → 112，4.2 → 111，进度 4.1：111 没有记录时算没学
+    starmap_test.add_section(c, 1, 1, 4, '4.1', 41, [112])
+    starmap_test.add_section(c, 2, 1, 4, '4.2', 42, [111])
+    starmap_test.set_config(c, 'starmap', {'progress': {'1': '4.1'}})
+    # 考点 101：上周前录入 2 道错题（薄弱 0.2），本周练习卷里两道都做对（一般 0.5）
+    add_question(c, 1, 1, '2026-11-01 10:00:00.000000', [101])
+    add_question(c, 2, 1, '2026-11-02 10:00:00.000000', [101])
+    add_set(c, 1, '2026-11-17 10:00:00.000000', '2026-11-18 10:00:00.000000',
+            [(1, True, 'original'), (2, True, 'original')])
+    # 考点 102：只在本周被"直接设为掌握"
+    add_adjustment(c, 102, 'set_mastered', '2026-11-19 10:00:00.000000')
+    # 考点 111：本周新录入错题，之前没有记录（之前算没学）
+    add_question(c, 3, 1, '2026-11-20 10:00:00.000000', [111])
+    facts = facts_for(c)
+    math = facts['subjects'][0]
+    assert [s['subject_id'] for s in facts['subjects']] == [1, 2]
+    assert [p['id'] for p in math['improved']] == [101]
+    assert math['improved_count'] == 1 and math['dropped'] == [] and math['dropped_count'] == 0
+    assert [p['id'] for p in math['new_weak']] == [111]
+    assert math['status_counts']['mastered'] >= 1                      # 手动调整照实显示在环形图里
+    leaf_total = len([p for p in starmap_test.SEED_POINTS if p[2] == 1 and p[3] == 2])   # 数学的二级考点数
+    assert sum(math['status_counts'].values()) == leaf_total
+    assert {m['id'] for m in math['modules']} <= {100, 110, 120}
+    assert math['target'] is None or math['target']['id'] != 102
+    assert math['target'] == {'id': 111, 'name': '线段和差与中点'}
+
+
+def test_facts_practice_and_graduated():
+    """本周批改 1 份（3 题对 2 题），其中一道是连对第 2 次；上周批改 1 份（2 题对 1 题）。"""
+    c = build_db()
+    for qid in (1, 2, 3):
+        add_question(c, qid, 1, '2026-11-01 10:00:00.000000', [101])
+    add_set(c, 1, '2026-11-09 10:00:00.000000', '2026-11-10 10:00:00.000000',
+            [(1, True, 'original'), (2, False, 'original')])
+    add_set(c, 2, '2026-11-17 10:00:00.000000', '2026-11-18 10:00:00.000000',
+            [(1, True, 'original'), (2, False, 'original'), (3, True, 'original')])
+    add_set(c, 3, '2026-11-19 10:00:00.000000', None, [(2, None, 'original')])         # 没批改：不算
+    add_set(c, 4, '2026-11-19 10:00:00.000000', '2026-11-19 12:00:00.000000',
+            [(2, True, 'original')], deleted=1)                                         # 已删除：不算
+    facts = facts_for(c)
+    assert facts['practice'] == {'papers': 1, 'questions': 3, 'correct': 2, 'accuracy': 66.7,
+                                 'prev_papers': 1, 'prev_accuracy': 50.0, 'graduated': 1}
+
+
+def test_facts_quiet_week():
+    """库里只有考点目录：安静的一周，比例都是 None，日历全空。"""
+    facts = facts_for(build_db())
+    assert facts['quiet'] is True and facts['entries']['streak_weeks'] == 0
+    assert facts['dictation']['accuracy'] is None and facts['practice']['accuracy'] is None
+    assert all(not d['entered'] and not d['dictated'] for d in facts['calendar'])
+    assert facts['entries']['by_subject'] == [] and facts['practice']['graduated'] == 0
+
+
+def budget_fixture(extra):
+    """查询条数测试的库：extra 为真时多 7 个考点、每个 2 道旧错题本周都做对（7 个考点变好）。"""
+    c = build_db()
+    c.execute("INSERT INTO weekly_report(week_end,created_at,updated_at) "
+              "VALUES('2026-11-15 20:00:00','2026-11-15 20:00:05','2026-11-15 20:00:05')")
+    add_question(c, 1, 1, '2026-11-17 10:00:00.000000', [101])
+    add_dictation(c, 1, '2026-11-18 19:00:00.000000', True)
+    if extra:
+        for index in range(7):
+            point_id, qid = 301 + index, 100 + 2 * index
+            c.execute('INSERT INTO knowledge_point(id,name,name_key,subject_id,level,parent_id,sort_order,deleted,'
+                      'created_at) VALUES(?,?,?,1,2,120,?,0,CURRENT_TIMESTAMP)',
+                      (point_id, '考点%d' % index, 'kp%d' % index, point_id))
+            add_question(c, qid, 1, '2026-11-01 10:00:00.000000', [point_id])
+            add_question(c, qid + 1, 1, '2026-11-01 11:00:00.000000', [point_id])
+            add_set(c, 100 + index, '2026-11-17 10:00:00.000000', '2026-11-18 10:00:00.000000',
+                    [(qid, True, 'original'), (qid + 1, True, 'original')])
+            add_dictation(c, 10 + index, '2026-11-19 19:00:00.000000', False)
+        starmap_test.set_config(c, 'app', {'default_grade': 6, 'default_semester': 1})
+    c.commit()
+    return c
+
+
+def test_facts_query_budget():
+    """build_facts 一次最多 30 条查询，并且不随题目数、考点数变化；期数 = 更早的未删除周报数 + 1。"""
+    small = starmap_test.CountingDB(budget_fixture(False))
+    facts_small = facts_of(small)
+    big = starmap_test.CountingDB(budget_fixture(True))
+    facts_big = facts_of(big)
+    counted_queries = big.calls
+    assert counted_queries <= 30, counted_queries
+    assert small.calls == big.calls, (small.calls, big.calls)
+    assert facts_small['week']['number'] == 2
+    math = facts_big['subjects'][0]
+    assert math['improved_count'] == 7 and len(math['improved']) == 5            # 列表最多 5 个，计数是真实总数
+    assert brief_of(facts_big)['subjects'][0]['improved_count'] == 7
+    assert brief_of(facts_big)['improved_total'] == 7
+
+
 TESTS = [
     test_migration_creates_weekly_report,
     test_week_end_boundaries,
@@ -278,6 +460,13 @@ TESTS = [
     test_fallback_cheers_pass_check,
     test_fallback_quiet_week,
     test_prompt_carries_rules,
+    test_facts_entries_and_calendar,
+    test_facts_sunday_night_goes_to_next_week_count_but_same_day_cell,
+    test_facts_dictation_only_counts_type_one,
+    test_facts_point_changes,
+    test_facts_practice_and_graduated,
+    test_facts_quiet_week,
+    test_facts_query_budget,
 ]
 
 

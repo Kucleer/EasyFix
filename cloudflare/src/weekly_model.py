@@ -207,8 +207,9 @@ def brief_of(facts):
             'improved': [point['name'] for point in subject['improved']],
             'dropped': [point['name'] for point in subject['dropped']],
             'new_weak': [point['name'] for point in subject['new_weak']],
-            'improved_count': len(subject['improved']),
-            'dropped_count': len(subject['dropped']),
+            # 列表最多 5 个；有真实总数（improved_count / dropped_count）时用总数，没有时退回列表长度
+            'improved_count': subject.get('improved_count', len(subject['improved'])),
+            'dropped_count': subject.get('dropped_count', len(subject['dropped'])),
             'target': target['name'] if target else None,
             'modules': [{'name': module['name'], 'before': module['before'], 'after': module['after']}
                         for module in subject['modules']],
