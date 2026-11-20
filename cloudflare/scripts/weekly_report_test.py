@@ -8,6 +8,7 @@
 import pathlib
 import sqlite3
 import sys
+from datetime import datetime
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
@@ -15,6 +16,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 import starmap_test  # noqa: E402  复用输出与检查助手
 import targeted_test  # noqa: E402  复用建库（starmap_test 的库 + 0015）
+from weekly_model import (calendar_days, entry_streak, percent, week_end_before,  # noqa: E402
+                          week_starts, window)
 
 MIGRATION_0016 = ROOT / 'migrations' / '0016_weekly_report.sql'
 
@@ -50,8 +53,43 @@ def test_migration_creates_weekly_report():
     c.execute(insert)  # 软删除之后可以再建
 
 
+# ---------------------------------------------------------------- 任务 2：一周怎么算
+
+
+def test_week_end_boundaries():
+    """周日 20:00 是一期的结束：正好 20:00 算这一期到了，差一秒算上一期；补做、跨年都对。"""
+    at = lambda text: datetime.strptime(text, '%Y-%m-%d %H:%M:%S')
+    assert week_end_before(at('2026-11-22 20:00:00')) == at('2026-11-22 20:00:00')   # 正好 20:00 算这一期到了
+    assert week_end_before(at('2026-11-22 19:59:59')) == at('2026-11-15 20:00:00')
+    assert week_end_before(at('2026-11-25 09:00:00')) == at('2026-11-22 20:00:00')   # 周三补做
+    assert week_end_before(at('2027-01-03 20:10:00')) == at('2027-01-03 20:00:00')   # 跨年
+
+
+def test_window_and_week_starts():
+    """窗口是 [上周日 20:00, 本周日 20:00)；week_starts 从早到晚列出各周的开始。"""
+    end = datetime(2026, 11, 22, 20)
+    assert window(end) == {'start': '2026-11-15 20:00:00', 'end': '2026-11-22 20:00:00',
+                           'prev_start': '2026-11-08 20:00:00', 'monday': '2026-11-16', 'sunday': '2026-11-22'}
+    assert week_starts(end, 3) == ['2026-11-01 20:00:00', '2026-11-08 20:00:00', '2026-11-15 20:00:00']
+    assert window(datetime(2026, 12, 6, 20))['monday'] == '2026-11-30'               # 跨月
+
+
+def test_streak_calendar_percent():
+    """连续录入周数、42 天日历、正确率（1 位小数，分母 0 为 None）。"""
+    assert entry_streak([72, 58, 46, 218, 0, 54]) == 4
+    assert entry_streak([0, 5]) == 0 and entry_streak([]) == 0
+    days = calendar_days('2026-11-22', {'2026-11-17'}, {'2026-11-17', '2026-10-12'})
+    assert len(days) == 42 and days[0]['date'] == '2026-10-12' and days[-1]['date'] == '2026-11-22'
+    assert days[0] == {'date': '2026-10-12', 'entered': False, 'dictated': True}
+    assert [d for d in days if d['date'] == '2026-11-17'][0] == {'date': '2026-11-17', 'entered': True, 'dictated': True}
+    assert percent(34, 70) == 48.6 and percent(0, 0) is None
+
+
 TESTS = [
     test_migration_creates_weekly_report,
+    test_week_end_boundaries,
+    test_window_and_week_starts,
+    test_streak_calendar_percent,
 ]
 
 
