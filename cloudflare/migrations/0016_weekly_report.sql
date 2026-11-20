@@ -5,7 +5,7 @@
 -- step_started_at 用来判断某一步是否被认领后卡住（过期后可以重新认领）。
 
 CREATE TABLE weekly_report (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     student_id INTEGER NOT NULL DEFAULT 1,
     week_end TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'new',
