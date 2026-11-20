@@ -111,7 +111,7 @@
 **Interfaces:**
 - Produces: 表 `weekly_report(id, student_id, week_end, status, step_started_at, facts, text, text_source, attempts, error, created_at, updated_at, deleted)`；测试助手 `build_db()`（`targeted_test.build_db()` 的库再执行迁移 0016）、`TESTS` 列表和 `main()`（写法照抄 `targeted_test.py` 末尾）。
 
-- [ ] **Step 1: 写失败的测试** `test_migration_creates_weekly_report`
+- [x] **Step 1: 写失败的测试** `test_migration_creates_weekly_report`
 
 ```python
 c = build_db()
@@ -132,10 +132,10 @@ c.execute('UPDATE weekly_report SET deleted=1')
 c.execute(insert)                # 软删除之后可以再建
 ```
 
-- [ ] **Step 2: 运行确认失败** `python cloudflare/scripts/weekly_report_test.py`，预期 FAIL（迁移文件不存在）。
-- [ ] **Step 3: 写迁移。** `student_id INTEGER NOT NULL DEFAULT 1`、`status TEXT NOT NULL DEFAULT 'new'`、`attempts INTEGER NOT NULL DEFAULT 0`、`deleted INTEGER NOT NULL DEFAULT 0`，`week_end`、`created_at`、`updated_at` 非空，其余可空；`CREATE UNIQUE INDEX idx_weekly_report_week ON weekly_report(student_id, week_end) WHERE deleted=0`。文件开头用中文注释写明用途和"只新建表"。
-- [ ] **Step 4: 运行确认通过**，再跑一遍 Global Constraints 里的已有测试。
-- [ ] **Step 5: Commit** `feat(weekly): add weekly_report table`
+- [x] **Step 2: 运行确认失败** `python cloudflare/scripts/weekly_report_test.py`，预期 FAIL（迁移文件不存在）。
+- [x] **Step 3: 写迁移。** `student_id INTEGER NOT NULL DEFAULT 1`、`status TEXT NOT NULL DEFAULT 'new'`、`attempts INTEGER NOT NULL DEFAULT 0`、`deleted INTEGER NOT NULL DEFAULT 0`，`week_end`、`created_at`、`updated_at` 非空，其余可空；`CREATE UNIQUE INDEX idx_weekly_report_week ON weekly_report(student_id, week_end) WHERE deleted=0`。文件开头用中文注释写明用途和"只新建表"。
+- [x] **Step 4: 运行确认通过**，再跑一遍 Global Constraints 里的已有测试。
+- [x] **Step 5: Commit** `feat(weekly): add weekly_report table`
 
 ---
 
@@ -154,7 +154,7 @@ c.execute(insert)                # 软删除之后可以再建
   - `calendar_days(sunday: str, entered: set[str], dictated: set[str]) -> list[dict]`：`CALENDAR_DAYS` 项 `{'date', 'entered', 'dictated'}`，从早到晚，最后一项是 `sunday`。
   - `percent(correct: int, total: int) -> float | None`：1 位小数，`total` 为 0 返回 `None`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 def test_week_end_boundaries():
@@ -181,10 +181,10 @@ def test_streak_calendar_percent():
     assert percent(34, 70) == 48.6 and percent(0, 0) is None
 ```
 
-- [ ] **Step 2: 运行确认失败**（`weekly_model` 不存在）。
-- [ ] **Step 3: 实现上面六个函数和 Global Constraints 里的常量。** 模块文档字符串照 `mastery_model.py` 的写法：说明这是纯函数、不读数据库、不读时钟。
-- [ ] **Step 4: 运行确认通过。**
-- [ ] **Step 5: Commit** `feat(weekly): week window rules`
+- [x] **Step 2: 运行确认失败**（`weekly_model` 不存在）。
+- [x] **Step 3: 实现上面六个函数和 Global Constraints 里的常量。** 模块文档字符串照 `mastery_model.py` 的写法：说明这是纯函数、不读数据库、不读时钟。
+- [x] **Step 4: 运行确认通过。**
+- [x] **Step 5: Commit** `feat(weekly): week window rules`
 
 ---
 
@@ -204,7 +204,7 @@ def test_streak_calendar_percent():
   - `pick_target(leaves: list[dict]) -> dict | None`：`leaves` 每项 `{'id', 'name', 'value', 'status', 'pending'}`。
   - `graduated_in_week(histories: dict, start: str, end: str) -> int`：`histories` 是 `{错题编号: {'entered': str, 'waives': [时间字符串], 'results': [{'at', 'order', 'correct'}]}}`，`waives` 是这道题主考点上"直接设为掌握"的各次时间。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 def test_known_before_uses_entered_for_questions():
@@ -250,10 +250,10 @@ def test_graduated_in_week():
     assert graduated_in_week(histories, start, end) == 1
 ```
 
-- [ ] **Step 2: 运行确认失败。**
-- [ ] **Step 3: 实现。** `graduated_in_week` 对每道题算两次 `question_state`：每次只传时间早于该时刻的结果，`waive_at` 取早于该时刻的最后一次（没有就是 `None`）；"`end` 时 `graduated`、`start` 时不是，并且窗口内有做对的结果"才计数。结果时间先用 `targeted.normal_time` 统一再比较。
-- [ ] **Step 4: 运行确认通过。**
-- [ ] **Step 5: Commit** `feat(weekly): point change and graduation rules`
+- [x] **Step 2: 运行确认失败。**
+- [x] **Step 3: 实现。** `graduated_in_week` 对每道题算两次 `question_state`：每次只传时间早于该时刻的结果，`waive_at` 取早于该时刻的最后一次（没有就是 `None`）；"`end` 时 `graduated`、`start` 时不是，并且窗口内有做对的结果"才计数。结果时间先用 `targeted.normal_time` 统一再比较。
+- [x] **Step 4: 运行确认通过。**
+- [x] **Step 5: Commit** `feat(weekly): point change and graduation rules`
 
 ---
 
@@ -274,7 +274,7 @@ def test_graduated_in_week():
   - `FALLBACK_CHEERS: tuple[str, ...]`：见 Step 3。
   - `PromptLibrary._build_weekly_report_prompt(brief: dict, recent_cheers: list[str]) -> str`。
 
-- [ ] **Step 1: 写失败的测试。** 先在测试文件里写一个助手 `sample_facts()`，返回 File Structure 里那份示例（`calendar` 用 `calendar_days` 生成，本周亮 4 格；`trend` 补满 6 项），以及 `good_text()`：
+- [x] **Step 1: 写失败的测试。** 先在测试文件里写一个助手 `sample_facts()`，返回 File Structure 里那份示例（`calendar` 用 `calendar_days` 生成，本周亮 4 格；`trend` 补满 6 项），以及 `good_text()`：
 
 ```python
 def good_text():
@@ -329,8 +329,8 @@ def test_prompt_carries_rules():
     assert '薄弱' not in prompt
 ```
 
-- [ ] **Step 2: 运行确认失败。**
-- [ ] **Step 3: 实现。**
+- [x] **Step 2: 运行确认失败。**
+- [x] **Step 3: 实现。**
 
 `check_text` 的检查顺序和规则（设计第 6 节）：结构和类型 → 长度（`CHEER_MAX`、`SUMMARY_MAX`、每句图注 `CAPTION_MAX`，都不能是空串）→ `captions.points` 的键正好是 `brief` 里各学科编号 → 全文不含 `BANNED_WORDS` → 用 `\d+(?:\.\d+)?` 找出的每个数字都在 `allowed_numbers` 里 → 用 `「([^」]*)」` 找出的每个名字都在 `allowed_names` 里 → `cheer` 不在 `recent_cheers` 里。
 
@@ -372,8 +372,8 @@ FALLBACK_CHEERS = (
 
 提示词：照 `prompts.py` 里 `_build_learning_report_prompt` 的写法（范围说明 + JSON 数据 + 硬性要求 + 输出格式）。硬性要求逐条对应设计第 6 节的 7 条规矩，并给出 `text` 的 JSON 格式和三个长度上限；把 `recent_cheers` 列出来并要求不重复；安静的一周（`quiet` 为真）要求照实说。提示词里不用"薄弱"这个词，统一说"下一个要攻克的"。
 
-- [ ] **Step 4: 运行确认通过。**
-- [ ] **Step 5: Commit** `feat(weekly): text check, fallback text and prompt`
+- [x] **Step 4: 运行确认通过。**
+- [x] **Step 5: Commit** `feat(weekly): text check, fallback text and prompt`
 
 ---
 
@@ -387,7 +387,7 @@ FALLBACK_CHEERS = (
 - Consumes: Task 2、3 的函数；`starmap.load_points`、`load_events`、`load_sections`、`learned_ids`、`load_config`、`load_default_grade`；`mastery_model.leaf_detail`、`upper_mastery`、`status_of`；`question_scope.counted`、`current_student_id`；`practices.py` 里给 `question_state` 取数的那条查询（参考写法，不直接调用）。
 - Produces: `async def build_facts(db, request, week_end: datetime) -> dict`，返回 File Structure 里的 `facts`（`week.number` 由调用方传入的已有期数决定：`build_facts` 自己查"这个学生 `week_end` 更早的未删除记录数 + 1"）。
 
-- [ ] **Step 1: 写失败的测试。** 建库用 `build_db()`，造数据用 `starmap_test.add_question / add_paper / set_config / request_for` 和 `targeted_test.add_set`；另写一个本文件的小助手 `add_dictation(c, word_id, reviewed_at, correct, review_type=1)`（往 `word_review_log` 插一行，需要时先插一个 `word`）。所有测试的 `week_end = datetime(2026, 11, 22, 20)`。
+- [x] **Step 1: 写失败的测试。** 建库用 `build_db()`，造数据用 `starmap_test.add_question / add_paper / set_config / request_for` 和 `targeted_test.add_set`；另写一个本文件的小助手 `add_dictation(c, word_id, reviewed_at, correct, review_type=1)`（往 `word_review_log` 插一行，需要时先插一个 `word`）。所有测试的 `week_end = datetime(2026, 11, 22, 20)`。
 
 ```python
 def test_facts_entries_and_calendar():
@@ -447,16 +447,16 @@ def test_facts_query_budget():
 
 （`...` 处是用上面列的助手造数据，数据内容已在每个测试的注释里写明。）
 
-- [ ] **Step 2: 运行确认失败。**
-- [ ] **Step 3: 实现 `build_facts`。** 取数方式固定如下，保证条数不随数据量增加：
+- [x] **Step 2: 运行确认失败。**
+- [x] **Step 3: 实现 `build_facts`。** 取数方式固定如下，保证条数不随数据量增加：
   - 录入：一条查询取 `[本周往前第 STREAK_LOOKBACK 个窗口的开始, T_end)` 内所有计入统计的错题的 `created_at` 和 `subject_id`，在 Python 里分到各周、各天、各学科。
   - 默写：一条查询取 `[日历第一天 00:00 和 TREND_WEEKS 个窗口开始 两者中较早的, T_end)` 内 `review_type=1` 的 `reviewed_at`、`is_correct`，在 Python 里分周、分天。
   - 练习卷：一条查询取 `[prev_start, T_end)` 内批改的错题练习卷的每题结果（`practice_set.source_type='question'`、`reviewed=1`、`deleted=0`，题目行 `deleted=0`、`is_correct` 不为空）。
   - 毕业：一条查询取所有计入统计的错题在练习卷里的结果（带录入时间和主考点），一条取"直接设为掌握"的调整，按题组成 Task 3 的 `histories`。
   - 考点：对每个有二级考点的学科调一次 `load_points`、`load_events`、`load_sections`；配置各读一次。两个时刻各自 `known_before` 之后再调 `learned_ids`、`leaf_detail`、`upper_mastery`。
   - `quiet`：本周录入、默写条数、批改份数都是 0。
-- [ ] **Step 4: 运行确认通过。**
-- [ ] **Step 5: Commit** `feat(weekly): compute weekly facts`
+- [x] **Step 4: 运行确认通过。**
+- [x] **Step 5: Commit** `feat(weekly): compute weekly facts`
 
 ---
 
@@ -475,7 +475,7 @@ def test_facts_query_budget():
     - `GET '/{report_id}'` → `{'id', 'status', 'number', 'monday', 'sunday', 'facts', 'text', 'text_source'}`；`text` 没有时是 `None`；不存在返回 404 `周报不存在`。
     - `POST '/advance'` → `advance_once(request)` 的结果。
 
-- [ ] **Step 1: 写失败的测试。** 用一个可编程的假模型替换 `weekly.generate_json`（记录调用次数，按预设依次返回或抛 `HTTPException`）。
+- [x] **Step 1: 写失败的测试。** 用一个可编程的假模型替换 `weekly.generate_json`（记录调用次数，按预设依次返回或抛 `HTTPException`）。
 
 ```python
 def test_advance_two_steps_then_done():
@@ -523,8 +523,8 @@ def test_advance_targets_last_ended_week():
     assert c.execute('SELECT week_end FROM weekly_report').fetchone()[0] == '2026-11-22 20:00:00'
 ```
 
-- [ ] **Step 2: 运行确认失败。**
-- [ ] **Step 3: 实现。**
+- [x] **Step 2: 运行确认失败。**
+- [x] **Step 3: 实现。**
   - 建记录用 `INSERT ... ON CONFLICT DO NOTHING`（或先查后插并接住唯一索引冲突），保证同一期只有一条。
   - 认领：一条带条件的 `UPDATE ... SET step_started_at=? WHERE id=? AND status=? AND (step_started_at IS NULL OR step_started_at<?) RETURNING id`，没认领到就返回 `busy: True`。每一步做完把 `step_started_at` 清空。
   - 写文字这一步：读最近 `RECENT_CHEERS` 期（`done`、更早的）的 `cheer` → 调模型（`max_tokens` 用默认值）→ `check_text`。失败（模型抛异常或检查不通过）：`attempts + 1`，`error` 写简短原因（模型异常只写状态码和固定说明，不写异常里的任何原文）；`attempts` 达到 `TEXT_MAX_ATTEMPTS` 时当场改用 `fallback_text`，`text_source='fallback'`，状态改 `done`。
@@ -532,8 +532,8 @@ def test_advance_targets_last_ended_week():
   - `main.py`：`from weekly import router as weekly_router`，`app.include_router(weekly_router)`。
   - `local_dev_server.py`：`ROUTER_MODULES` 加 `'weekly'`；加 `fake_weekly_json`（返回一份能通过 `check_text` 的文字：直接用 `weekly_model.fallback_text` 的结果并把 `cheer` 换成"（假模型）这周也在一点点变好。"），在 `build_app` 里装到 `weekly.generate_json`（给了 `--llm-config` 时用真实模型，写法照 `similar` 那几行）。
   - `local_dev_server_test.py` 加一个测试：`POST /api/weekly-reports/advance` 两次后 `GET /api/weekly-reports` 有一期 `done`。
-- [ ] **Step 4: 运行确认通过。**
-- [ ] **Step 5: Commit** `feat(weekly): advance step and endpoints`
+- [x] **Step 4: 运行确认通过。**
+- [x] **Step 5: Commit** `feat(weekly): advance step and endpoints`
 
 ---
 
@@ -547,7 +547,7 @@ def test_advance_targets_last_ended_week():
 - Consumes: `advance_once`；`auth.maintenance_enabled(request)`。
 - Produces: `async def run_scheduled(env) -> str`（返回并 `print` 一行日志）；后端入口同时提供原有 HTTP 行为和 `scheduled(self, controller, env, ctx)`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 def test_run_scheduled_advances_and_logs_one_line():
@@ -566,17 +566,17 @@ def test_run_scheduled_never_raises():
     assert 'failed' in line and 'RuntimeError' in line
 ```
 
-- [ ] **Step 2: 运行确认失败。**
-- [ ] **Step 3: 实现 `run_scheduled`。** 用一个只带 `scope = {'env': env}` 的替身对象当请求（类名 `ScheduledRequest`，放在 `weekly.py`），不改 `settings.load`、`generate_json`、`maintenance_enabled` 的签名。日志一行的格式：`weekly <week_end> <做完后的状态或 busy / maintenance / failed <异常类型名>>`。所有异常都接住，只打印类型名。
-- [ ] **Step 4: 改后端入口和配置。**
+- [x] **Step 2: 运行确认失败。**
+- [x] **Step 3: 实现 `run_scheduled`。** 用一个只带 `scope = {'env': env}` 的替身对象当请求（类名 `ScheduledRequest`，放在 `weekly.py`），不改 `settings.load`、`generate_json`、`maintenance_enabled` 的签名。日志一行的格式：`weekly <week_end> <做完后的状态或 busy / maintenance / failed <异常类型名>>`。所有异常都接住，只打印类型名。
+- [x] **Step 4: 改后端入口和配置。**
   - `main.py`：让默认入口同时有原来的 HTTP 处理和 `async def scheduled(self, controller, env, ctx)`（里面只调 `await run_scheduled(env)`）。写法以 Cloudflare 官方文档当时的 Python Workers / FastAPI / Cron Triggers 页面为准；改之前先读这几页，不要凭记忆写。
   - `wrangler.jsonc`：加 `"triggers": {"crons": ["*/10 12 * * sun"]}` 和 `"observability": {"enabled": true}`。
-- [ ] **Step 5: 验证入口（设计第 11 节的顺序，做到哪一步写进提交说明）。**
+- [x] **Step 5: 验证入口（设计第 11 节的顺序，做到哪一步写进提交说明）。** 走到第 1 条：本地 wrangler dev 验证通过（2026-11-20）；本地触发定时入口的地址是 /cdn-cgi/local/scheduled。
   1. 用 Wrangler / pywrangler 的本地运行方式加载真实的 `main.py`：`/health` 返回 200、未登录调 `/api/subjects` 返回 401、定时入口能被本地触发并打印出那一行日志。
   2. 本地跑不起来：**停下来问用户**，同意后部署一个不带任何绑定、不带定时配置的临时测试 Worker，只验证 HTTP 入口和定时入口能并存，验证完删除。
   3. 两条都走不通：告诉用户只能在正式环境"部署即验证、随时回滚"，由用户决定是否继续；如果入口确实无法并存，停下来告诉用户，改用设计第 4 节的方案二，不要自己换。
-- [ ] **Step 6: 运行全部测试确认通过。**
-- [ ] **Step 7: Commit** `feat(weekly): scheduled entry and worker logs`
+- [x] **Step 6: 运行全部测试确认通过。**
+- [x] **Step 7: Commit** `feat(weekly): scheduled entry and worker logs`
 
 ---
 
@@ -598,7 +598,7 @@ def test_run_scheduled_never_raises():
   - `trendOption(facts) -> object`：近 6 周默写条数柱状图，最后一根是本周。
   - `practiceLine(facts) -> string | null`：有批改时 `批改 N 份 · 做对 A / B 道`，没有时 `null`。
 
-- [ ] **Step 1: 写失败的测试**（`node --test frontend/src/composables/weeklyReport.test.mjs`）。测试文件里放一份和 File Structure 示例一致的 `sample()`。
+- [x] **Step 1: 写失败的测试**（`node --test frontend/src/composables/weeklyReport.test.mjs`）。测试文件里放一份和 File Structure 示例一致的 `sample()`。
 
 ```js
 test('标题和奖章', () => {
@@ -646,10 +646,10 @@ test('默写和练习卷', () => {
 })
 ```
 
-- [ ] **Step 2: 运行确认失败。**
-- [ ] **Step 3: 实现。** 图表的具体样式（尺寸、圆角、字号）照样稿里的 ECharts 配置；文字和线条颜色不写死，由页面传入或读 CSS 变量。
-- [ ] **Step 4: 运行确认通过。**
-- [ ] **Step 5: Commit** `feat(weekly): chart options composable`
+- [x] **Step 2: 运行确认失败。**
+- [x] **Step 3: 实现。** 图表的具体样式（尺寸、圆角、字号）照样稿里的 ECharts 配置；文字和线条颜色不写死，由页面传入或读 CSS 变量。
+- [x] **Step 4: 运行确认通过。**
+- [x] **Step 5: Commit** `feat(weekly): chart options composable`
 
 ---
 
@@ -663,18 +663,18 @@ test('默写和练习卷', () => {
 - Consumes: Task 6 的三个接口；Task 8 的函数。
 - Produces: `weeklyReportApi = { list(), get(id), advance() }`（写法照 `frontend/src/api/learning_report.js`）；路由 `/learning-reports` → `WeeklyReport.vue`，`/learning-reports/legacy` → `LearningReports.vue`。
 
-- [ ] **Step 1: 接口封装和路由。** `advance` 的超时 150000 毫秒（和 `scanApi.advance` 一样）。导航里"学习报告"改成"周报"；`App.vue` 里按路径算标题、判断当前项的地方，让 `/learning-reports/legacy` 也归在"周报"下，标题显示"旧报告"。
-- [ ] **Step 2: 周报页 `WeeklyReport.vue`。** 版式、各块顺序、文字位置照样稿：页头（标题 + 上一期 / 下一期）→ 鼓励卡片（`text.cheer`）→ 总结（`text.summary`）→ 奖章 → 打卡日历 + 图注 → 学科切换 + 考点星星 + 各模块 + 图注 + "下一个要攻克的" → 单词默写（仪表盘 + 近 6 周）+ 图注 → 练习卷（一行数字 + 图注）→ 底部两个普通链接"去出一份考点卷"（`/targeted-paper`）和"旧报告"（`/learning-reports/legacy`）。
+- [x] **Step 1: 接口封装和路由。** `advance` 的超时 150000 毫秒（和 `scanApi.advance` 一样）。导航里"学习报告"改成"周报"；`App.vue` 里按路径算标题、判断当前项的地方，让 `/learning-reports/legacy` 也归在"周报"下，标题显示"旧报告"。
+- [x] **Step 2: 周报页 `WeeklyReport.vue`。** 版式、各块顺序、文字位置照样稿：页头（标题 + 上一期 / 下一期）→ 鼓励卡片（`text.cheer`）→ 总结（`text.summary`）→ 奖章 → 打卡日历 + 图注 → 学科切换 + 考点星星 + 各模块 + 图注 + "下一个要攻克的" → 单词默写（仪表盘 + 近 6 周）+ 图注 → 练习卷（一行数字 + 图注）→ 底部两个普通链接"去出一份考点卷"（`/targeted-paper`）和"旧报告"（`/learning-reports/legacy`）。
   - 图表用 `vue-echarts`，按需引入的写法照 `LearningAnalysis.vue`；需要 `HeatmapChart`、`PieChart`、`RadarChart`、`GaugeChart`、`BarChart` 和 `CalendarComponent`、`VisualMapComponent`、`TitleComponent`、`TooltipComponent`、`GridComponent`、`LegendComponent`。
   - 手机单列；宽度大于 768px 时内容区最宽 960px，图表块排两列（判断用 `use_is_mobile`）。
   - 状态是 `facts_ready`（文字还没好）的那一期：图表照常显示，文字的位置留空，不显示占位符。
   - 页面上任何地方都不显示 `text_source`、`error`、`attempts`。
-- [ ] **Step 3: 打开页面时补做。** 常量 `ADVANCE_MAX_TRIES = 8`、`ADVANCE_WAIT_MS = 4000`。进入页面：取列表 → 有已生成的期就先显示最新一期 → 如果 `due` 为真，显示一条提示"正在准备这一期周报…"并循环调 `advance`（返回 `done` 就停并刷新列表、显示新的一期；`busy` 或没做完就等 `ADVANCE_WAIT_MS` 再试；请求失败也算一次）。到了次数上限还没好：提示换成"这一期还在准备中，过一会儿再来看"。一期都没有、也补不出来时，页面只显示这句提示和底部两个链接，不报错。
-- [ ] **Step 4: 旧报告页。** `LearningReports.vue` 去掉"生成报告"按钮、生成对话框和相关代码，页头标题改成"旧报告"，加一个返回周报的链接；看和删旧报告的功能不动。
-- [ ] **Step 5: 验证。**
+- [x] **Step 3: 打开页面时补做。** 常量 `ADVANCE_MAX_TRIES = 8`、`ADVANCE_WAIT_MS = 4000`。进入页面：取列表 → 有已生成的期就先显示最新一期 → 如果 `due` 为真，显示一条提示"正在准备这一期周报…"并循环调 `advance`（返回 `done` 就停并刷新列表、显示新的一期；`busy` 或没做完就等 `ADVANCE_WAIT_MS` 再试；请求失败也算一次）。到了次数上限还没好：提示换成"这一期还在准备中，过一会儿再来看"。一期都没有、也补不出来时，页面只显示这句提示和底部两个链接，不报错。
+- [x] **Step 4: 旧报告页。** `LearningReports.vue` 去掉"生成报告"按钮、生成对话框和相关代码，页头标题改成"旧报告"，加一个返回周报的链接；看和删旧报告的功能不动。
+- [x] **Step 5: 验证。**
   - `node --test frontend/src/composables/*.test.mjs` 通过；`python backend/scripts/prepare_cloudflare_frontend.py` 构建通过（按 `docs/cloudflare-migration-status.md` 的说法，不要用会弄脏 `frontend/dist` 的方式构建）。
   - 起本地开发服务器（`python cloudflare/scripts/local_dev_server.py`，用它自带的假模型和演示数据），在浏览器里逐块核对：375 宽和 1280 宽各看一遍；第一次进入能看到"正在准备"并自动出现第一期；上一期 / 下一期在只有一期时不可点；浅色和深色下文字都看得清；控制台没有报错。把看到的和样稿不一致的地方改掉。
-- [ ] **Step 6: Commit** `feat(weekly): weekly report page`
+- [x] **Step 6: Commit** `feat(weekly): weekly report page`
 
 ---
 
@@ -685,7 +685,7 @@ test('默写和练习卷', () => {
 
 上线的每一步都要先得到用户同意；命令以 `docs/cloudflare-migration-status.md` 的"日常部署""备份与恢复"为准。
 
-- [ ] **Step 1: 更新文档。** `CLAUDE.md`：后端模块表加 `weekly.py` / `weekly_model.py`，路由表把 `/learning-reports` 改成周报并加 `/learning-reports/legacy`，常用测试命令加 `weekly_report_test.py`；接口清单加三个新接口；设计文档和路线图的状态行改成"实施完成，待上线"。Commit `docs: weekly report docs`。
+- [x] **Step 1: 更新文档。** `CLAUDE.md`：后端模块表加 `weekly.py` / `weekly_model.py`，路由表把 `/learning-reports` 改成周报并加 `/learning-reports/legacy`，常用测试命令加 `weekly_report_test.py`；接口清单加三个新接口；设计文档和路线图的状态行改成"实施完成，待上线"。Commit `docs: weekly report docs`。
 - [ ] **Step 2: 请用户审阅分支，合并进 `main`。**（按 superpowers:finishing-a-development-branch。）
 - [ ] **Step 3: 核对 Workers Logs 的免费额度。** 读 Cloudflare 官方文档的 Workers Logs 页面，确认当时免费计划仍然包含。不在免费范围内：停下来告诉用户，把 `observability` 从配置里去掉再继续。
 - [ ] **Step 4: 导出 D1 备份**到 `backups/weekly_report_release_<时间>/`，记下文件校验值。

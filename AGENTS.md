@@ -15,9 +15,11 @@ EasyFix：学生错题整理应用。前端 Vue 3 + Vite，后端为 Cloudflare 
 python -m compileall -q cloudflare/src                    # 语法检查
 python cloudflare/scripts/phrase_focus_test.py            # 词组重点规则
 python cloudflare/scripts/knowledge_invariants_test.py    # 两级知识点不变量
+python cloudflare/scripts/weekly_report_test.py           # 周报：一周窗口、取数、推进、定时入口
 
 # 前端
 node --test frontend/src/composables/dictation.test.mjs   # 默写判分
+node --test frontend/src/composables/weeklyReport.test.mjs  # 周报图表配置
 python backend/scripts/prepare_cloudflare_frontend.py     # 生产构建，输出到 tmp/cloudflare-pages-build
 ```
 

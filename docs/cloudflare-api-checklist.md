@@ -137,3 +137,9 @@
 - [x] `POST /api/practice-sets/{id}/recognize/page`：请求 `{index}`（`review_images` 里的照片序号，服务端按序号取路径，不接受前端传路径），普通模式读一张照片，返回 `{index, text}`。照片找不到 404；识别主机不可用、忙、读不出来 503（前端改为手动批改）；单词、阅读练习 422。不写库。
 - [x] `POST /api/practice-sets/{id}/recognize/judge`：请求 `{pages: [{index, text}]}`；题号、题目、标准答案由服务端从库里取，调一次模型，返回 `{items: [{id, number, student_answer, verdict, page}]}`（`verdict` 为 `right` / `wrong` / `unsure`，每题一项，漏掉的补成 `unsure`）。手动组的卷子打印后删过题（题号可能和纸上不一致）409；模型出错 502；单词、阅读练习 422。识别文字和结果都不写库。
 - [x] `GET /api/practice-sets/{id}`（改动）：错题练习的条目增加 `shown_form`（卷面上印的是 `original` 原题还是 `similar` 相似题）。
+
+## 每周周报（项目 4，2026-11-20）
+
+- [x] `GET /api/weekly-reports`：各期简表（只列已算出数字的期，新的在前），每项 `id`、`number`、`monday`、`sunday`、`status`；`due` 为真表示最近一期还没做完，页面据此补做。
+- [x] `GET /api/weekly-reports/{id}`：一期的完整内容（`facts` 数字、`text` 文字）；不存在 404。
+- [x] `POST /api/weekly-reports/advance`：把最近一期推进一步（算数字 → 写文字），返回 `{id, status, busy}`；`busy` 为真表示这一步正被别人做着。这是写请求，维护开关开启时返回 503；它不清统计缓存（`auth.py` 已豁免）。定时任务（`*/10 12 * * sun`，UTC，即北京时间周日 20:00–20:50）走同一套推进逻辑，不经过这个接口。

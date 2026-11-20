@@ -48,7 +48,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `practices.py` / `pdf.py` | 练习集、批改、PDF 生成与复用 |
 | `targeted.py` / `targeted_model.py` | 考点卷：状态、选题预览、创建、相似题准备与换题；选题与毕业规则的纯函数 |
 | `grading_scan.py` / `grading_model.py` | 批改识别预批：逐页读卷面照片、调一次模型按题号比对；比对提示词与输出清洗的纯函数（不写库） |
-| `analytics.py` / `reports.py` | 统计分析、学习报告 |
+| `analytics.py` / `reports.py` | 统计分析、学习报告（旧） |
+| `weekly.py` / `weekly_model.py` | 每周周报：定时入口与分步推进（算数字 → 写文字）、`/api/weekly-reports`；一周窗口、考点变化、毕业、文字检查与兜底文字的纯函数 |
 | `motivation.py` | 星星、奖励、成就 |
 | `media.py` / `audio_index.py` | 上传、单词音频、打印 |
 | `settings.py` / `prompts.py` / `provenance.py` | 应用与 LLM 配置、提示词、阅读来源 |
@@ -77,7 +78,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `/grade/:id` | 错题练习卷批改（电脑、手机共用）：拍照 → 识别预批 → 复核；`/grade` 跳到练习中心并只看待批改的卷子 |
 | `/words` | 单词本 |
 | `/reading`、`/reading-test/:id` | 阅读理解 |
-| `/learning-reports` | 学习报告 |
+| `/learning-reports` | 周报（每周日 20:00 自动生成，打开页面时补做） |
+| `/learning-reports/legacy` | 旧报告（只看和删，不再生成） |
 | `/motivation` | 激励 |
 | `/management`、`/settings` | 管理中心、配置 |
 
@@ -89,7 +91,9 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 # 测试
 python cloudflare/scripts/phrase_focus_test.py
 python cloudflare/scripts/knowledge_invariants_test.py
+python cloudflare/scripts/weekly_report_test.py
 node --test frontend/src/composables/dictation.test.mjs
+node --test frontend/src/composables/weeklyReport.test.mjs
 
 # 后端：语法检查后部署 Worker
 python -m compileall -q cloudflare/src
