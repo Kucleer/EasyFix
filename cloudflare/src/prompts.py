@@ -113,6 +113,39 @@ class PromptLibrary:
             '    }\n'
             '}\n')
 
+    def _build_weekly_report_prompt(self, brief: dict, recent_cheers: list) -> str:
+        """构建周报文字提示词：模型只写鼓励、总结和图注，数字和名字只能用给出的。"""
+        import json
+        from weekly_model import CAPTION_MAX, CHEER_MAX, SUMMARY_MAX
+        recent_text = '\n'.join(f'- {cheer}' for cheer in recent_cheers) if recent_cheers else '（暂无）'
+        return (
+            '你是一位温暖的学习伙伴。请根据下面这一周的学习数据，写一份给学生本人看的周报文字。\n\n'
+            f'## 本周范围\n{brief["week"]["monday"]} 到 {brief["week"]["sunday"]}，这是第 {brief["week"]["number"]} 期。\n\n'
+            f'## 本周数据\n{json.dumps(brief, ensure_ascii=False, indent=2)}\n\n'
+            f'## 最近几期已经用过的鼓励语\n{recent_text}\n\n'
+            '## 硬性要求\n'
+            '1. 对学生说话，用“你”；只写学生自己，不提到其他任何人。\n'
+            '2. 鼓励为主，只夸这一周真实做到的事（坚持了几天、哪个考点变好了、毕业了几道题），并且说得具体。\n'
+            '3. 不批评。做得不好的地方最多提一处，只能用“下一个要攻克的”那个考点，说成接下来一起做的事。\n'
+            '4. 鼓励语必须扣着本周真实发生的一件事，不能是通用口号，也不能和上面列出的鼓励语重复。\n'
+            '5. 如果 quiet 为 true（安静的一周），照实说（例如“这周歇了一下”），给一个很小的下一步，不要硬夸。\n'
+            '6. 数量一律用阿拉伯数字，只能使用本周数据里出现过的数字；不要自己计算、不要写汉字数字。\n'
+            '7. 考点、模块的名字一律放在「」里，只能使用本周数据里出现过的名字；不要把学科名放进「」。\n'
+            f'8. 长度限制：cheer 不超过 {CHEER_MAX} 字，summary 两三句且不超过 {SUMMARY_MAX} 字，'
+            f'每句图注不超过 {CAPTION_MAX} 字，都不能为空。\n'
+            '9. captions.points 的键是学科编号（字符串），本周数据 subjects 里的每个学科都要有一句。\n\n'
+            '## 输出格式（仅返回合法 JSON，不要 markdown 代码块）\n'
+            '{\n'
+            '    "cheer": "一句鼓励",\n'
+            '    "summary": "这一周的总结",\n'
+            '    "captions": {\n'
+            '        "calendar": "打卡日历的一句话",\n'
+            '        "points": {"学科编号": "该学科考点的一句话"},\n'
+            '        "dictation": "单词默写的一句话",\n'
+            '        "practice": "练习卷的一句话"\n'
+            '    }\n'
+            '}\n')
+
     def _build_phrase_focus_prompt(self, items: list, default_grade: Optional[int]) -> str:
         """构建词组默写标注提示词：模型只给每个已切好的 token 指定角色，不得改动词本身。"""
         import json

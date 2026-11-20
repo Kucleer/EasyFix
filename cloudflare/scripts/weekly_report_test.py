@@ -16,7 +16,9 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 import starmap_test  # noqa: E402  复用输出与检查助手
 import targeted_test  # noqa: E402  复用建库（starmap_test 的库 + 0015）
-from weekly_model import (calendar_days, classify_change, entry_streak, graduated_in_week,  # noqa: E402
+from prompts import PromptLibrary  # noqa: E402
+from weekly_model import (FALLBACK_CHEERS, allowed_names, allowed_numbers, brief_of,  # noqa: E402
+                          check_text, fallback_text, calendar_days, classify_change, entry_streak, graduated_in_week,  # noqa: E402
                           known_at, known_before, percent, pick_target, week_activity,
                           week_end_before, week_starts, window)
 
@@ -140,6 +142,125 @@ def test_graduated_in_week():
     assert graduated_in_week(waived, start, end) == 0
 
 
+# ---------------------------------------------------------------- 任务 4：文字检查、兜底文字、提示词
+
+
+def sample_facts():
+    """设计里那份示例 facts：本周日历亮 4 格，趋势补满 6 项。"""
+    entered = {'2026-10-13', '2026-11-18'}
+    dictated = {'2026-11-16', '2026-11-18', '2026-11-20', '2026-11-21'}
+    mondays = ['2026-10-12', '2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09', '2026-11-16']
+    trend = [{'monday': monday, 'count': 25, 'accuracy': 36.0} for monday in mondays]
+    return {
+        'schema_version': 1,
+        'week': {'start': '2026-11-15 20:00:00', 'end': '2026-11-22 20:00:00',
+                 'monday': '2026-11-16', 'sunday': '2026-11-22', 'number': 6},
+        'quiet': False,
+        'entries': {'count': 72, 'prev_count': 58, 'streak_weeks': 4,
+                    'by_subject': [{'subject_id': 1, 'name': '数学', 'count': 72}]},
+        'calendar': calendar_days('2026-11-22', entered, dictated),
+        'dictation': {'count': 70, 'correct': 34, 'accuracy': 48.6, 'days': 4,
+                      'prev_count': 250, 'prev_accuracy': 49.6, 'trend': trend},
+        'practice': {'papers': 0, 'questions': 0, 'correct': 0, 'accuracy': None,
+                     'prev_papers': 4, 'prev_accuracy': 51.6, 'graduated': 0},
+        'subjects': [{'subject_id': 1, 'name': '数学',
+                      'status_counts': {'mastered': 5, 'good': 0, 'fair': 8, 'weak': 35, 'unlearned': 27},
+                      'improved': [{'id': 101, 'name': '合并同类项'}], 'dropped': [], 'new_weak': [],
+                      'modules': [{'id': 100, 'name': '整式', 'before': 0.4, 'after': 0.52}],
+                      'target': {'id': 102, 'name': '去括号'}}],
+    }
+
+
+def good_text():
+    """一份能通过检查的文字。"""
+    return {'cheer': '「合并同类项」被你拿下一截，这周的你更稳了！',
+            'summary': '这周你有 4 天坚持默写单词，一共写了 70 条。「合并同类项」变好了，「去括号」下周我们先攻它。',
+            'captions': {'calendar': '这周亮了 4 格。', 'points': {'1': '「合并同类项」变亮了。'},
+                         'dictation': '默写了 70 条。', 'practice': '这周还没有做练习卷。'}}
+
+
+def test_check_text_accepts_good():
+    assert check_text(good_text(), brief_of(sample_facts()), []) is None
+
+
+def test_check_text_rejects():
+    brief = brief_of(sample_facts())
+
+    def broken(change):
+        text = good_text()
+        change(text)
+        return check_text(text, brief, ['上一期的鼓励'])
+    assert broken(lambda t: t.update(summary='这周你默写了 5 天。')) is not None                 # 5 不是给过的数字
+    assert broken(lambda t: t.update(summary='「因式分解」变好了。')) is not None                # 没给过的考点名
+    assert broken(lambda t: t.update(summary='爸爸妈妈也很开心。')) is not None                  # 提到了父母
+    assert broken(lambda t: t.update(cheer='上一期的鼓励')) is not None                          # 和最近的重复
+    assert broken(lambda t: t.update(cheer='很' * 31)) is not None                               # 超长
+    assert broken(lambda t: t['captions'].pop('dictation')) is not None                          # 缺字段
+    assert broken(lambda t: t['captions'].update(points={})) is not None                         # 少了学科的那一句
+    assert check_text('不是字典', brief, []) is not None
+    assert check_text(None, brief, []) is not None
+
+
+def test_check_reason_does_not_echo_text():
+    brief = brief_of(sample_facts())
+    text = good_text()
+    text['summary'] = '这周你默写了 9527 天，「秘密考点」。'
+    reason = check_text(text, brief, [])
+    assert reason and '9527' not in reason and '秘密考点' not in reason
+
+
+def test_brief_and_allowed():
+    brief = brief_of(sample_facts())
+    assert brief['calendar_days_lit'] == 4
+    assert brief['improved_total'] == 1
+    assert 'calendar' not in brief and 'trend' not in brief['dictation']
+    numbers = allowed_numbers(brief)
+    for value in ('70', '4', '48.6', '49', '11', '22', '16', '6'):
+        assert value in numbers, value
+    assert '0.52' not in numbers and '0.4' not in numbers                                        # 模块前后值不放进去
+    assert allowed_names(brief) == {'数学', '合并同类项', '去括号', '整式'}
+
+
+def test_fallback_text_passes_own_check():
+    brief = brief_of(sample_facts())
+    text = fallback_text(brief, [])
+    assert check_text(text, brief, []) is None
+    assert text['cheer'] in FALLBACK_CHEERS
+    used = list(FALLBACK_CHEERS[:5])
+    assert fallback_text(brief, used)['cheer'] not in used                                       # 避开最近用过的
+
+
+def test_fallback_cheers_pass_check():
+    brief = brief_of(sample_facts())
+    assert len(FALLBACK_CHEERS) == 12
+    for cheer in FALLBACK_CHEERS:
+        text = good_text()
+        text['cheer'] = cheer
+        assert check_text(text, brief, []) is None, cheer
+
+
+def test_fallback_quiet_week():
+    facts = sample_facts()
+    facts['quiet'] = True
+    facts['entries'].update(count=0, streak_weeks=0)
+    facts['dictation'].update(count=0, correct=0, accuracy=None, days=0)
+    for day in facts['calendar'][-7:]:
+        day.update(entered=False, dictated=False)
+    for subject in facts['subjects']:
+        subject.update(improved=[], dropped=[], new_weak=[])
+    brief = brief_of(facts)
+    text = fallback_text(brief, [])
+    assert check_text(text, brief, []) is None
+    assert '歇' in text['summary']                                                               # 照实说，不硬夸
+
+
+def test_prompt_carries_rules():
+    prompt = PromptLibrary()._build_weekly_report_prompt(brief_of(sample_facts()), ['上一期的鼓励'])
+    for needle in ('你', '「」', '阿拉伯数字', '上一期的鼓励', '合并同类项', '去括号'):
+        assert needle in prompt
+    assert '薄弱' not in prompt
+
+
 TESTS = [
     test_migration_creates_weekly_report,
     test_week_end_boundaries,
@@ -149,6 +270,14 @@ TESTS = [
     test_week_activity_and_classify,
     test_pick_target,
     test_graduated_in_week,
+    test_check_text_accepts_good,
+    test_check_text_rejects,
+    test_check_reason_does_not_echo_text,
+    test_brief_and_allowed,
+    test_fallback_text_passes_own_check,
+    test_fallback_cheers_pass_check,
+    test_fallback_quiet_week,
+    test_prompt_carries_rules,
 ]
 
 
