@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request
 
 import analytics
+import auth
 import starmap
 from database import Database
 from mastery_model import leaf_detail, status_of, upper_mastery
@@ -32,6 +33,7 @@ from weekly_model import RECENT_CHEERS, TEXT_MAX_ATTEMPTS, brief_of, check_text,
 SCHEMA_VERSION = 1      # facts 结构的版本号
 LIST_MAX = 5            # improved / dropped / new_weak 列表最多放几个考点
 STALE_SECONDS = 180     # 认领一步后超过这么多秒还没做完，算卡住，可以被重新认领
+# 模型请求超时 120 秒（settings.py）比 STALE_SECONDS 短，模型调用进行中认领不会过期，所以每期最多调 TEXT_MAX_ATTEMPTS 次模型
 LIST_LIMIT = 60         # 各期简表最多列几期
 MODEL_FAILED_TEXT = '文本模型请求失败'     # 写进 error 的固定短句，后面只跟状态码
 MODEL_ERROR_TEXT = '文本模型调用出错'      # 不是 HTTP 错误时的固定短句
@@ -401,6 +403,38 @@ async def advance_once(request, moment: datetime | None = None) -> dict:
     if status is None:      # 做完时发现已被别人重新认领，这次的结果没有写进去
         return {'id': row['id'], 'status': row['status'], 'busy': True}
     return {'id': row['id'], 'status': status, 'busy': False}
+
+
+# ---------------------------------------------------------------- 定时任务
+
+
+class ScheduledRequest:
+    """定时任务里没有请求对象；现有函数只从 request.scope['env'] 取环境，用这个替身传进去。"""
+
+    def __init__(self, env):
+        self.scope = {'env': env}
+
+
+async def run_scheduled(env) -> str:
+    """定时入口：维护开关开着时什么都不做，否则推进一步。
+
+    返回并打印一行日志：weekly <week_end> <做完后的状态 / busy / maintenance / failed 异常类型名>。
+    所有异常都接住，只记类型名，不记异常内容（避免把密钥或模型原文写进日志）。
+    """
+    request = ScheduledRequest(env)
+    moment = analytics.now()
+    week_end = stamp(week_end_before(moment))
+    try:
+        if await auth.maintenance_enabled(request):
+            outcome = 'maintenance'
+        else:
+            result = await advance_once(request, moment)
+            outcome = 'busy' if result['busy'] else result['status']
+    except Exception as error:
+        outcome = 'failed ' + type(error).__name__
+    line = 'weekly %s %s' % (week_end, outcome)
+    print(line)
+    return line
 
 
 # ---------------------------------------------------------------- 接口

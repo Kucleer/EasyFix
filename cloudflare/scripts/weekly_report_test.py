@@ -684,6 +684,113 @@ def test_router_paths():
                      ('/api/weekly-reports/{report_id}', ('GET',))}, paths
 
 
+# ---------------------------------------------------------------- 任务 7：定时入口
+
+
+def scheduled_setup():
+    """准备定时入口用的库：weekly 和 auth 都直接用传入的 db，模型换成假的。返回 (连接, db, 还原函数)。"""
+    import auth
+    c, db, request, fake = advance_setup()
+    original = auth.Database
+    auth.Database = lambda binding: binding
+
+    def restore():
+        """还原 auth 模块的数据库适配。"""
+        auth.Database = original
+
+    return c, db, restore
+
+
+def test_run_scheduled_advances_and_logs_one_line():
+    """定时入口推进一步，返回并打印一行日志：weekly <week_end> <状态>。"""
+    from weekly import run_scheduled
+    c, db, restore = scheduled_setup()
+    try:
+        line = run(run_scheduled(starmap_test.FakeEnv(db)))
+    finally:
+        restore()
+    assert line.startswith('weekly ') and '2026-' in line and 'facts_ready' in line and '\n' not in line, line
+    assert c.execute('SELECT status FROM weekly_report').fetchone()[0] == 'facts_ready'
+
+
+def test_run_scheduled_skips_in_maintenance():
+    """维护开关打开时什么都不做，日志写 maintenance。"""
+    from weekly import run_scheduled
+    c, db, restore = scheduled_setup()
+    # 维护开关存的是不带引号的原文（auth.maintenance_enabled 直接比较字符串），不能用会转成 JSON 的 set_config
+    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) "
+              "VALUES('write_maintenance','on',0,CURRENT_TIMESTAMP)")
+    try:
+        line = run(run_scheduled(starmap_test.FakeEnv(db)))
+    finally:
+        restore()
+    assert 'maintenance' in line, line
+    assert c.execute('SELECT COUNT(*) FROM weekly_report').fetchone()[0] == 0
+
+
+def test_run_scheduled_never_raises():
+    """算数字时抛异常：定时入口接住，日志只写 failed 和异常类型名，不带异常内容。"""
+    import weekly
+    c, db, restore = scheduled_setup()
+    original = weekly.build_facts
+
+    async def raising_stub(db, request, week_end):
+        raise RuntimeError('secret detail')
+
+    weekly.build_facts = raising_stub
+    try:
+        line = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))
+    finally:
+        weekly.build_facts = original
+        restore()
+    assert 'failed' in line and 'RuntimeError' in line and 'secret' not in line, line
+
+
+def guard_revision_after(method, path):
+    """让 auth.guard 用真实的 cache.invalidate 处理一个成功的写请求，返回之后的 data_revision 和 operation_log 条数。"""
+    import auth
+    import cache
+    from fastapi.responses import JSONResponse
+    c = build_db()
+    db = starmap_test.SQLiteDB(c)
+
+    class GuardRequest:
+        """伪造经过 guard 的请求：带 Agent 令牌，迁移已就绪。"""
+
+        def __init__(self):
+            self.method = method
+            self.url = type('Url', (), {'path': path, '__str__': lambda self: 'http://test' + path})()
+            self.headers = {'authorization': 'Bearer agent-token'}
+            self.cookies = {}
+            self.scope = {'env': type('Env', (), {'ACCESS_TOKEN': 'agent-token', 'SESSION_SECRET': 's',
+                                                  'MIGRATION_READY': 'true', 'DB': db})()}
+
+    async def not_in_maintenance(request):
+        """维护开关关闭。"""
+        return False
+
+    async def call_next(request):
+        """下游处理成功。"""
+        return JSONResponse({'id': 1, 'status': 'facts_ready', 'busy': False})
+
+    original_database, original_maintenance = cache.Database, auth.maintenance_enabled
+    cache.Database, auth.maintenance_enabled = (lambda binding: binding), not_in_maintenance
+    try:
+        response = run(auth.guard(GuardRequest(), call_next))
+    finally:
+        cache.Database, auth.maintenance_enabled = original_database, original_maintenance
+    assert response.status_code == 200, response.status_code
+    revision = c.execute("SELECT value FROM runtime_config WHERE name='data_revision'").fetchone()[0]
+    logs = c.execute('SELECT COUNT(*) FROM operation_log').fetchone()[0]
+    return revision, logs
+
+
+def test_advance_does_not_bump_data_revision():
+    """页面循环调推进接口不清统计缓存：data_revision 不变、不写 operation_log；普通写请求照旧加一。"""
+    assert guard_revision_after('POST', '/api/weekly-reports/advance') == ('0', 0)
+    assert guard_revision_after('POST', '/api/questions') == ('1', 1)   # 对照：证明这个测试能看出清缓存
+
+
 TESTS = [
     test_migration_creates_weekly_report,
     test_week_end_boundaries,
@@ -717,6 +824,10 @@ TESTS = [
     test_list_and_detail,
     test_advance_targets_last_ended_week,
     test_router_paths,
+    test_run_scheduled_advances_and_logs_one_line,
+    test_run_scheduled_skips_in_maintenance,
+    test_run_scheduled_never_raises,
+    test_advance_does_not_bump_data_revision,
 ]
 
 

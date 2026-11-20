@@ -13,5 +13,7 @@
   }],
   "r2_buckets": [{"binding": "IMAGES", "bucket_name": "easyfix"}]
   ,"services": [{"binding":"PDF","service":"easyfix-pdf"}],
-  "vpc_services": [{"binding": "OCR_HOST", "service_id": "01a1c9e0-b244-7061-b2a5-e94229693abe"}]
+  "vpc_services": [{"binding": "OCR_HOST", "service_id": "01a1c9e0-b244-7061-b2a5-e94229693abe"}],
+  "triggers": {"crons": ["*/10 12 * * sun"]},
+  "observability": {"enabled": true}
 }

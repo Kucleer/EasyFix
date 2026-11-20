@@ -26,10 +26,18 @@ from papers import router as papers_router
 from similar import router as similar_router
 from starmap import router as starmap_router
 from media import router as media_router
-from weekly import router as weekly_router
+from weekly import router as weekly_router, run_scheduled
 
 app = FastAPI(title='EasyFix Cloudflare', docs_url=None, redoc_url=None, openapi_url=None)
-Default = asgi.entrypoint(app)
+
+
+class Default(asgi.entrypoint(app)):
+    """后端入口：HTTP 请求原样继承 asgi.entrypoint(app) 生成的 fetch，只多一个定时入口。"""
+
+    async def scheduled(self, controller, env, ctx):
+        """Cron 触发（wrangler.jsonc 的 triggers.crons）：把最近一期周报推进一步，打印一行日志。"""
+        # 用 self.env：和 HTTP 请求拿到的是同一个包装过的 env（D1 绑定由运行时转换参数）
+        await run_scheduled(self.env)
 
 
 app.middleware('http')(guard)
