@@ -1,16 +1,15 @@
 <template>
   <div class="learning-reports">
-    <PageHeading title="学习报告" description="回顾学习表现，为下一步找到方向。" />
+    <!-- 旧报告：只能看和删，新的报告在"周报"页 -->
+    <PageHeading title="旧报告" description="以前生成的学习报告，可以查看和删除。">
+      <RouterLink to="/learning-reports" class="lr-back-link">返回周报</RouterLink>
+    </PageHeading>
     <el-row :gutter="20">
       <el-col :span="24">
         <el-card>
           <template #header>
             <div class="card-header">
               <span>学习状态分析</span>
-              <el-button type="primary" @click="showGenerateDialog">
-                <el-icon><Plus /></el-icon>
-                生成新报告
-              </el-button>
             </div>
           </template>
 
@@ -96,37 +95,6 @@
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 生成报告弹窗 -->
-    <el-dialog v-model="generateDialogVisible" title="生成学习分析报告" width="500px">
-      <el-form :model="generateForm" label-width="100px">
-        <el-form-item label="报告标题">
-          <el-input v-model="generateForm.title" placeholder="不填则自动生成" clearable />
-        </el-form-item>
-        <el-form-item label="学科">
-          <el-select v-model="generateForm.subject_id" placeholder="选择学科（可选）" clearable style="width: 100%">
-            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="年级">
-          <el-select v-model="generateForm.grade" placeholder="选择年级（可选）" clearable style="width: 100%">
-            <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="时间范围">
-          <el-select v-model="generateForm.time_range_days" placeholder="选择时间范围（可选）" clearable style="width: 100%">
-            <el-option label="最近7天" :value="7" />
-            <el-option label="最近30天" :value="30" />
-            <el-option label="最近90天" :value="90" />
-            <el-option label="最近365天" :value="365" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="generateDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="generateReport" :loading="generating">生成报告</el-button>
-      </template>
-    </el-dialog>
 
     <!-- 报告详情弹窗 -->
     <el-dialog v-model="detailDialogVisible" title="报告详情" width="min(1300px, 94vw)" class="report-detail-dialog">
@@ -370,14 +338,11 @@
 import SubjectKnowledgeRanking from '@/components/SubjectKnowledgeRanking.vue'
 import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted } from 'vue'
-import { useAppConfigStore } from '@/stores/appConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import { learningReportApi } from '@/api/learning_report'
 import { questionApi } from '@/api/question'
 import { use_is_mobile } from '@/composables/useIsMobile'
 
-const appConfigStore = useAppConfigStore()
 // 是否手机宽度：手机用卡片列表，电脑用表格
 const is_mobile = use_is_mobile()
 const reports = ref({ total: 0, items: [] })
@@ -390,15 +355,6 @@ const pagination = reactive({
   page: 1,
   limit: 20,
 })
-
-const generateDialogVisible = ref(false)
-const generateForm = reactive({
-  title: '',
-  subject_id: null,
-  grade: null,
-  time_range_days: null,
-})
-const generating = ref(false)
 
 const detailDialogVisible = ref(false)
 const currentReport = ref(null)
@@ -504,39 +460,6 @@ const fetchSubjects = async () => {
   }
 }
 
-const showGenerateDialog = () => {
-  generateForm.title = ''
-  generateForm.subject_id = filters.subject_id
-  generateForm.grade = filters.grade
-  generateForm.time_range_days = null
-  generateDialogVisible.value = true
-}
-
-const generateReport = async () => {
-  generating.value = true
-  try {
-    const data = {}
-    if (generateForm.title) data.title = generateForm.title
-    if (generateForm.subject_id) data.subject_id = generateForm.subject_id
-    if (generateForm.grade) data.grade = generateForm.grade
-    if (generateForm.time_range_days) data.time_range_days = generateForm.time_range_days
-
-    const { data: result } = await learningReportApi.generate(data)
-    ElMessage.success(result.message)
-    generateDialogVisible.value = false
-    filters.subject_id = generateForm.subject_id || null
-    filters.grade = generateForm.grade || null
-    applyReportFilters()
-
-    // 自动打开新生成的报告
-    viewReport({ id: result.id })
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '生成报告失败')
-  } finally {
-    generating.value = false
-  }
-}
-
 const viewReport = async (row) => {
   try {
     const { data } = await learningReportApi.get(row.id)
@@ -564,15 +487,15 @@ const deleteReport = async (row) => {
   }
 }
 
-onMounted(async () => {
-  await appConfigStore.load()
-  if (generateForm.grade == null) generateForm.grade = appConfigStore.defaultGrade
+onMounted(() => {
   fetchReports()
   fetchSubjects()
 })
 </script>
 
 <style scoped>
+/* 页头右侧"返回周报"链接 */
+.lr-back-link { color: var(--accent-blue); font-size: 14px; white-space: nowrap; }
 .learning-reports  {
 
   max-width: 1200px;

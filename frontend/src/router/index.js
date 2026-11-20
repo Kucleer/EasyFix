@@ -85,9 +85,17 @@ const routes = [
     component: () => import('@/views/Words.vue'),
   },
   {
+    // 周报：每周一期，打开时会自动补做还没生成好的那一期
     path: '/learning-reports',
+    name: 'WeeklyReport',
+    component: () => import('@/views/WeeklyReport.vue'),
+  },
+  {
+    // 旧报告：以前生成的学习报告，只能看和删
+    path: '/learning-reports/legacy',
     name: 'LearningReports',
     component: () => import('@/views/LearningReports.vue'),
+    meta: { title: '旧报告' },
   },
   {
     path: '/motivation',
