@@ -268,5 +268,5 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 小工具：`upload` 改为一张一张传，遇到 502 等 3、6、12 秒各重试一次；已用 `install.py` 更新本机技能。
 - 部署：只部署 Pages `f9317fa8`（上一部署 `c5afea6a`），Worker 不变。
 - 验证：用小工具连传 16 张 180KB 测试图全部成功，网关每个请求 CPU 2–8 毫秒；一次批量传 10 张（共 1.8MB）成功，CPU 10 毫秒。另一轮第 13 张网关已存好并记了日志，但响应没有回到本机，小工具等满 120 秒报超时（不是 502）。
-- 调查和验证留在 R2 的测试对象：文件名含 `debug502_probe`（5 个）和 `debug502_verify`（39 个），没有数据库记录引用；`operation_log` 里相应多了约 67 行 `upload`。
+- 调查和验证留在 R2 的测试对象：文件名含 `debug502_probe`（5 个）和 `debug502_verify`（39 个），没有数据库记录引用。2026-11-20 已删除其中 31 个（5 个 `probe`、26 个 `verify`），删后逐个读取确认是 404；剩 13 个 `debug502_verify_01`–`13`（2026-11-19 22:00–22:01 上传，各 184320 字节）当时没记下存储路径，wrangler 4.158 又不能列出 R2 对象，暂时留着。`operation_log` 里相应多了约 67 行 `upload`，保留。
 - 未解决：后端其他接口同样超过 10 毫秒限额（热实例 20–100 毫秒，新实例约 500 毫秒），仍可能偶发 502；`check`、`submit` 没有加重试。
