@@ -385,24 +385,36 @@ async def advance_once(request, moment: datetime | None = None) -> dict:
     moment 是"现在"，缺省用北京时间 analytics.now()；目标是不晚于它的最近一个周日 20:00。
     写文字这一步的 SQL：读记录、认领、读最近鼓励语、写结果共 4 条（线上模型配置再读 1 条），不超过 6 条。
     """
-    moment = moment or analytics.now()
+    result, failed_attempts = await advance_step(request, moment or analytics.now())
+    return result
+
+
+async def advance_step(request, moment: datetime):
+    """推进一步的实际过程，返回 (结果, 失败次数)。
+
+    结果同 advance_once；失败次数只在这次写文字没成功、还没到兜底时有值（这次之后的 attempts），否则是 None。
+    定时任务用它在日志里区分"算好数字"和"写文字失败"，接口照旧只返回结果。
+    """
     db = Database(request.scope['env'].DB)
     student_id = current_student_id(request)
     week_end_time = week_end_before(moment)
     week_end = stamp(week_end_time)
     row = await ensure_report(db, student_id, week_end, stamp(moment))
     if row['status'] == 'done':
-        return {'id': row['id'], 'status': 'done', 'busy': False}
+        return {'id': row['id'], 'status': 'done', 'busy': False}, None
     if not await claim_step(db, row, moment):
-        return {'id': row['id'], 'status': row['status'], 'busy': True}
+        return {'id': row['id'], 'status': row['status'], 'busy': True}, None
     claimed_at = stamp(moment)
     if row['status'] == 'new':
         status = await facts_step(db, request, row, week_end_time, claimed_at)
     else:
         status = await text_step(db, request, row, student_id, week_end, claimed_at)
     if status is None:      # 做完时发现已被别人重新认领，这次的结果没有写进去
-        return {'id': row['id'], 'status': row['status'], 'busy': True}
-    return {'id': row['id'], 'status': status, 'busy': False}
+        return {'id': row['id'], 'status': row['status'], 'busy': True}, None
+    result = {'id': row['id'], 'status': status, 'busy': False}
+    if row['status'] == 'facts_ready' and status == 'facts_ready':     # 写文字失败，次数加了 1
+        return result, row['attempts'] + 1
+    return result, None
 
 
 # ---------------------------------------------------------------- 定时任务
@@ -418,18 +430,22 @@ class ScheduledRequest:
 async def run_scheduled(env) -> str:
     """定时入口：维护开关开着时什么都不做，否则推进一步。
 
-    返回并打印一行日志：weekly <week_end> <做完后的状态 / busy / maintenance / failed 异常类型名>。
-    所有异常都接住，只记类型名，不记异常内容（避免把密钥或模型原文写进日志）。
+    返回并打印一行日志：weekly <week_end> <做完后的状态 / busy / maintenance / failed 异常类型名>；
+    写文字失败时状态后面再跟 text_failed <次数>/<上限>，例如 weekly 2026-11-22 20:00:00 facts_ready text_failed 1/3。
+    日志只用固定词和数字：所有异常都接住，只记类型名，不记异常内容和 error 列（避免把密钥或模型原文写进日志）。
     """
-    request = ScheduledRequest(env)
-    moment = analytics.now()
-    week_end = stamp(week_end_before(moment))
+    week_end = '-'      # 连时间都没算出来就出错时，日志里这一项写 -
     try:
+        request = ScheduledRequest(env)
+        moment = analytics.now()
+        week_end = stamp(week_end_before(moment))
         if await auth.maintenance_enabled(request):
             outcome = 'maintenance'
         else:
-            result = await advance_once(request, moment)
+            result, failed_attempts = await advance_step(request, moment)
             outcome = 'busy' if result['busy'] else result['status']
+            if failed_attempts is not None:
+                outcome += ' text_failed %d/%d' % (failed_attempts, TEXT_MAX_ATTEMPTS)
     except Exception as error:
         outcome = 'failed ' + type(error).__name__
     line = 'weekly %s %s' % (week_end, outcome)

@@ -746,6 +746,42 @@ def test_run_scheduled_never_raises():
     assert 'failed' in line and 'RuntimeError' in line and 'secret' not in line, line
 
 
+def test_run_scheduled_never_raises_even_before_week_end():
+    """连"现在"都取不到时也不抛出：week_end 写 -，后面照样是 failed 类型名。"""
+    import weekly
+    c, db, restore = scheduled_setup()
+    original = weekly.analytics.now
+
+    def broken_now():
+        raise RuntimeError('secret detail')
+
+    weekly.analytics.now = broken_now
+    try:
+        line = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))
+    finally:
+        weekly.analytics.now = original
+        restore()
+    assert line == 'weekly - failed RuntimeError', line
+
+
+def test_run_scheduled_logs_failed_text_attempt():
+    """写文字失败（还没到兜底）：日志写 text_failed 次数/上限，只有固定词和数字，不带异常内容；算数字那次不带。"""
+    import weekly
+    c, db, restore = scheduled_setup()
+    fake = weekly.generate_json
+    try:
+        first = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))
+        fake.script = [RuntimeError('secret model output')]
+        second = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))
+        third = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))   # 这次模型成功
+    finally:
+        restore()
+    assert first.endswith(' facts_ready') and 'text_failed' not in first, first
+    assert second.endswith(' facts_ready text_failed 1/3') and 'secret' not in second, second
+    assert third.endswith(' done'), third
+    assert c.execute('SELECT attempts FROM weekly_report').fetchone()[0] == 1
+
+
 def guard_revision_after(method, path):
     """让 auth.guard 用真实的 cache.invalidate 处理一个成功的写请求，返回之后的 data_revision 和 operation_log 条数。"""
     import auth
@@ -827,6 +863,8 @@ TESTS = [
     test_run_scheduled_advances_and_logs_one_line,
     test_run_scheduled_skips_in_maintenance,
     test_run_scheduled_never_raises,
+    test_run_scheduled_never_raises_even_before_week_end,
+    test_run_scheduled_logs_failed_text_attempt,
     test_advance_does_not_bump_data_revision,
 ]
 
