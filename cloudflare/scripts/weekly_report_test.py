@@ -5,10 +5,13 @@
     python cloudflare/scripts/weekly_report_test.py
 """
 
+import json
 import pathlib
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from fastapi import HTTPException
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
@@ -443,6 +446,244 @@ def test_facts_query_budget():
     assert brief_of(facts_big)['improved_total'] == 7
 
 
+# ---------------------------------------------------------------- 任务 6：推进一步和接口
+
+
+NOW = datetime(2026, 11, 22, 20, 30)          # 本期刚结束半小时
+FAKE_CHEER = '（假模型）这周也在一点点变好。'
+
+
+def brief_in_prompt(prompt):
+    """从提示词的"本周数据"一节取回给模型看的 brief。"""
+    part = prompt.split('## 本周数据\n', 1)[1].split('\n\n## 最近几期', 1)[0]
+    return json.loads(part)
+
+
+def model_text(brief, cheer=FAKE_CHEER):
+    """一份能通过检查的模型文字：兜底文字换一句鼓励。"""
+    return dict(fallback_text(brief, []), cheer=cheer)
+
+
+class FakeModel:
+    """可编程的假文本模型：按 script 依次返回文字或抛异常；script 用完后返回一份能通过检查的文字。"""
+
+    def __init__(self):
+        self.calls = 0
+        self.script = []
+        self.prompts = []
+
+    async def __call__(self, request, prompt, max_tokens=None, temperature=None, parse=None):
+        self.calls += 1
+        self.prompts.append(prompt)
+        if self.script:
+            answer = self.script.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return model_text(brief_in_prompt(prompt))
+
+
+class CountingAll(starmap_test.SQLiteDB):
+    """记录全部 SQL 条数（读和写都算）的数据库适配器。"""
+
+    def __init__(self, connection):
+        super().__init__(connection)
+        self.calls = 0
+
+    async def all(self, sql, parameters=()):
+        self.calls += 1
+        return await super().all(sql, parameters)
+
+    async def first(self, sql, parameters=()):
+        self.calls += 1
+        return await super().first(sql, parameters)
+
+    async def run(self, sql, parameters=()):
+        self.calls += 1
+        return await super().run(sql, parameters)
+
+
+def advance_setup(c=None):
+    """准备推进用的库、请求和假模型：weekly 模块直接用传入的 db，模型换成假的。"""
+    import weekly
+    c = c or build_db()
+    c.commit()
+    db = CountingAll(c)
+    request = starmap_test.request_for(db)
+    weekly.Database = lambda binding: binding
+    fake = FakeModel()
+    weekly.generate_json = fake
+    return c, db, request, fake
+
+
+def stored_brief(c):
+    """读出库里这一期 facts 对应的 brief。"""
+    return brief_of(json.loads(c.execute("SELECT facts FROM weekly_report WHERE week_end='2026-11-22 20:00:00'").fetchone()[0]))
+
+
+def test_advance_two_steps_then_done():
+    """第一次算数字、第二次写文字（最多 6 条查询），做完后再调什么都不动。"""
+    from weekly import advance_once
+    c, db, request, fake = advance_setup()
+    first = run(advance_once(request, NOW))
+    assert first['status'] == 'facts_ready' and first['busy'] is False and fake.calls == 0
+    db.calls = 0
+    second = run(advance_once(request, NOW))
+    queries_in_second_step = db.calls
+    assert second['status'] == 'done' and fake.calls == 1, second
+    assert queries_in_second_step <= 6, queries_in_second_step   # 写文字这一步最多 6 条查询
+    row = c.execute('SELECT status,text_source,attempts,week_end FROM weekly_report').fetchone()
+    assert tuple(row) == ('done', 'model', 0, '2026-11-22 20:00:00')
+    assert json.loads(c.execute('SELECT text FROM weekly_report').fetchone()[0])['cheer'] == FAKE_CHEER
+    assert c.execute('SELECT step_started_at FROM weekly_report').fetchone()[0] is None
+    third = run(advance_once(request, NOW))
+    assert third == {'id': first['id'], 'status': 'done', 'busy': False} and fake.calls == 1   # 做完了不再动
+    assert c.execute('SELECT COUNT(*) FROM weekly_report').fetchone()[0] == 1
+
+
+def test_advance_claims_once():
+    """刚被认领的一步再调返回正忙，不调模型；认领超过 STALE_SECONDS 后可以重新认领并做完。"""
+    from weekly import STALE_SECONDS, advance_once
+    c, db, request, fake = advance_setup()
+    report_id = run(advance_once(request, NOW))['id']
+    c.execute('UPDATE weekly_report SET step_started_at=?', (NOW.strftime('%Y-%m-%d %H:%M:%S'),))
+    c.commit()
+    assert run(advance_once(request, NOW)) == {'id': report_id, 'status': 'facts_ready', 'busy': True}
+    assert fake.calls == 0
+    stale = NOW - timedelta(seconds=STALE_SECONDS + 1)
+    c.execute('UPDATE weekly_report SET step_started_at=?', (stale.strftime('%Y-%m-%d %H:%M:%S'),))
+    c.commit()
+    assert run(advance_once(request, NOW))['status'] == 'done'
+    assert fake.calls == 1
+
+
+def test_bad_text_falls_back_after_three():
+    """写文字连续失败 3 次（检查不过、没配模型、模型请求失败）后用兜底文字，error 只有简短原因。"""
+    from weekly import advance_once
+    c, db, request, fake = advance_setup()
+    run(advance_once(request, NOW))                                  # 算数字
+    brief = stored_brief(c)
+    bad_number_text = dict(model_text(brief), summary='这周你做了 999 道题。')
+    fake.script = [bad_number_text, HTTPException(503, '请先配置文本模型'),
+                   HTTPException(502, '文本模型请求失败 sk-secret')]
+    for expected_attempts, expected_error in ((1, '出现了没给过的数字'), (2, '文本模型请求失败（503）')):
+        assert run(advance_once(request, NOW))['status'] == 'facts_ready'
+        row = c.execute('SELECT attempts,error FROM weekly_report').fetchone()
+        assert tuple(row) == (expected_attempts, expected_error), tuple(row)
+    assert run(advance_once(request, NOW))['status'] == 'done'       # 第 3 次失败：用兜底
+    row = c.execute('SELECT text_source,attempts,error,text FROM weekly_report').fetchone()
+    assert row[0] == 'fallback' and row[1] == 3 and row[2], tuple(row)
+    assert 'sk-' not in row[2] and '502' in row[2], row[2]
+    assert check_text(json.loads(row[3]), brief, []) is None
+    assert fake.calls == 3
+    assert run(advance_once(request, NOW))['status'] == 'done' and fake.calls == 3
+
+
+def test_model_errors_never_echo_text():
+    """模型异常和检查失败写进 error 的都是固定短句，不带异常原文。"""
+    from weekly import advance_once
+    c, db, request, fake = advance_setup()
+    run(advance_once(request, NOW))
+    fake.script = [RuntimeError('sk-leak raw model output')]
+    run(advance_once(request, NOW))
+    error = c.execute('SELECT error FROM weekly_report').fetchone()[0]
+    assert error and 'sk-' not in error and 'raw' not in error, error
+
+
+def test_recent_cheers_are_passed_and_avoided():
+    """最近几期用过的鼓励语交给模型；模型又写了同一句算失败，下一次重写。"""
+    from weekly import advance_once
+    c = build_db()
+    old_text = json.dumps({'cheer': '旧的鼓励', 'summary': '旧', 'captions': {}}, ensure_ascii=False)
+    c.execute("INSERT INTO weekly_report(week_end,status,text,text_source,created_at,updated_at) "
+              "VALUES('2026-11-15 20:00:00','done',?,'model','2026-11-15 20:00:05','2026-11-15 20:10:05')",
+              (old_text,))
+    c, db, request, fake = advance_setup(c)
+    run(advance_once(request, NOW))
+    brief = stored_brief(c)
+    fake.script = [model_text(brief, cheer='旧的鼓励')]
+    assert run(advance_once(request, NOW))['status'] == 'facts_ready'
+    assert '旧的鼓励' in fake.prompts[0]
+    row = c.execute("SELECT attempts,error FROM weekly_report WHERE week_end='2026-11-22 20:00:00'").fetchone()
+    assert row[0] == 1 and row[1] == '鼓励语和最近几期重复', tuple(row)
+    assert run(advance_once(request, NOW))['status'] == 'done' and fake.calls == 2
+
+
+def test_facts_error_keeps_new():
+    """算数字出错：error 写异常类型名，状态还是 new，清掉认领，异常继续抛出。"""
+    import weekly
+    c, db, request, fake = advance_setup()
+    original = weekly.build_facts
+
+    async def broken(db, request, week_end):
+        raise ValueError('secret detail')
+
+    weekly.build_facts = broken
+    try:
+        try:
+            run(weekly.advance_once(request, NOW))
+            assert False, '应该抛出'
+        except ValueError:
+            pass
+    finally:
+        weekly.build_facts = original
+    row = c.execute('SELECT status,error,step_started_at FROM weekly_report').fetchone()
+    assert tuple(row) == ('new', 'ValueError', None), tuple(row)
+    assert run(weekly.advance_once(request, NOW))['status'] == 'facts_ready'
+
+
+def test_list_and_detail():
+    """列表只列算好数字的期，新的在前；due 看最近一期是否做完；详情不存在返回 404。"""
+    import weekly
+    c = build_db()
+    old_facts = json.dumps({'week': {'number': 1}}, ensure_ascii=False)
+    old_text = json.dumps({'cheer': '旧的鼓励'}, ensure_ascii=False)
+    c.execute("INSERT INTO weekly_report(week_end,status,facts,text,text_source,created_at,updated_at) "
+              "VALUES('2026-11-15 20:00:00','done',?,?,'fallback','2026-11-15 20:00:05','2026-11-15 20:10:05')",
+              (old_facts, old_text))
+    c.execute("INSERT INTO weekly_report(week_end,created_at,updated_at) "
+              "VALUES('2026-11-22 20:00:00','2026-11-22 20:00:05','2026-11-22 20:00:05')")
+    c.execute("INSERT INTO weekly_report(week_end,status,facts,created_at,updated_at,deleted) "
+              "VALUES('2026-11-08 20:00:00','done','{}','2026-11-08 20:00:05','2026-11-08 20:00:05',1)")
+    c, db, request, fake = advance_setup(c)
+    listing = run(weekly.list_reports(request, NOW))
+    old_id = c.execute("SELECT id FROM weekly_report WHERE week_end='2026-11-15 20:00:00'").fetchone()[0]
+    assert listing == {'items': [{'id': old_id, 'number': 1, 'monday': '2026-11-09', 'sunday': '2026-11-15',
+                                  'status': 'done'}], 'due': True}, listing
+    detail = run(weekly.report_detail(request, old_id))
+    assert detail == {'id': old_id, 'status': 'done', 'number': 1, 'monday': '2026-11-09', 'sunday': '2026-11-15',
+                      'facts': {'week': {'number': 1}}, 'text': {'cheer': '旧的鼓励'}, 'text_source': 'fallback'}
+    new_id = c.execute("SELECT id FROM weekly_report WHERE week_end='2026-11-22 20:00:00'").fetchone()[0]
+    fresh = run(weekly.report_detail(request, new_id))
+    assert fresh['status'] == 'new' and fresh['text'] is None and fresh['facts'] is None and fresh['number'] is None
+    try:
+        run(weekly.report_detail(request, 999))
+        assert False, '应该 404'
+    except HTTPException as error:
+        assert error.status_code == 404 and error.detail == '周报不存在'
+    run(weekly.advance_once(request, NOW))
+    run(weekly.advance_once(request, NOW))
+    listing = run(weekly.list_reports(request, NOW))
+    assert listing['due'] is False and [item['status'] for item in listing['items']] == ['done', 'done']
+    assert listing['items'][0]['number'] == 2 and listing['items'][0]['sunday'] == '2026-11-22'
+
+
+def test_advance_targets_last_ended_week():
+    """周三补做：目标是刚过去的那个周日 20:00。"""
+    from weekly import advance_once
+    c, db, request, fake = advance_setup()
+    assert run(advance_once(request, datetime(2026, 11, 25, 9)))['status'] == 'facts_ready'
+    assert c.execute('SELECT week_end FROM weekly_report').fetchone()[0] == '2026-11-22 20:00:00'
+
+
+def test_router_paths():
+    """三个接口挂在 /api/weekly-reports 下。"""
+    from weekly import router
+    paths = {(route.path, tuple(sorted(route.methods))) for route in router.routes}
+    assert paths == {('/api/weekly-reports', ('GET',)), ('/api/weekly-reports/advance', ('POST',)),
+                     ('/api/weekly-reports/{report_id}', ('GET',))}, paths
+
+
 TESTS = [
     test_migration_creates_weekly_report,
     test_week_end_boundaries,
@@ -467,6 +708,15 @@ TESTS = [
     test_facts_practice_and_graduated,
     test_facts_quiet_week,
     test_facts_query_budget,
+    test_advance_two_steps_then_done,
+    test_advance_claims_once,
+    test_bad_text_falls_back_after_three,
+    test_model_errors_never_echo_text,
+    test_recent_cheers_are_passed_and_avoided,
+    test_facts_error_keeps_new,
+    test_list_and_detail,
+    test_advance_targets_last_ended_week,
+    test_router_paths,
 ]
 
 

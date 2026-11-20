@@ -367,6 +367,21 @@ def test_main_rejects_non_local_host():
     raise AssertionError('应当拒绝 --host')
 
 
+def test_weekly_report_advance_with_fake_model():
+    """推进两次：先算数字、再用假模型写文字，列表里出现一期 done，详情带假模型的鼓励语。"""
+    client, _ = make_client()
+    first = client.post('/api/weekly-reports/advance')
+    assert first.status_code == 200, first.text
+    assert first.json()['status'] == 'facts_ready', first.json()
+    second = client.post('/api/weekly-reports/advance')
+    assert second.status_code == 200 and second.json()['status'] == 'done', second.text
+    listing = client.get('/api/weekly-reports').json()
+    assert listing['due'] is False and [item['status'] for item in listing['items']] == ['done'], listing
+    detail = client.get('/api/weekly-reports/%d' % listing['items'][0]['id']).json()
+    assert detail['text_source'] == 'model' and detail['text']['cheer'] == local_dev_server.FAKE_WEEKLY_CHEER
+    assert client.get('/api/weekly-reports/999').status_code == 404
+
+
 def main():
     """依次运行所有以 test_ 开头的测试并汇总。"""
     configure_output()

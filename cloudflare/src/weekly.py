@@ -3,19 +3,41 @@
 规则（一周怎么算、档位变化怎么判）都在 weekly_model.py；这里只负责取数和组装。
 一次 build_facts 的 SQL 条数固定（每个有考点的学科 5 条，再加 9 条），不随题目数、考点数增加。
 时间都是北京时间字符串：库里是 26 位（带微秒），窗口是 19 位，可以直接按字符串比较。
+
+推进一步（advance_once）：定时任务和页面接口共用，每次只做当前状态的下一步，
+靠一条带条件的 UPDATE 认领这一步（写法参考 scan.py 的 claim_step / finish_step）。
+step_started_at 存 19 位北京时间字符串，和 week_end、created_at 同一种写法：列是 TEXT，
+按字符串比较就是按时间先后比较（scan.py 存整数秒，这里不照搬，免得一张表里有两种时间写法）。
+
+下面这些模块级名字测试和本机开发服务器会替换，代码里一律直接按名字调用：generate_json、Database、build_facts。
 """
 
+import json
 from datetime import datetime, timedelta
 
+from fastapi import APIRouter, HTTPException, Request
+
+import analytics
 import starmap
+from database import Database
 from mastery_model import leaf_detail, status_of, upper_mastery
+from prompts import PromptLibrary
 from question_scope import counted, current_student_id
+from settings import generate_json
 from weekly_model import (CALENDAR_DAYS, STATUS_ORDER, STREAK_LOOKBACK, TIME_FORMAT, TREND_WEEKS, DATE_FORMAT,
                           calendar_days, classify_change, entry_streak, graduated_in_week, known_before, percent,
                           pick_target, week_activity, week_starts, window)
+from weekly_model import RECENT_CHEERS, TEXT_MAX_ATTEMPTS, brief_of, check_text, fallback_text, week_end_before
 
 SCHEMA_VERSION = 1      # facts 结构的版本号
 LIST_MAX = 5            # improved / dropped / new_weak 列表最多放几个考点
+STALE_SECONDS = 180     # 认领一步后超过这么多秒还没做完，算卡住，可以被重新认领
+LIST_LIMIT = 60         # 各期简表最多列几期
+MODEL_FAILED_TEXT = '文本模型请求失败'     # 写进 error 的固定短句，后面只跟状态码
+MODEL_ERROR_TEXT = '文本模型调用出错'      # 不是 HTTP 错误时的固定短句
+NOT_FOUND_TEXT = '周报不存在'
+
+router = APIRouter(prefix='/api/weekly-reports')
 
 
 def week_index(moment, starts):
@@ -249,3 +271,192 @@ async def build_facts(db, request, week_end: datetime) -> dict:
         'practice': practice,
         'subjects': subject_facts,
     }
+
+
+# ---------------------------------------------------------------- 推进一步
+
+
+def stamp(moment):
+    """datetime 转成库里用的 19 位时间字符串。"""
+    return moment.strftime(TIME_FORMAT)
+
+
+async def ensure_report(db, student_id, week_end, now_text):
+    """读这一期的记录；还没有就建一条再读（唯一索引保证同一期只有一条，并发建时另一条什么都不做）。"""
+    sql = ('SELECT id,status,step_started_at,facts,attempts FROM weekly_report '
+           'WHERE student_id=? AND week_end=? AND deleted=0')
+    row = await db.first(sql, (student_id, week_end))
+    if row is None:
+        await db.run("INSERT INTO weekly_report(student_id,week_end,status,created_at,updated_at) "
+                     "VALUES(?,?,'new',?,?) ON CONFLICT DO NOTHING", (student_id, week_end, now_text, now_text))
+        row = await db.first(sql, (student_id, week_end))
+    return row
+
+
+async def claim_step(db, row, moment):
+    """用一条条件更新认领这一步：状态还是读到时的样子、且没有别人正在做（或已卡住）才算认领成功。"""
+    found = await db.first(
+        'UPDATE weekly_report SET step_started_at=?,updated_at=? '
+        'WHERE id=? AND deleted=0 AND status=? AND (step_started_at IS NULL OR step_started_at<?) RETURNING id',
+        (stamp(moment), stamp(moment), row['id'], row['status'], stamp(moment - timedelta(seconds=STALE_SECONDS))))
+    return found is not None
+
+
+async def finish_step(db, row, claimed_at, fields):
+    """一步结束：写入 fields，清空 step_started_at；返回是否写进去了。
+
+    只在记录仍是自己认领时的样子才写（状态和认领时间都没变），
+    这样卡住后被别人重新认领的那一步，不会被这次迟到的结果覆盖。
+    """
+    data = dict(fields, step_started_at=None, updated_at=claimed_at)
+    columns = ','.join(key + '=?' for key in data)
+    found = await db.first(
+        'UPDATE weekly_report SET ' + columns + ' WHERE id=? AND deleted=0 AND status=? AND step_started_at=? '
+        'RETURNING id', [*data.values(), row['id'], row['status'], claimed_at])
+    return found is not None
+
+
+async def facts_step(db, request, row, week_end, claimed_at):
+    """状态 new：算数字并保存，改成 facts_ready。出错时 error 只写异常类型名，状态不变，异常继续抛出。"""
+    try:
+        facts = await build_facts(db, request, week_end)
+    except Exception as error:
+        await finish_step(db, row, claimed_at, {'error': type(error).__name__})
+        raise
+    written = await finish_step(db, row, claimed_at,
+                                {'status': 'facts_ready', 'facts': json.dumps(facts, ensure_ascii=False)})
+    return 'facts_ready' if written else None
+
+
+async def recent_cheers(db, student_id, week_end):
+    """更早的、已做完的最近几期用过的鼓励语（一条 SQL）。"""
+    rows = await db.all(
+        "SELECT json_extract(text,'$.cheer') AS cheer FROM weekly_report WHERE student_id=? AND deleted=0 "
+        "AND status='done' AND week_end<? ORDER BY week_end DESC LIMIT ?", (student_id, week_end, RECENT_CHEERS))
+    return [row['cheer'] for row in rows if row['cheer']]
+
+
+async def ask_model(request, brief, cheers):
+    """调一次文本模型并检查：通过返回 (文字, None)，否则返回 (None, 简短原因)。
+
+    原因只写固定短句（模型请求失败时带上状态码），不写异常里的任何原文，也不写模型返回的内容。
+    """
+    prompt = PromptLibrary()._build_weekly_report_prompt(brief, cheers)
+    try:
+        text = await generate_json(request, prompt)
+    except HTTPException as error:
+        return None, '%s（%s）' % (MODEL_FAILED_TEXT, error.status_code)
+    except Exception:
+        return None, MODEL_ERROR_TEXT
+    reason = check_text(text, brief, cheers)
+    return (text, None) if reason is None else (None, reason)
+
+
+async def text_step(db, request, row, student_id, week_end, claimed_at):
+    """状态 facts_ready：调一次模型写文字；失败记次数，到 TEXT_MAX_ATTEMPTS 次当场改用兜底文字。"""
+    brief = brief_of(json.loads(row['facts']))
+    cheers = await recent_cheers(db, student_id, week_end)
+    attempts = row['attempts']
+    reason = None
+    if attempts < TEXT_MAX_ATTEMPTS:      # 已经失败够次数的（正常不会出现）不再调模型
+        text, reason = await ask_model(request, brief, cheers)
+        if reason is None:
+            written = await finish_step(db, row, claimed_at, {
+                'status': 'done', 'text': json.dumps(text, ensure_ascii=False), 'text_source': 'model'})
+            return 'done' if written else None
+        attempts += 1
+    if attempts < TEXT_MAX_ATTEMPTS:
+        written = await finish_step(db, row, claimed_at, {'attempts': attempts, 'error': reason})
+        return 'facts_ready' if written else None
+    fields = {'status': 'done', 'text': json.dumps(fallback_text(brief, cheers), ensure_ascii=False),
+              'text_source': 'fallback', 'attempts': attempts}
+    if reason:
+        fields['error'] = reason
+    written = await finish_step(db, row, claimed_at, fields)
+    return 'done' if written else None
+
+
+async def advance_once(request, moment: datetime | None = None) -> dict:
+    """把最近一期周报推进一步：new → 算数字 → facts_ready → 写文字 → done；done 什么都不做。
+
+    返回 {'id', 'status', 'busy'}；busy 为真表示这一步正被别人做着（这次什么都没做）。
+    moment 是"现在"，缺省用北京时间 analytics.now()；目标是不晚于它的最近一个周日 20:00。
+    写文字这一步的 SQL：读记录、认领、读最近鼓励语、写结果共 4 条（线上模型配置再读 1 条），不超过 6 条。
+    """
+    moment = moment or analytics.now()
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    week_end_time = week_end_before(moment)
+    week_end = stamp(week_end_time)
+    row = await ensure_report(db, student_id, week_end, stamp(moment))
+    if row['status'] == 'done':
+        return {'id': row['id'], 'status': 'done', 'busy': False}
+    if not await claim_step(db, row, moment):
+        return {'id': row['id'], 'status': row['status'], 'busy': True}
+    claimed_at = stamp(moment)
+    if row['status'] == 'new':
+        status = await facts_step(db, request, row, week_end_time, claimed_at)
+    else:
+        status = await text_step(db, request, row, student_id, week_end, claimed_at)
+    if status is None:      # 做完时发现已被别人重新认领，这次的结果没有写进去
+        return {'id': row['id'], 'status': row['status'], 'busy': True}
+    return {'id': row['id'], 'status': status, 'busy': False}
+
+
+# ---------------------------------------------------------------- 接口
+
+
+def week_dates_of(week_end):
+    """由 week_end（19 位时间）得到这一期的周一、周日日期。"""
+    win = window(datetime.strptime(week_end, TIME_FORMAT))
+    return win['monday'], win['sunday']
+
+
+async def list_reports(request, moment):
+    """各期简表（只列 facts_ready 和 done，新的在前，最多 LIST_LIMIT 条）；due 表示最近一期还没做完。"""
+    db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
+    rows = await db.all(
+        "SELECT id,week_end,status,json_extract(facts,'$.week.number') AS number FROM weekly_report "
+        "WHERE student_id=? AND deleted=0 AND status IN ('facts_ready','done') ORDER BY week_end DESC LIMIT ?",
+        (student_id, LIST_LIMIT))
+    latest = await db.first('SELECT status FROM weekly_report WHERE student_id=? AND week_end=? AND deleted=0',
+                            (student_id, stamp(week_end_before(moment))))
+    items = []
+    for row in rows:
+        monday, sunday = week_dates_of(row['week_end'])
+        items.append({'id': row['id'], 'number': row['number'], 'monday': monday, 'sunday': sunday,
+                      'status': row['status']})
+    return {'items': items, 'due': latest is None or latest['status'] != 'done'}
+
+
+async def report_detail(request, report_id):
+    """一期的完整内容；没有 facts / text 时是 None；不存在返回 404。"""
+    db = Database(request.scope['env'].DB)
+    row = await db.first('SELECT id,week_end,status,facts,text,text_source FROM weekly_report '
+                         'WHERE id=? AND student_id=? AND deleted=0', (report_id, current_student_id(request)))
+    if row is None:
+        raise HTTPException(404, NOT_FOUND_TEXT)
+    facts = json.loads(row['facts']) if row['facts'] else None
+    monday, sunday = week_dates_of(row['week_end'])
+    return {'id': row['id'], 'status': row['status'], 'number': (facts or {}).get('week', {}).get('number'),
+            'monday': monday, 'sunday': sunday, 'facts': facts,
+            'text': json.loads(row['text']) if row['text'] else None, 'text_source': row['text_source']}
+
+
+@router.get('')
+async def list_view(request: Request):
+    """GET /api/weekly-reports：各期简表。"""
+    return await list_reports(request, analytics.now())
+
+
+@router.post('/advance')
+async def advance_view(request: Request):
+    """POST /api/weekly-reports/advance：把最近一期推进一步（写入，维护开关打开时由中间件返回 503）。"""
+    return await advance_once(request)
+
+
+@router.get('/{report_id}')
+async def detail_view(request: Request, report_id: int):
+    """GET /api/weekly-reports/{id}：一期的完整内容。"""
+    return await report_detail(request, report_id)
