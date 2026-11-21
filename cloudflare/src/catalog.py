@@ -1,4 +1,4 @@
-"""学科、标签、错题本和错误类型的 D1 接口；知识点由 knowledge.py 单独实现。"""
+"""学科、标签、错题本和激励配置的 D1 接口；知识点由 knowledge.py 单独实现。"""
 
 import json
 from datetime import datetime
@@ -10,11 +10,12 @@ CATALOG = {
     'subjects': ('subject', {'name'}),
     'tags': ('tag', {'name', 'color'}),
     'error-books': ('error_book', {'name', 'subject_id', 'description', 'cover_image', 'original_images'}),
-    'error-types': ('error_type', {'name', 'subject_id'}),
     'stars/actions': ('star_action', {'code','name','star_value','icon','enabled'}),
     'achievements': ('achievement', {'code','name','level','description','icon','trigger_action','trigger_count','reward_stars','is_active'}),
     'rewards': ('reward', {'name','description','icon','cost_stars','total_stock','remaining_stock','is_active','image_url'}),
 }
+# 可以修改的目录；学科和标签前端只新增、删除，不注册修改接口
+EDITABLE_KINDS = {'error-books', 'stars/actions', 'achievements', 'rewards'}
 
 
 async def enrich(db, kind, row):
@@ -24,9 +25,6 @@ async def enrich(db, kind, row):
             row[key] = bool(row[key])
     if kind == 'error-books':
         row['original_images'] = json.loads(row.get('original_images') or '[]')
-    if kind == 'error-types':
-        subject = await db.first('SELECT name FROM subject WHERE id=? AND deleted=0', (row.get('subject_id'),))
-        row['subject_name'] = subject['name'] if subject else '通用'
     return row
 
 
@@ -44,7 +42,7 @@ def register(kind, table, fields):
                     value = int(value)
                 except ValueError:
                     raise HTTPException(422, '筛选参数无效')
-                where.append('(subject_id=? OR subject_id IS NULL)' if kind == 'error-types' else key + '=?')
+                where.append(key + '=?')
                 values.append(value)
         condition = ' AND '.join(where)
         rows = await db.all('SELECT * FROM ' + table + ' WHERE ' + condition + ' ORDER BY id DESC', values)
@@ -123,8 +121,9 @@ def register(kind, table, fields):
 
     router.add_api_route('/api/' + kind, list_items, methods=['GET'])
     router.add_api_route('/api/' + kind, save_item, methods=['POST'], status_code=201)
-    router.add_api_route('/api/' + kind + '/{item_id}', get_item, methods=['GET'])
-    router.add_api_route('/api/' + kind + '/{item_id}', save_item, methods=['PUT'])
+    # 单条读取没有调用方，不注册路由；get_item 仍供保存和删除内部使用
+    if kind in EDITABLE_KINDS:
+        router.add_api_route('/api/' + kind + '/{item_id}', save_item, methods=['PUT'])
     router.add_api_route('/api/' + kind + '/{item_id}', delete_item, methods=['DELETE'], status_code=204)
 
 
