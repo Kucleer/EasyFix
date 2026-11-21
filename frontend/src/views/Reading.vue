@@ -149,7 +149,8 @@ import readingProvenance from '@/data/reading-provenance.json'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from '@/api/http'
+import { readingApi } from '@/api/reading'
+import { practiceApi } from '@/api/practice'
 
 const readings = ref([])
 const topics = ref([])
@@ -195,7 +196,7 @@ const contentParagraphs = computed(() => {
 
 async function fetchTopics() {
   try {
-    const res = await axios.get('/api/readings/topics')
+    const res = await readingApi.topics()
     topics.value = res.data
   } catch {
     topics.value = []
@@ -220,7 +221,7 @@ async function fetchReadings() {
     if (filters.topic) params.topic = filters.topic
     if (filters.grade) params.grade = filters.grade
     if (filters.difficulty) params.difficulty = filters.difficulty
-    const res = await axios.get('/api/readings', { params })
+    const res = await readingApi.list(params)
     readings.value = (res.data.items || []).map(item => ({ ...item, provenance: item.provenance || readingProvenance[item.source] }))
     total.value = res.data.total || 0
     if (selectedId.value && !readings.value.some(item => item.id === selectedId.value)) {
@@ -239,7 +240,7 @@ async function selectPassage(item) {
   selectedId.value = item.id
   selectedPassage.value = null
   try {
-    const res = await axios.get(`/api/readings/${item.id}`)
+    const res = await readingApi.get(item.id)
     selectedPassage.value = { ...res.data, provenance: res.data.provenance || readingProvenance[res.data.source] }
   } catch {
     ElMessage.error('获取短文详情失败')
@@ -253,7 +254,7 @@ function toggleQuestionAnswer(q) {
 async function doGenerate() {
   generating.value = true
   try {
-    await axios.post('/api/readings/generate', generateForm)
+    await readingApi.generate(generateForm)
     ElMessage.success('生成成功')
     showGenerateDialog.value = false
     await fetchReadings()
@@ -268,7 +269,7 @@ async function deletePassage() {
   if (!selectedPassage.value) return
   try {
     await ElMessageBox.confirm('确定删除这篇短文？')
-    await axios.delete(`/api/readings/${selectedPassage.value.id}`)
+    await readingApi.remove(selectedPassage.value.id)
     ElMessage.success('删除成功')
     selectedPassage.value = null
     selectedId.value = null
@@ -281,7 +282,7 @@ async function deletePassage() {
 async function createPracticeSet() {
   if (!selectedPassage.value) return
   try {
-    const res = await axios.post('/api/practice-sets/generate-from-reading', {
+    const res = await practiceApi.generateFromReading({
       passage_id: selectedPassage.value.id,
     })
     ElMessage.success('练习集创建成功')

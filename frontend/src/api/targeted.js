@@ -5,7 +5,7 @@ const api = axios.create({
   timeout: 120000,
 })
 
-// 考点卷相关接口（都不走前端短时缓存）
+// 考点卷特有的接口（都不走前端短时缓存）；详情、生成 PDF、提交批改用 practice.js，上传用 upload.js
 export const targetedApi = {
   status() {
     return api.get('/practice-sets/targeted/status', { cache: false })
@@ -22,15 +22,6 @@ export const targetedApi = {
   reroll(id, itemId) {
     return api.post(`/practice-sets/targeted/${id}/reroll`, { item_id: itemId })
   },
-  detail(id) {
-    return api.get(`/practice-sets/${id}`, { cache: false })
-  },
-  generatePdf(id) {
-    return api.post(`/practice-sets/${id}/generate-pdf`)
-  },
-  grade(id, payload) {
-    return api.post(`/practice-sets/${id}/mark-reviewed`, payload)
-  },
   // 批改识别预批：读一张照片（传照片序号），返回这页的识别文字；一页最慢约 120 秒
   recognizePage(id, index, signal) {
     return api.post(`/practice-sets/${id}/recognize/page`, { index }, { timeout: 150000, signal })
@@ -38,10 +29,5 @@ export const targetedApi = {
   // 批改识别预批：传各页识别文字，服务端取题目和答案、调一次模型，返回每题的预批结果
   recognizeJudge(id, pages, signal) {
     return api.post(`/practice-sets/${id}/recognize/judge`, { pages }, { timeout: 150000, signal })
-  },
-  uploadImages(files) {
-    const form = new FormData()
-    for (const file of files) form.append('files', file)
-    return api.post('/upload/batch-simple', form)
   },
 }

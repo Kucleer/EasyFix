@@ -173,6 +173,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import { targetedApi } from '@/api/targeted'
+import { practiceApi } from '@/api/practice'
 import { questionApi } from '@/api/question'
 import { useCatalogStore } from '@/stores/catalog'
 import {
@@ -318,7 +319,7 @@ async function onSubjectChange() {
     const { data } = await targetedApi.status()
     const last = (data.subjects || []).find(s => s.subject_id === subjectId.value)?.last_paper
     if (last) {
-      const { data: detail } = await targetedApi.detail(last.id)
+      const { data: detail } = await practiceApi.detail(last.id)
       const total = detail.total_questions || detail.questions?.length || 0
       if (total) count = Math.min(SIZE_MAX, Math.max(SIZE_MIN, total))
     }
@@ -436,7 +437,7 @@ async function runPrepare() {
 async function loadDetail() {
   previewLoading.value = true
   try {
-    const { data } = await targetedApi.detail(paper.value.id)
+    const { data } = await practiceApi.detail(paper.value.id)
     paper.value = data
   } catch (error) {
     ElMessage.error(error_text(error, '读取卷子失败'))
@@ -487,7 +488,7 @@ async function onGeneratePdf() {
   const win = window.open('', '_blank')
   pdfLoading.value = true
   try {
-    const { data } = await targetedApi.generatePdf(paper.value.id)
+    const { data } = await practiceApi.generatePdf(paper.value.id)
     paper.value = { ...paper.value, pdf_path: data.pdf_url.replace('/uploads/', '') }
     pdfStale.value = false
     if (win) win.location.href = data.pdf_url
@@ -511,7 +512,7 @@ async function onDeletePaper() {
   }
   deleting.value = true
   try {
-    await questionApi.deletePracticeSet(paper.value.id)
+    await practiceApi.remove(paper.value.id)
     paper.value = null
     prepareError.value = ''
     pdfStale.value = false
@@ -534,7 +535,7 @@ async function onDeletePaper() {
  */
 async function resumePaper(id) {
   try {
-    const { data } = await targetedApi.detail(id)
+    const { data } = await practiceApi.detail(id)
     if (!canResume(data)) {
       ElMessage.warning(data.reviewed ? '这份卷子已经批改过，不能再改题面' : '这份卷子不是考点卷')
       return false

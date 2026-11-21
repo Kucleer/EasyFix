@@ -566,9 +566,10 @@ import KnowledgePointPicker from '@/components/KnowledgePointPicker.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { questionApi, uploadApi } from '@/api/question'
+import { questionApi } from '@/api/question'
+import { uploadApi } from '@/api/upload'
+import { practiceApi } from '@/api/practice'
 import { useAppConfigStore } from '@/stores/appConfig'
-import axios from '@/api/http'
 import { use_is_mobile } from '@/composables/useIsMobile'
 
 const route = useRoute()
@@ -838,7 +839,7 @@ const viewDetail = async (row) => {
 
   // 获取练习历史
   try {
-    const historyRes = await axios.get(`/api/questions/${row.id}/practice-history`)
+    const historyRes = await questionApi.practiceHistory(row.id)
     practiceHistory.value = historyRes.data || []
   } catch {
     practiceHistory.value = []
@@ -1161,7 +1162,7 @@ const createPracticeSet = async () => {
   printLoading.value = true
   try {
     const questionIds = selectedQuestions.value.map(q => q.id)
-    const { data } = await questionApi.createPracticeSet({
+    const { data } = await practiceApi.create({
       name: printForm.name,
       question_ids: questionIds,
       question_type: printForm.questionType,
@@ -1172,7 +1173,7 @@ const createPracticeSet = async () => {
     clearSelection()
     let pdfRes
     try {
-      pdfRes = await questionApi.generatePracticeSetPdf(data.id)
+      pdfRes = await practiceApi.generatePdf(data.id)
     } catch (error) {
       ElMessage.warning(`练习集已创建，PDF生成失败：${error.response?.data?.detail || error.message}。请在练习列表重试`)
       return

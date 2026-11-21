@@ -269,6 +269,8 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Camera, Picture, MoreFilled, Star, Upload, Close, Refresh } from '@element-plus/icons-vue'
 import MathText from '@/components/MathText.vue'
 import { targetedApi } from '@/api/targeted'
+import { practiceApi } from '@/api/practice'
+import { uploadApi } from '@/api/upload'
 import { questionApi } from '@/api/question'
 import { scanApi } from '@/api/scan'
 import { statusText } from '@/components/starmap/starmapColors.js'
@@ -368,7 +370,7 @@ async function load_detail(first = false) {
   loading.value = true
   loadError.value = ''
   try {
-    const { data } = await targetedApi.detail(route.params.id)
+    const { data } = await practiceApi.detail(route.params.id)
     paper.value = data
     marks.value = initialMarks(data.questions)
     revision.value = data.grading_revision || 0
@@ -421,7 +423,7 @@ async function upload_files(files) {
     let failed = 0
     for (let i = 0; i < shrunk.length; i += UPLOAD_BATCH) {
       uploadText.value = `正在上传 ${Math.min(i + UPLOAD_BATCH, shrunk.length)}/${shrunk.length} 张`
-      const { data } = await targetedApi.uploadImages(shrunk.slice(i, i + UPLOAD_BATCH))
+      const { data } = await uploadApi.uploadImages(shrunk.slice(i, i + UPLOAD_BATCH))
       for (const item of data.images || []) {
         if (item.success) paths.push(item.image_path)
         else failed += 1
@@ -440,7 +442,7 @@ async function upload_files(files) {
 
 /** 把照片列表存进这份练习；照片变了，之前的识别结果就作废。 */
 async function save_images(list) {
-  const { data } = await questionApi.updatePracticeSetReviewImages(paper.value.id, list)
+  const { data } = await practiceApi.updateReviewImages(paper.value.id, list)
   paper.value = { ...paper.value, review_images: data.review_images || list }
   photoIndex.value = 0
   clear_recognition()
@@ -638,7 +640,7 @@ async function submit() {
   submitting.value = true
   try {
     const payload = gradePayload(questions.value, marks.value, revision.value)
-    const { data } = await targetedApi.grade(paper.value.id, payload)
+    const { data } = await practiceApi.markReviewed(paper.value.id, payload)
     resultWrongNumbers.value = questions.value.filter(q => marks.value[q.id] === 'wrong').map(q => q.number)
     result.value = data
     revision.value = data.grading_revision ?? revision.value + 1

@@ -570,6 +570,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { questionApi } from '@/api/question'
+import { practiceApi } from '@/api/practice'
+import { uploadApi } from '@/api/upload'
 import { wordApi } from '@/api/word'
 import { targetedApi } from '@/api/targeted'
 import { resumeLink } from '@/composables/targetedPaper'
@@ -632,7 +634,7 @@ const fetchPracticeSets = async () => {
       params.start_date = filters.date_range[0]
       params.end_date = filters.date_range[1]
     }
-    const { data } = await questionApi.listPracticeSets(params)
+    const { data } = await practiceApi.list(params)
     practiceSets.value = data.items
     total.value = data.total
   } catch (error) {
@@ -664,7 +666,7 @@ const generatePdf = async (ps) => {
   if (generatingPdfIds.value.includes(ps.id)) return
   generatingPdfIds.value.push(ps.id)
   try {
-    const { data } = await questionApi.generatePracticeSetPdf(ps.id)
+    const { data } = await practiceApi.generatePdf(ps.id)
     ps.pdf_path = data.pdf_url.replace('/uploads/', '')
     ElMessage.success('PDF已生成，可点击下载')
   } catch (error) {
@@ -777,7 +779,7 @@ const markReviewed = async (ps) => {
   // 单词练习集直接标记已复习
   if (ps.source_type === 'word') {
     try {
-      await questionApi.markPracticeSetReviewed(ps.id)
+      await practiceApi.markReviewed(ps.id)
       ElMessage.success('已标记为复习')
       fetchPracticeSets()
     } catch (error) {
@@ -887,7 +889,7 @@ const saveGradingQuestion = async () => {
 const initGrading = async (ps) => {
   // 获取练习集详情（含题目）
   try {
-    const { data } = await questionApi.getPracticeSet(ps.id)
+    const { data } = await practiceApi.detail(ps.id)
     currentPsQuestions.value = data.questions || []
     gradingResults.value = {}
     gradingStep.value = 'list' // 直接进入列表视图
@@ -937,10 +939,7 @@ const submitGrading = async () => {
 
   // 先提交批改
   try {
-    await questionApi.markPracticeSetReviewedWithGrading(
-      currentReviewPs.value.id,
-      questionResults
-    )
+    await practiceApi.markReviewed(currentReviewPs.value.id, { question_results: questionResults })
     ElMessage.success('批改完成')
     gradingDialogVisible.value = false
 
@@ -972,17 +971,8 @@ const confirmMarkReviewed = async () => {
     // 如果有图片，先上传（使用普通附件上传接口）
     let imagePaths = []
     if (reviewImages.value.length > 0) {
-      const formData = new FormData()
-      reviewImages.value.forEach(file => {
-        formData.append('files', file.raw)
-      })
-
       // 使用批量附件上传接口
-      const uploadRes = await fetch('/api/upload/batch-simple', {
-        method: 'POST',
-        body: formData,
-      })
-      const uploadData = await uploadRes.json()
+      const { data: uploadData } = await uploadApi.uploadImages(reviewImages.value.map(file => file.raw))
       if (uploadData.images) {
         // 只提取图片路径
         imagePaths = uploadData.images
@@ -992,7 +982,7 @@ const confirmMarkReviewed = async () => {
     }
 
     // 更新练习集图片（不重复标记已复习）
-    await questionApi.updatePracticeSetReviewImages(currentReviewPs.value.id, imagePaths)
+    await practiceApi.updateReviewImages(currentReviewPs.value.id, imagePaths)
 
     uploadDialogVisible.value = false
 
@@ -1029,7 +1019,7 @@ const showDetail = async (ps) => {
     return
   }
   try {
-    const { data } = await questionApi.getPracticeSetDetail(ps.id)
+    const { data } = await practiceApi.detail(ps.id)
     detailData.value = data
     detailForm.name = data.name
     detailForm.notes = data.notes || ''
@@ -1049,7 +1039,7 @@ const onDetailDialogOpened = async () => {
 const saveDetail = async () => {
   try {
     detailLoading.value = true
-    await questionApi.updatePracticeSet(detailData.value.id, {
+    await practiceApi.update(detailData.value.id, {
       name: detailForm.name,
       notes: detailForm.notes,
     })
@@ -1126,7 +1116,7 @@ const deletePracticeSet = async (ps) => {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await questionApi.deletePracticeSet(ps.id)
+    await practiceApi.remove(ps.id)
     ElMessage.success('删除成功')
     fetchPracticeSets()
   } catch (error) {
@@ -1143,7 +1133,7 @@ const batchDownloadPdf = async () => {
     return
   }
   try {
-    const { data } = await questionApi.batchDownloadPracticeSetsPdf(selectedIds.value)
+    const { data } = await practiceApi.batchDownloadPdf(selectedIds.value)
     const results = data.results || []
     const successCount = results.filter(r => r.pdf_url).length
 
@@ -1180,7 +1170,7 @@ const batchDelete = async () => {
         type: 'warning',
       }
     )
-    await questionApi.batchDeletePracticeSets(selectedIds.value)
+    await practiceApi.batchRemove(selectedIds.value)
     ElMessage.success('批量删除成功')
     selectedIds.value = []
     fetchPracticeSets()
@@ -1237,16 +1227,7 @@ const saveEditImages = async () => {
     // 上传新文件
     let newImagePaths = [...keptOldImages]
     if (newFiles.length > 0) {
-      const formData = new FormData()
-      newFiles.forEach(file => {
-        formData.append('files', file.raw)
-      })
-
-      const uploadRes = await fetch('/api/upload/batch-simple', {
-        method: 'POST',
-        body: formData,
-      })
-      const uploadData = await uploadRes.json()
+      const { data: uploadData } = await uploadApi.uploadImages(newFiles.map(file => file.raw))
       if (uploadData.images) {
         const uploadedPaths = uploadData.images
           .filter(img => img.success)
@@ -1256,13 +1237,13 @@ const saveEditImages = async () => {
     }
 
     // 更新练习集图片
-    await questionApi.updatePracticeSetReviewImages(detailData.value.id, newImagePaths)
+    await practiceApi.updateReviewImages(detailData.value.id, newImagePaths)
 
     ElMessage.success('图片更新成功')
     isEditingImages.value = false
 
     // 刷新详情
-    const { data } = await questionApi.getPracticeSetDetail(detailData.value.id)
+    const { data } = await practiceApi.detail(detailData.value.id)
     detailData.value = data
   } catch (error) {
     ElMessage.error('更新图片失败')

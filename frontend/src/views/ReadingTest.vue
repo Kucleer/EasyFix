@@ -73,7 +73,8 @@
 import PageHeading from '@/components/PageHeading.vue'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import axios from '@/api/http'
+import { readingApi } from '@/api/reading'
+import { practiceApi } from '@/api/practice'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
@@ -119,11 +120,11 @@ function formatOption(letter, text) {
 
 async function fetchTestData() {
   try {
-    const res = await axios.get(`/api/practice-sets/${practiceSetId}`)
+    const res = await practiceApi.detail(practiceSetId)
     practiceSet.value = res.data
 
     if (res.data.passage_id) {
-      const passageRes = await axios.get(`/api/readings/${res.data.passage_id}`)
+      const passageRes = await readingApi.get(res.data.passage_id)
       passage.value = passageRes.data
       questions.value = passageRes.data.questions || []
     }
@@ -139,9 +140,7 @@ async function submitTest() {
   }))
 
   try {
-    await axios.post(`/api/practice-sets/${practiceSetId}/mark-reviewed`, {
-      question_results: JSON.stringify(results),
-    })
+    await practiceApi.markReviewed(practiceSetId, { question_results: results })
     testResult.value = true
   } catch {
     ElMessage.error('提交失败')
@@ -155,7 +154,7 @@ function goBack() {
 async function downloadPdf() {
   downloading.value = true
   try {
-    const res = await axios.post(`/api/practice-sets/${practiceSetId}/generate-pdf`)
+    const res = await practiceApi.generatePdf(practiceSetId)
     window.open(res.data.pdf_url, '_blank')
   } catch {
     ElMessage.error('PDF生成失败')

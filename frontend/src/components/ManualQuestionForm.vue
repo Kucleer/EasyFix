@@ -151,7 +151,8 @@ import { useAppConfigStore } from '@/stores/appConfig'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { uploadApi, questionApi } from '@/api/question'
+import { questionApi } from '@/api/question'
+import { uploadApi } from '@/api/upload'
 
 // 外部传入的初值：整页识别改为手工录时，带上已上传的照片和那一页的学科年级学期
 const props = defineProps({

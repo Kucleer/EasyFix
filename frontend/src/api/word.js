@@ -7,6 +7,11 @@ const api = axios.create({
 
 // 单词相关API
 export const wordApi = {
+  // 单词读音：按 blob 取回，不走前端缓存（http.js 对 /audio 不缓存）
+  audio(id) {
+    return api.get(`/words/${id}/audio`, { responseType: 'blob', cache: false })
+  },
+
   // 获取单词列表
   list(params) {
     return api.get('/words', { params })

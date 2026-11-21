@@ -73,49 +73,9 @@ export const questionApi = {
   batchGenerateSimilar(data) {
     return api.post('/questions/batch-similar', data)
   },
-  createPracticeSet(data) {
-    return api.post('/practice-sets', data)
-  },
-  listPracticeSets(params) {
-    return api.get('/practice-sets', { params })
-  },
-  getPracticeSet(id) {
-    return api.get(`/practice-sets/${id}`)
-  },
-  generatePracticeSetPdf(id) {
-    return api.post(`/practice-sets/${id}/generate-pdf`)
-  },
-  markPracticeSetReviewed(id, images = null) {
-    if (images) {
-      const formData = new FormData()
-      formData.append('images', images)
-      return api.post(`/practice-sets/${id}/mark-reviewed`, formData)
-    }
-    return api.post(`/practice-sets/${id}/mark-reviewed`)
-  },
-  markPracticeSetReviewedWithGrading(id, questionResults, questionKnowledge = null) {
-    const formData = new FormData()
-    formData.append('question_results', JSON.stringify(questionResults))
-    if (questionKnowledge) formData.append('question_knowledge', JSON.stringify(questionKnowledge))
-    return api.post(`/practice-sets/${id}/mark-reviewed`, formData)
-  },
-  getPracticeSetDetail(id) {
-    return api.get(`/practice-sets/${id}`)
-  },
-  updatePracticeSet(id, data) {
-    return api.put(`/practice-sets/${id}`, data)
-  },
-  updatePracticeSetReviewImages(id, images) {
-    return api.put(`/practice-sets/${id}/review-images`, { images })
-  },
-  deletePracticeSet(id) {
-    return api.delete(`/practice-sets/${id}`)
-  },
-  batchDeletePracticeSets(ids) {
-    return api.post('/practice-sets/batch-delete', { ids })
-  },
-  batchDownloadPracticeSetsPdf(ids) {
-    return api.post('/practice-sets/batch-download-pdf', { ids })
+  // 这道题出现在哪些练习里、每次对错
+  practiceHistory(id) {
+    return api.get(`/questions/${id}/practice-history`)
   },
   getFilterOptions(subjectId) {
     return api.get(`/questions/filter-options/${subjectId}`)
@@ -129,31 +89,10 @@ export const statsOverviewApi = {
   },
 }
 
-// 图片上传API
-export const uploadApi = {
-  uploadFile(file) {
-    const formData = new FormData()
-    formData.append('file', file)
-    return api.post('/upload/file', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
-}
-
 // 统计API
 export const statsApi = {
   getSummary(params) {
     return api.get('/stats/summary', { params })
-  },
-}
-
-// 配置API
-export const configApi = {
-  getLlmConfig() {
-    return api.get('/config/llm')
-  },
-  saveLlmConfig(data) {
-    return api.post('/config/llm', data)
   },
 }
 

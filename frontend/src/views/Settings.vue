@@ -54,8 +54,8 @@
 import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { configApi } from '@/api/question'
-import axios from '@/api/http'
+import { configApi } from '@/api/config'
+import { authApi } from '@/api/auth'
 
 const activeTab = ref('llm')
 const saving = ref(false)
@@ -75,7 +75,7 @@ const llmForm = reactive({
 const saveLlmConfig = async () => {
   saving.value = true
   try {
-    await configApi.saveLlmConfig(llmForm)
+    await configApi.saveLlm(llmForm)
     ElMessage.success('LLM配置已保存')
   } catch (error) {
     ElMessage.error('保存失败: ' + (error.message || '未知错误'))
@@ -91,7 +91,7 @@ const verifyPassword = async () => {
   }
   verifying.value = true
   try {
-    await axios.post('/api/auth/verify-password', { password: password.value })
+    await authApi.verifyPassword(password.value)
     isVerified.value = true
     showPasswordDialog.value = false
     loadConfigs()
@@ -106,7 +106,7 @@ const verifyPassword = async () => {
 const loadConfigs = async () => {
   loading.value = true
   try {
-    const { data: llmData } = await configApi.getLlmConfig()
+    const { data: llmData } = await configApi.getLlm()
     Object.assign(llmForm, llmData)
   } catch (error) {
     console.error('加载配置失败:', error)

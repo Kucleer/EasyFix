@@ -1377,12 +1377,8 @@ const playWordAudio = async (wordId) => {
   audioLoading.value = true
 
   try {
-    const response = await fetch(`/api/words/${wordId}/audio`)
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-
-    const blob = await response.blob()
+    // 请求失败会抛错，走下面的 catch
+    const { data: blob } = await wordApi.audio(wordId)
     const audioUrl = URL.createObjectURL(blob)
     const audio = new Audio(audioUrl)
 

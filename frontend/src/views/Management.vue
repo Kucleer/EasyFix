@@ -679,11 +679,12 @@ import PageHeading from '@/components/PageHeading.vue'
 import StarMapSettings from '@/components/StarMapSettings.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { questionApi, uploadApi } from '@/api/question'
+import { questionApi } from '@/api/question'
+import { uploadApi } from '@/api/upload'
+import { authApi } from '@/api/auth'
 import { motivationApi } from '@/api/motivation'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { refreshKnowledgeColors } from '@/composables/knowledgeColors'
-import axios from '@/api/http'
 import { use_is_mobile } from '@/composables/useIsMobile'
 
 const appConfigStore = useAppConfigStore()
@@ -1480,7 +1481,7 @@ const verifyPassword = async () => {
   }
   verifying.value = true
   try {
-    await axios.post('/api/auth/verify-password', { password: password.value })
+    await authApi.verifyPassword(password.value)
     isVerified.value = true
     showPasswordDialog.value = false
     fetchAll()
