@@ -795,8 +795,6 @@ const markReviewed = async (ps) => {
 
 // ============ 批改相关 ============
 const gradingDialogVisible = ref(false)
-const gradingStep = ref('overall') // 'overall' | 'detail' | 'upload'
-const gradingCurrentIndex = ref(0)
 const gradingResults = ref({}) // { questionId: true/false }
 const currentPsQuestions = ref([])
 
@@ -892,23 +890,9 @@ const initGrading = async (ps) => {
     const { data } = await practiceApi.detail(ps.id)
     currentPsQuestions.value = data.questions || []
     gradingResults.value = {}
-    gradingStep.value = 'list' // 直接进入列表视图
   } catch (error) {
     ElMessage.error('获取练习集详情失败')
     gradingDialogVisible.value = false
-  }
-}
-
-const handleOverallGrading = (isAllCorrect) => {
-  if (isAllCorrect) {
-    // 整体全对
-    currentPsQuestions.value.forEach(q => {
-      gradingResults.value[q.question_id] = true
-    })
-    gradingStep.value = 'upload'
-  } else {
-    // 进入逐题批改
-    gradingStep.value = 'detail'
   }
 }
 

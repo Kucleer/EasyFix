@@ -15,10 +15,6 @@ export const practiceApi = {
   detail(id) {
     return api.get(`/practice-sets/${id}`, { cache: false })
   },
-  // 用选中的错题建一份练习
-  create(data) {
-    return api.post('/practice-sets', data)
-  },
   // 改名称、备注
   update(id, data) {
     return api.put(`/practice-sets/${id}`, data)

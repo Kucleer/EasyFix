@@ -13,7 +13,7 @@
       <!-- 第一步：拍照（可跳过识别） -->
       <section v-if="step === 'photo'" class="step-block">
         <h3 class="step-title">第一步 拍下学生做完的卷子</h3>
-        <p class="step-hint">请在用红笔批改前拍照：系统读出孩子写的答案，先替你批一轮，你再复核。可以拍多张，也可以从相册选。</p>
+        <p class="step-hint">请在用红笔批改前拍照：系统读出卷面上写的答案，先替你批一轮，你再复核。可以拍多张，也可以从相册选。</p>
         <p v-if="numberingWarn" class="warn-line">{{ NUMBERING_TEXT }}</p>
 
         <!-- 两个隐藏的选择框：一个直接调相机，一个从相册（电脑上是文件）选 -->
@@ -134,7 +134,7 @@
                       <MathText class="answer-text" :text="q.answer || '（无）'" />
                     </div>
                     <div v-if="recognition" class="answer-line">
-                      <span class="answer-label">孩子写的</span>
+                      <span class="answer-label">写的答案</span>
                       <MathText v-if="recognized(q)?.student_answer" class="answer-text child-answer" :text="recognized(q).student_answer" />
                       <span v-else class="answer-missing">没读到</span>
                     </div>
@@ -212,7 +212,7 @@
           <RouterLink to="/insight" class="star-link"><el-icon><Star /></el-icon>点亮了 {{ result.newly_mastered }} 颗星</RouterLink>
         </p>
         <p v-if="result.graduated && result.graduated.length" class="result-line">第 {{ result.graduated.join('、') }} 题毕业了</p>
-        <p v-if="resultWrongNumbers.length" class="result-line">做错的题：第 {{ resultWrongNumbers.join('、') }} 题，请在纸上圈出来让孩子订正</p>
+        <p v-if="resultWrongNumbers.length" class="result-line">做错的题：第 {{ resultWrongNumbers.join('、') }} 题，请在纸上圈出来拿回去订正</p>
         <p v-if="resultWrongNumbers.length && paper.kind === 'targeted'" class="result-line result-note">做错的题会在下一份卷子里换成相似题再出现</p>
 
         <div class="step-footer">
