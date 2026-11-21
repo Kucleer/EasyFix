@@ -69,3 +69,6 @@ Thumbs.db
 !.dev.vars.example
 .env*
 !.env.example
+
+# 设计讨论时的演示页（本地临时文件）
+.superpowers/
