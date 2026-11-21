@@ -76,7 +76,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 1：首页接口和单词学情接口（只新增，不删）
+### Task 1：首页接口和单词学情接口（只新增，不删）
 
 **Files:**
 - Create: `cloudflare/src/home_model.py`、`cloudflare/src/home.py`、`cloudflare/scripts/home_test.py`
@@ -132,7 +132,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 2：每日一句句库
+### Task 2：每日一句句库
 
 **Files:** Create `frontend/src/data/dailyLines.js`、`frontend/src/data/dailyLines.test.mjs`
 
@@ -147,7 +147,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 3：新菜单、新地址、去掉顶部栏
+### Task 3：新菜单、新地址、去掉顶部栏
 
 **Files:** Modify `frontend/src/App.vue`、`frontend/src/router/index.js`、`frontend/src/styles/variables.css`
 
@@ -176,7 +176,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 4：新首页
+### Task 4：新首页
 
 **Files:** Rewrite `frontend/src/views/Home.vue`；Create `frontend/src/components/home/`（`DailyLine.vue`、`StudentEntries.vue`、`ParentTodos.vue`、`WeekSummary.vue`、`SkyCard.vue`）、`frontend/src/api/home.js`（`homeApi.get()`，`cache: false`）；Modify `frontend/src/api/question.js`（删 `statsApi`、`statsOverviewApi`）
 
@@ -191,7 +191,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 5：错题页（待核对 / 全部错题 / 卷子和作业）
+### Task 5：错题页（待核对 / 全部错题 / 卷子和作业）
 
 **Files:** Rewrite `frontend/src/views/Questions.vue` 为外壳；Create `frontend/src/components/questions/`（`ReviewTab.vue`、`AllTab.vue`、`QuestionFilters.vue`、`QuestionList.vue`、`QuestionDetailDialog.vue`、`QuestionEditDialog.vue`、`PapersTab.vue`，按需要拆）；Delete `views/ReviewQueue.vue`、`views/Papers.vue`；Modify `views/PaperDetail.vue`（返回 → `/questions?tab=papers`；待核对行 → `/questions?tab=review`；删除后 → `/questions?tab=papers`）、`components/ManualQuestionForm.vue`（"查看列表" → `/questions?tab=all`）；后端删 `POST /api/questions/batch-similar`（`similar.py`）、`practices.py` `create_set` 里 `question_type=='similar'` 同步生成相似题的分支（`get` 里对旧数据 `question_type=='similar'` 的兼容保留）；前端删 `questionApi.batchGenerateSimilar`
 
@@ -209,7 +209,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 6：学情页（考点 / 单词）
+### Task 6：学情页（考点 / 单词）
 
 **Files:** Create `frontend/src/views/Insight.vue`、`frontend/src/components/insight/`（`PointsTab.vue`、`PointTable.vue`、`WordsTab.vue`）；Delete `views/StarMap.vue`、`views/LearningAnalysis.vue`、`api/learning_analysis.js`（`SubjectKnowledgeRanking.vue` 旧报告页还在用，保留）；Modify `views/GradePaper.vue`（"点亮了 N 颗星"链接 → `/insight`）；后端删 `analytics.py` 的 `summary`、`overview`、`knowledge`、`full`、`llm` 和只为它们服务的 `grouped`、`primary_module_counts`、`date_stats`（`now` 保留，别的模块在用），`cache.py` 的 `PATHS`、`auth.py` 里对应的路径，`knowledge_stats.py` 里随之只剩测试在用的 `module_stats`、`scoped_filters`、`recency_filter`、`COUNTING_MODE`、`taxonomy_version`（`knowledge_options`、`validate_filter_ids` 保留），以及只测这些的测试用例（`intake_test.py` 1350–1366 附近、`knowledge_api_test.py` 的统计用例、`knowledge_invariants_test.py` 里用到 `module_stats` 的部分）
 
@@ -226,7 +226,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 7：设置页
+### Task 7：设置页
 
 **Files:** Rewrite `frontend/src/views/Settings.vue` 为外壳；Create `frontend/src/components/settings/`（`GradeTab.vue`、`SubjectsTab.vue`、`TagsTab.vue`、`KnowledgeTab.vue`、`ErrorBooksTab.vue`、`ModelTab.vue`，以及不在标签栏显示的 `StarActionsPanel.vue`、`AchievementsPanel.vue`、`RewardsPanel.vue`）；Delete `views/Management.vue`
 
@@ -242,7 +242,7 @@ python backend/scripts/prepare_cloudflare_frontend.py
 
 ---
 
-### 任务 8：收尾、发布、记录
+### Task 8：收尾、发布、记录
 
 - [ ] **Step 1：练习中心**：删 `PracticeSets.vue` 里已走不到的 `gradingStep`、`gradingCurrentIndex`、`handleOverallGrading`；"待批改 N" 用 `targetedApi.status().pending_count`（任务 1 后已不限 30 天，和列表一致）。
 - [ ] **Step 2：全站搜旧地址**（`/review`、`/papers"`、`/star-map`、`/learning-analysis`、`/management`、`/stats`）和"孩子""父母""爸爸妈妈"字样，改成新地址 / 新文案。
