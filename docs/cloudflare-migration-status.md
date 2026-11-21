@@ -291,3 +291,11 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 部署核对：`/health` 200、未登录 `/api/intake/guide` 和 `/api/subjects` 401、首页跳登录 303；用录入口令读学科、标签、错题本、单词、旧报告列表、`/api/stats/summary` 都是 200，录入小工具 `guide` 正常。
 - 发布前全部测试通过（开工前在 `main` 上的基线也全部通过）；独立审阅没有严重或重要问题。审阅提的小问题留到后面：旧报告的列表、详情、删除没有真正调用接口的测试；`backend/scripts/compare_cloudflare_routes.py` 已过时（重跑会覆盖接口清单）；`learning_report.js` 里为"生成报告"设的长超时和接口清单里"注册在 `/{kp_id}` 之前"的说明已过时；`knowledge.py` 的 `validate_links`、`resolve_legacy` 在这之前就没人调用。
 - 未验证：需要登录才能看的 6 条核对清单（首页、错题、练习中心、单词本、周报能打开；单词读音能播放；管理中心新增删除标签、改错题本名称；带图错题原图能显示；旧报告能打开；录入技能录一张照片）交给用户核对，结果待补。
+
+## 变更记录：共用的地基（项目 5 第 2 步，2026-11-21 已上线）
+
+- 代码 `3a3b63fe..30cd8c1e`（分支 `feature/unify-step2-foundation` 快进合并进 `main`）。计划 `docs/superpowers/plans/2026-11-21-unify-step2-foundation.md`。只改前端，后端、数据库不动。用户 2026-11-21 授权第 2–4 步连续做完、每步自动发布、最后统一核对。
+- 内容：学科、标签、知识点树集中到 Pinia store `catalog`（管理页写入后失效，请求途中失效会重新取）；练习集、上传、阅读、验密码、配置的前端接口各归一处，删掉重复函数，页面不再直接写地址（`apiLayer.test.mjs`）；样稿的颜色、圆角、阴影进 `variables.css`；图表主题 `chartTheme.js`（周报页改用，颜色换成样稿主色）；共用组件 `components/ui/`（图标、统计卡、图表卡、标签栏，第 3 步使用）；去掉没用的 `echarts-gl`。
+- 部署：Pages `e0359b2e`（上一部署 `40a3ca16`），从提交 `30cd8c1e` 构建，网关未变。Worker 不变（`c99d1ba0`）。
+- 核对：`/health` 200、首页跳登录 303、新主脚本从正式域名取到。前端测试 44 项全过；独立审阅没有严重问题，提出的"请求途中失效会拿到旧列表"已修。
+- 未验证（等第 4 步完成后和用户一起核对）：学科下拉、出卷页和知识星空只有数学英语、管理中心增删学科标签后录入页能看到、练习中心上传批改照片、单词读音、配置页验密码和模型配置、阅读页生成和做题提交、周报图表颜色。
