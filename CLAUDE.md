@@ -67,7 +67,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `components/home/`、`components/questions/`、`components/insight/`、`components/settings/` | 首页、错题（待核对 / 全部 / 卷子三个标签）、学情（考点 / 单词）、设置（七个标签）各页的组件与纯函数 |
 | `data/dailyLines.js` | 首页每日一句 |
 | `config/features.js` | 功能开关（`FLIP_READY`：翻翻卡就绪前为关） |
-| `components/ui/` | 共用组件：线条图标 `LineIcon`、统计数字卡 `StatCard`、图表卡 `ChartCard`、页内标签栏 `TabBar` |
+| `components/ui/` | 共用组件：线条图标 `LineIcon`、图表卡 `ChartCard`、页内标签栏 `TabBar` |
 | `composables/` | 默写判分（`dictation.js`）、知识点配色、图表主题（`chartTheme.js`）、页内标签与地址同步（`useTabQuery.js`） |
 | `stores/` | `appConfig.js` 默认年级/学期；`catalog.js` 学科、标签、知识点树集中存放（目录写入后调用 `invalidate`）；`reviewCount.js` 待核对数量 |
 | `router/index.js` | 路由配置 |
@@ -75,10 +75,10 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | 路径 | 页面 |
 |------|------|
 | `/` | 首页 |
-| `/questions?tab=review|all|papers` | 错题：待核对、全部错题、卷子 |
+| `/questions?tab=review\|all\|papers` | 错题：待核对、全部错题、卷子 |
 | `/papers/:id` | 卷子详情 |
 | `/upload` | 手工添加错题 |
-| `/insight?tab=points|words` | 学情：考点、单词 |
+| `/insight?tab=points\|words` | 学情：考点、单词 |
 | `/settings` | 设置 |
 | `/practice-sets` | 练习中心：所有练习一个列表（错题练习卷、单词、阅读），待批改的卷子也在这里筛选和批改 |
 | `/targeted-paper` | 考点卷：出卷页（选科目、题量、分法，预览后生成） |

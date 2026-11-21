@@ -788,7 +788,7 @@ const markReviewed = async (ps) => {
     return
   }
 
-  // 错题练习集进入批改流程
+  // 只有阅读练习集会走到这里的批改弹窗（错题练习集已在前面直接跳到 /grade/:id）
   gradingDialogVisible.value = true
   initGrading(ps)
 }

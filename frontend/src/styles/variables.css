@@ -347,7 +347,7 @@ h3 {
   display:none
 }
 .app-main {
-  /* 上方不再有顶部栏；下方给底部导航（约 68px 高）留出位置 */
+  /* 上方不再有顶部栏；下方给底部导航（约 69px 高）留出位置 */
   padding:18px 16px calc(90px + env(safe-area-inset-bottom))
 }
 /* 手机底部导航：5 格平分，图标外面一个胶囊底，选中时胶囊变浅紫 */

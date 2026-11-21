@@ -533,7 +533,7 @@ onMounted(load_catalog)
     position: fixed;
     left: 0;
     right: 0;
-    bottom: calc(65px + env(safe-area-inset-bottom));  /* 手机导航高约 65px */
+    bottom: calc(70px + env(safe-area-inset-bottom));  /* 手机导航高约 69px（1 边框 + 6 上内边距 + 52 + 10 下内边距） */
     border-radius: 0;
     border-left: none;
     border-right: none;

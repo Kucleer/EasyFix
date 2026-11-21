@@ -1141,7 +1141,7 @@ onBeforeUnmount(() => {
 }
 
 /* 提交按钮贴在屏幕底部，长卷子不用滑到底；
-   手机上底部导航是 fixed（约 61px 加安全区），要留出这段高度才不会被盖住 */
+   手机上底部导航是 fixed（约 69px 加安全区），要留出这段高度才不会被盖住 */
 .submit-bar {
   position: sticky;
   bottom: 0;
@@ -1155,7 +1155,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 768px) {
   .submit-bar {
-    bottom: calc(62px + env(safe-area-inset-bottom));
+    bottom: calc(70px + env(safe-area-inset-bottom));
   }
 }
 
