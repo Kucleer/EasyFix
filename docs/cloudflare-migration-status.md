@@ -281,3 +281,13 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 本机情况：主检出里的 `cloudflare/python_modules` 只有一部分，第一次部署报 `No module named 'fastapi'`（10021，未生效）；按 `pylock.toml` 的地址下载 13 个 wheel、逐个核对 SHA-256 后解压重建，依赖版本未变，原目录挪到 `tmp/python_modules_partial_20261120`。Cloudflare 会把 Python 默认的 `Python-urllib` 请求标识当机器人返回 403（1010），脚本调线上接口要带自己的 User-Agent。
 - 2026-11-21 追加：提示词第 10 条（`5b13f47d`），"变好"只用于升了一档的考点，模块掌握度小幅升高写成"有一点点改善"。重新部署 Worker `1b12a3b3`（上一版本 `c39ee0ea`），核对 `/health` 200、未登录 401、登录页 200、`guide` 正常、周报列表正常。第 1 期是旧提示词写的，保留不变。
 - 未验证：真实的定时任务要到上线后第一个周日（2026-11-22）20:20 之后才能验证——查 Workers Logs 里有没有 `weekly 2026-11-22 20:00:00 ...` 的日志行、`weekly_report` 里有没有那一期且为 `done`。维护开关的读取失败时按"维护中"处理，所以周日日志若是 `maintenance`，先确认是不是 D1 出错。
+
+## 变更记录：清理没人用的代码（项目 5 第 1 步，2026-11-21 已上线）
+
+- 代码 `ff94cc63..4bf25e2e`（分支 `chore/unify-step1-dead-code` 快进合并进本地 `main`，未推送远端）。设计 `docs/superpowers/specs/2026-11-21-workspace-and-unify-design.md` 第 10、11 节，计划 `docs/superpowers/plans/2026-11-21-unify-step1-dead-code.md`。只删代码，没有迁移，没有删任何表、列和数据，未开启维护开关。
+- 删除：后端没有调用方的接口 15 个（含旧报告"生成"、批量录入、自动出卷、旧调试接口、阅读手动新建和修改、识别页"恢复"、错词列表、知识点单条读取、生成音频、上传到错题本、奖励图片上传等）；目录类的错因整组、6 类目录的单条读取、学科和标签的修改；`main.py` 里被遮住的学科列表和走不到的上传、读附件（正式环境由 Pages 网关处理）；随之没人用的提示词和导入；前端没人用的接口函数 7 个。新增 `cloudflare/scripts/dead_routes_test.py` 钉住"必须没有 / 必须还在"的清单。只测被删功能的 4 个测试用例删掉，识别页测试去掉"恢复"的步骤，网关转发测试换了例子。
+- 保留：奖励兑换接口和前端函数（留给成就项目）、`GET /api/words/{word_id}` 和 `wordApi.get`；第 3 步才处理的旧统计、批量生成相似题、手工出卷同步生成相似题的分支。
+- 部署：先 Pages `40a3ca16`（上一部署 `c8af7451`），从提交 `4bf25e2e` 构建，网关 `_worker.js` 未变；后 Worker `c99d1ba0`（上一版本 `1b12a3b3`），定时任务 `*/10 12 * * sun` 照旧。PDF Worker 不变。
+- 部署核对：`/health` 200、未登录 `/api/intake/guide` 和 `/api/subjects` 401、首页跳登录 303；用录入口令读学科、标签、错题本、单词、旧报告列表、`/api/stats/summary` 都是 200，录入小工具 `guide` 正常。
+- 发布前全部测试通过（开工前在 `main` 上的基线也全部通过）；独立审阅没有严重或重要问题。审阅提的小问题留到后面：旧报告的列表、详情、删除没有真正调用接口的测试；`backend/scripts/compare_cloudflare_routes.py` 已过时（重跑会覆盖接口清单）；`learning_report.js` 里为"生成报告"设的长超时和接口清单里"注册在 `/{kp_id}` 之前"的说明已过时；`knowledge.py` 的 `validate_links`、`resolve_legacy` 在这之前就没人调用。
+- 未验证：需要登录才能看的 6 条核对清单（首页、错题、练习中心、单词本、周报能打开；单词读音能播放；管理中心新增删除标签、改错题本名称；带图错题原图能显示；旧报告能打开；录入技能录一张照片）交给用户核对，结果待补。

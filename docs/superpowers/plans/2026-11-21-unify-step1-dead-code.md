@@ -86,7 +86,7 @@ git checkout -b chore/unify-step1-dead-code
 **Interfaces:**
 - Produces: 一个可直接运行的脚本，后面每个任务都靠它判断"删对了、没多删"。它**读源码文本**来判断，不导入路由模块（`auth`、`media`、`words` 等模块依赖只在 Cloudflare 上才有的包，本机导不进来）。
 
-- [ ] **Step 1：写测试脚本**
+- [x] **Step 1：写测试脚本**
 
 脚本结构参照 `cloudflare/scripts/knowledge_api_test.py` 末尾的写法（`check(名称, 函数)` 收集结果，最后打印"合计 / 通过 / 失败"，有失败就 `raise SystemExit(1)`）。提供一个读文件的小函数 `read_source(name)`，返回 `cloudflare/src/<name>` 的全文。
 
@@ -159,12 +159,12 @@ def test_catalog_routes():
 
 导入 `catalog` 需要把 `cloudflare/src` 加进 `sys.path`，做法照抄 `cloudflare/scripts/knowledge_api_test.py` 开头。
 
-- [ ] **Step 2：运行，确认失败**
+- [x] **Step 2：运行，确认失败**
 
 Run: `python cloudflare/scripts/dead_routes_test.py`
 Expected: `REMOVED` 的 21 条和 `test_catalog_routes` 失败，`KEPT` 的全部通过，退出码 1。如果 `KEPT` 里有失败的，说明片段写错了，回到 Step 1 改表。
 
-- [ ] **Step 3：提交**
+- [x] **Step 3：提交**
 
 ```bash
 git add cloudflare/scripts/dead_routes_test.py
@@ -196,7 +196,7 @@ git commit -m "test(cleanup): pin which routes must go and which must stay"
 - Consumes: Task 1 的 `dead_routes_test.py`。
 - Produces: 无（只删）。
 
-- [ ] **Step 1：逐条重新确认没有调用方**
+- [x] **Step 1：逐条重新确认没有调用方**
 
 对上面每个接口，用它路径里最有辨识度的一段在 Global Constraints 列的六个范围里搜一遍，例如：
 
@@ -206,33 +206,33 @@ grep -rn "generate-from-questions" frontend/src cloudflare/pages/_worker.js tool
 
 Expected: 只有接口自己的定义、测试脚本和文档里出现。`tools/easyfix-intake/SKILL.md` 里有一句"不调用旧的 /api/questions/batch"，那是说明，不算调用方。别的地方出现了，就不删这一条，记下来。
 
-- [ ] **Step 2：改引用了这些接口的测试**
+- [x] **Step 2：改引用了这些接口的测试**
 
 - `knowledge_api_test.py`：删掉 `test_question_batch_partial_errors`（约 220 行）和 `main()` 里登记它的那一行——它测的就是要删的批量录入接口。
 - `knowledge_api_test.py`：`test_report_metrics_server_written`（约 300–340 行）测的是"生成旧报告"。删掉这个函数和 `main()` 里的 `check('报告指标服务端写入', ...)`。
 - `scan_test.py` 的 `test_changes_library`（约 331 行）：从路径列表里去掉 `'/api/scan/pages/3/items/2/restore'` 这一项，其余不动。
 
-- [ ] **Step 3：删接口函数**
+- [x] **Step 3：删接口函数**
 
 每个接口删掉装饰器和整个函数。`reports.py` 只删 `generate`，`listing`、`detail`、`delete` 三个留着。`readings.py` 里 `create`、`update` 调用的 `save`、`detail` 等辅助函数，如果还被 `generate` 等保留的接口使用就留着。
 
-- [ ] **Step 4：删随之没人用的东西**
+- [x] **Step 4：删随之没人用的东西**
 
 - 每个改过的文件里，只被刚删掉的函数用到的辅助函数和 `import` 一并删掉。已知的候选：`questions.py` 的 `batch_error`；`reports.py` 顶部的 `timedelta`、`counted`、`COUNTING_MODE`、`module_stats`、`generate_json`、`PromptLibrary`；`scan.py` 里如果 `changes_library` 之外还有只为 `restore` 服务的分支。每删一个先在 `cloudflare/src` 和 `cloudflare/scripts` 里搜函数名，确认没有别处用。
 - `prompts.py`：`PromptLibrary` 里只被 `reports.generate` 用到的提示词（在 `reports.py` 删之前先看它调了 `PromptLibrary` 的哪个成员），确认 `similar.py`、`targeted.py`、`weekly.py`、`word_focus.py` 都不用它之后删掉。
 - `cache.py` 第 7 行的 `PATHS` 里去掉 `'/api/stats/today'`。
 - 装了 pyflakes 的话运行 `python -m pyflakes cloudflare/src`，把它报的、由这次删除造成的"imported but unused"清掉；没装就跳过，不为此安装依赖。
 
-- [ ] **Step 5：跑全部测试**
+- [x] **Step 5：跑全部测试**
 
 Expected: `dead_routes_test.py` 里除了 `media.py` 的三条上传、`main.py` 的三条、`catalog.py` 的一条和 `test_catalog_routes` 之外都通过（那些是 Task 3、4 的）；其余脚本和基线一致。
 
-- [ ] **Step 6：核对旧报告页的接口还在**
+- [x] **Step 6：核对旧报告页的接口还在**
 
 Run: `grep -n "^@router" cloudflare/src/reports.py`
 Expected: 正好三行——`get('/list')`、`get('/{report_id}')`、`delete('/{report_id}')`。
 
-- [ ] **Step 7：提交**
+- [x] **Step 7：提交**
 
 ```bash
 git add cloudflare/src cloudflare/scripts
@@ -250,7 +250,7 @@ git commit -m "chore(cleanup): remove backend endpoints nothing calls"
 - Consumes: Task 1 的 `test_catalog_routes`。
 - Produces: 无。
 
-- [ ] **Step 1：重新确认没有调用方**
+- [x] **Step 1：重新确认没有调用方**
 
 ```bash
 grep -rnE "error-types|(get|put)\(\`/(subjects|tags)/|get\(\`/(error-books|stars/actions|achievements|rewards)/\\$" frontend/src cloudflare/pages/_worker.js tools/easyfix-intake
@@ -258,7 +258,7 @@ grep -rnE "error-types|(get|put)\(\`/(subjects|tags)/|get\(\`/(error-books|stars
 
 Expected: 只有 `frontend/src/api/http.js` 的缓存规则里出现 `error-types`（Task 5 处理）。前端对目录的修改只有四处，都要保留：`motivation.js` 的 `put(/stars/actions/…)`、`put(/achievements/…)`、`put(/rewards/…)`，`question.js` 的 `put(/error-books/…)`。
 
-- [ ] **Step 2：改 `catalog.py`**
+- [x] **Step 2：改 `catalog.py`**
 
 - 从 `CATALOG` 里删掉 `'error-types'` 这一行。数据库的 `error_type` 表不动。
 - 在文件里加一个常量 `EDITABLE_KINDS = {'error-books', 'stars/actions', 'achievements', 'rewards'}`（可以修改的目录）。
@@ -267,7 +267,7 @@ Expected: 只有 `frontend/src/api/http.js` 的缓存规则里出现 `error-type
 - 文件顶部的文档字符串里"错误类型"几个字去掉。
 - 文件里专门针对 `error-types` 的分支一并删掉（2026-11-21 时有两处：约 27 行 `if kind == 'error-types':`，约 47 行列表筛选里的 `if kind == 'error-types' else`，后者删分支时保留 `else` 那一半的写法）。
 
-- [ ] **Step 3：运行**
+- [x] **Step 3：运行**
 
 Run: `python cloudflare/scripts/dead_routes_test.py`
 Expected: `test_catalog_routes` 和 `catalog.py` 的那条通过。
@@ -275,7 +275,7 @@ Expected: `test_catalog_routes` 和 `catalog.py` 的那条通过。
 Run: `python cloudflare/scripts/knowledge_api_test.py` 和 `python cloudflare/scripts/local_dev_server_test.py`
 Expected: 和基线一致。`local_dev_server.py` 第 55 行有一份 `ERROR_TYPES` 种子数据，它往表里写数据、不走接口，不用改；如果这两个脚本里有用例请求了 `/api/error-types` 或目录的单条读取，把那个用例改成用列表接口取数据。
 
-- [ ] **Step 4：提交**
+- [x] **Step 4：提交**
 
 ```bash
 git add cloudflare/src/catalog.py cloudflare/scripts
@@ -297,7 +297,7 @@ git commit -m "chore(cleanup): drop error-type routes and unused catalog reads/u
 
 背景：生产环境里 `/api/upload/file`、`/api/upload/batch-simple`、`/uploads/` 由网关 `cloudflare/pages/_worker.js` 自己处理（第 26、82、115 行），不转给后端；后端不开放 workers.dev。本地开发服务器 `local_dev_server.py`（183–212 行）另有自己的实现。所以后端这几份谁也走不到。
 
-- [ ] **Step 1：重新确认**
+- [x] **Step 1：重新确认**
 
 ```bash
 grep -n "UPLOAD_PATHS\|startsWith('/uploads/')" cloudflare/pages/_worker.js
@@ -307,26 +307,26 @@ grep -rn "save_image\|media\.batch\|media\.to_book\|main\.image\|main\.upload_fi
 
 Expected: 第一条有输出，证明网关仍在接管；第二条只有 `media.py` 里的定义；第三条只有 `media.py` 内部的互相调用。
 
-- [ ] **Step 2：改 `worker.test.mjs` 的转发用例**
+- [x] **Step 2：改 `worker.test.mjs` 的转发用例**
 
 `test('其他接口仍然转给 Python 后端', ...)` 里用 `/api/upload/to-error-book/3` 当"会被转发的上传类请求"的例子。这个用例要留，换一个仍然存在的例子：把那一行换成对 `/api/questions` 的 POST（带一个文件的表单即可，沿用 `uploadRequest`），并把断言里的 `'/api/upload/to-error-book/3'` 换成 `'/api/questions'`。用例要证明的事不变：不在 `UPLOAD_PATHS` 里的请求原样转给后端，R2 里没有写入（`stored.size` 为 0）。
 
 Run: `node --test cloudflare/pages/worker.test.mjs`
 Expected: 全部通过（这时后端还没删，用例只测网关）。
 
-- [ ] **Step 3：删 `media.py` 里的四个函数**
+- [x] **Step 3：删 `media.py` 里的四个函数**
 
 删 `batch`、`to_book`、`reward_image` 和只被它们用的 `save_image`。`audio`、`select_print_words`、`print_words` 不动。顶部的 `import`（`uuid4`、`File`、`UploadFile` 等）不再用到的删掉。`cloudflare/scripts/phrase_focus_test.py` 第 1073、1263 行 `import media`，删完跑它确认没受影响。
 
-- [ ] **Step 4：删 `main.py` 里的三个函数**
+- [x] **Step 4：删 `main.py` 里的三个函数**
 
 删 `subjects`、`upload_file`、`image`，以及只为它们导入的名字（`UploadFile`、`File` 等；`HTTPException`、`Database` 如果文件里别处还用就留着）。`health` 和路由注册不动。
 
-- [ ] **Step 5：跑全部测试**
+- [x] **Step 5：跑全部测试**
 
 Expected: `dead_routes_test.py` 全部通过；其余和基线一致。
 
-- [ ] **Step 6：提交**
+- [x] **Step 6：提交**
 
 ```bash
 git add cloudflare/src/main.py cloudflare/src/media.py cloudflare/pages/worker.test.mjs
@@ -351,7 +351,7 @@ git commit -m "chore(cleanup): remove backend upload code the gateway already re
 
 注意同名不同物：`word.js` 第 66 行还有一个 `wordApi.createBatch`，`PhraseAnnotateDialog.vue` 在用，**不要删**；要删的是 `question.js` 里的 `questionApi.createBatch`。`learningAnalysisApi.getKnowledgeStats`（`learning_analysis.js`）在用，不要删；要删的是 `question.js` 里 `statsApi.getKnowledgePoints`。
 
-- [ ] **Step 1：重新确认没有使用方**
+- [x] **Step 1：重新确认没有使用方**
 
 ```bash
 grep -rnE "questionApi\.createBatch|getTodayStats|statsApi\.getKnowledgePoints|learningReportApi\.generate|scanApi\.restore|targetedApi\.pending|wordApi\.getErrors" frontend/src
@@ -359,11 +359,11 @@ grep -rnE "questionApi\.createBatch|getTodayStats|statsApi\.getKnowledgePoints|l
 
 Expected: 没有输出。有输出的那个函数就不删。
 
-- [ ] **Step 2：删这 7 个函数**
+- [x] **Step 2：删这 7 个函数**
 
 删函数连同它上面的注释。`http.js` 里 5 分钟缓存的那条正则，去掉其中的 `|error-types`，其余不动。
 
-- [ ] **Step 3：验证**
+- [x] **Step 3：验证**
 
 Run: `node --test frontend/src/composables/dictation.test.mjs` 和 `node --test frontend/src/composables/weeklyReport.test.mjs`
 Expected: 通过。
@@ -371,7 +371,7 @@ Expected: 通过。
 Run: `python backend/scripts/prepare_cloudflare_frontend.py`
 Expected: 构建成功，产物在 `tmp/cloudflare-pages-build`，没有"is not exported"或找不到函数的报错。
 
-- [ ] **Step 4：提交**
+- [x] **Step 4：提交**
 
 ```bash
 git add frontend/src/api
@@ -392,13 +392,13 @@ git commit -m "chore(cleanup): remove frontend API helpers nothing uses"
 - Consumes: 前五个任务的全部改动。
 - Produces: 线上版本；给用户的核对清单。
 
-- [ ] **Step 1：同步文档**
+- [x] **Step 1：同步文档**
 
 - `docs/cloudflare-api-checklist.md`：删掉已删接口对应的条目（约第 7、24、47、51、60、62、63、64、68、73、80、87、88、91、97、101、115、121 行，以实际删掉的接口为准）。`POST /api/upload/batch-simple`、`POST /api/upload/file` 的条目保留，在后面注明"由 Pages 网关处理"。`POST /api/questions/batch-similar` 这一步没删，条目保留。
 - `CLAUDE.md`"后端 Worker 模块"表里 `main.py` 那一行，现在写的是"FastAPI 入口，注册路由；`/health`、`/api/subjects`、`/api/upload/file`"，改成"FastAPI 入口，注册路由；`/health`；定时任务入口"。`catalog.py` 那一行的"错误类型"去掉。
 - 路线图第 4 行的状态里，项目 5 改成"第 1 步（清理没人用的代码）已上线（日期）"，等 Step 5 发布完再写日期。
 
-- [ ] **Step 2：跑全部测试，再做一次整体搜索**
+- [x] **Step 2：跑全部测试，再做一次整体搜索**
 
 跑全部测试，Expected: 和基线一致，`dead_routes_test.py` 全过。
 
@@ -408,15 +408,15 @@ git diff main --stat
 
 Expected: 只有"文件一览"里列出的文件。多出来的文件逐个说明原因或还原。
 
-- [ ] **Step 3：请用户确认可以发布**
+- [x] **Step 3：请用户确认可以发布**
 
 向用户汇报：删了哪些、哪几条因为发现有调用方而没删、测试结果、基线里本来就失败的测试（如果有）。**得到用户明确同意后才继续。** 同时问清楚是合并进 `main` 后再发布，还是从分支发布（之前的项目两种都有过）。
 
-- [ ] **Step 4：发布**
+- [x] **Step 4：发布**
 
 照 `docs/cloudflare-migration-status.md` 的"日常部署"做，顺序是**先前端（Pages）、后后端（Worker）**。部署工具的实际情况（wrangler 的位置、代理、偶发的 10021 错误）见该文档；这一步没有数据库迁移，不需要开维护开关。记下发布前后的 Worker 版本号和 Pages 部署号，回滚要用。
 
-- [ ] **Step 5：发布后核对**
+- [x] **Step 5：发布后核对**
 
 不用登录就能核对的：
 
@@ -437,7 +437,7 @@ Expected: 第一条 200；第二条 401（没带令牌）；第三条是登录�
 5. 周报页的"旧报告"能打开一份旧报告。
 6. 用录入技能录一张照片（或等下次正常录入时留意是否成功）。
 
-- [ ] **Step 6：写变更记录并提交**
+- [x] **Step 6：写变更记录并提交**
 
 在 `docs/cloudflare-migration-status.md` 末尾追加"变更记录：清理没人用的代码（项目 5 第 1 步，日期）"，格式照前面几条记录：分支和提交、删了什么（按类别写数量，不必逐条列）、保留了什么及原因、发布前后的 Worker 版本号和 Pages 部署号、核对结果、未验证的事项（用户还没核对完的清单项）。补上路线图状态行的日期。
 
