@@ -61,7 +61,7 @@ import StarCanvas from '@/components/starmap/StarCanvas.vue'
 import LineIcon from '@/components/ui/LineIcon.vue'
 import PointTable from './PointTable.vue'
 import { colorOf, statusText } from '@/components/starmap/starmapColors.js'
-import { group_points, point_query, status_of_value } from './insightModel.js'
+import { create_request_gate, group_points, point_query, status_of_value } from './insightModel.js'
 import { starmapApi } from '@/api/starmap'
 import { useCatalogStore } from '@/stores/catalog'
 
@@ -91,7 +91,9 @@ const load_error = ref('')
 const lit = ref([])             // 这次播放点亮时刻新掌握的考点
 let timers = []                 // 点亮时刻的计时器，换学科或离开页面时清掉
 let pending_seen = null         // 正在播放、还没记下的 { subject_id, ids }
-let load_seq = 0                // 快速切换学科时，只用最后一次请求的结果
+// 快速切换学科时只用最后一次请求的结果；离开标签后，还没回来的请求一律作废，
+// 不会在已经卸载的组件上播放点亮时刻，也不会把没看到的星记成已看
+const gate = create_request_gate()
 
 const subject_name = computed(() => subjects.value.find(s => s.id === current_id.value)?.name || '')
 const background = computed(() => (subject_name.value === '英语' ? SENTENCES : FORMULAS))
@@ -128,20 +130,20 @@ function on_select(node) {
 
 /** 读取一科的星空；有新掌握的考点时，等布局稳定后播放点亮时刻 */
 async function load() {
-  const seq = ++load_seq
+  const token = gate.next()
   load_error.value = ''
   selected.value = null
   lit.value = []
   try {
     const { data: body } = await starmapApi.get(current_id.value)
-    if (seq !== load_seq) return
+    if (!gate.is_current(token)) return
     groups.value = group_points(body.nodes)
     // 要点亮的考点先画成"较好"的黄绿色，播放点亮时刻时再变成绿色
     const to_light = new Set(body.to_play || [])
     data.value = { ...body, nodes: body.nodes.map(n => (to_light.has(n.id) ? { ...n, value: 0.85 } : n)) }
     if (body.to_play?.length) timers.push(setTimeout(() => play_moment(body.to_play), 800))
   } catch (error) {
-    if (seq !== load_seq) return
+    if (!gate.is_current(token)) return
     load_error.value = error.response?.data?.detail || '星空暂时打不开，请稍后再试'
   }
 }
@@ -168,6 +170,7 @@ function stop_moment() {
 
 /** 点亮时刻：依次点亮，星空中间提示，播放完记下已看 */
 function play_moment(ids) {
+  if (gate.is_closed()) return   // 已经离开标签：不播放，也不记已看
   pending_seen = { subject_id: current_id.value, ids }
   toast_text.value = `点亮了 ${ids.length} 颗星`
   toast_visible.value = true
@@ -191,12 +194,19 @@ function choose(id) {
   load()
 }
 
-onBeforeUnmount(stop_moment)
+// 离开标签：先关闸门让还在路上的请求作废，再停掉点亮时刻（已经开始播放的照常补记已看）
+onBeforeUnmount(() => {
+  gate.close()
+  stop_moment()
+})
 
 onMounted(async () => {
   try {
-    subjects.value = await useCatalogStore().loadStarmapSubjects()
+    const list = await useCatalogStore().loadStarmapSubjects()
+    if (gate.is_closed()) return   // 学科还没读回来就已经离开了标签
+    subjects.value = list
   } catch {
+    if (gate.is_closed()) return
     load_error.value = '星空暂时打不开，请稍后再试'
     return
   }

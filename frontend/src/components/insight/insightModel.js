@@ -139,3 +139,32 @@ export function frequency_option(points, theme) {
     }],
   }
 }
+
+/**
+ * 请求闸门：只认最后一次发出的请求；关上以后（组件已卸载）所有请求都不再算数。
+ * 用法：const token = gate.next(); await 请求; if (!gate.is_current(token)) return
+ */
+export function create_request_gate() {
+  let latest = 0
+  let closed = false
+  return {
+    // 发出一次新请求，返回它的编号
+    next() {
+      latest += 1
+      return latest
+    },
+    // 这个编号的请求还有效吗：是最后一次，而且闸门没关
+    is_current(token) {
+      return !closed && token === latest
+    },
+    // 关上闸门（组件卸载时调用），之前和之后的请求都作废
+    close() {
+      closed = true
+      latest += 1
+    },
+    // 闸门是否已经关上
+    is_closed() {
+      return closed
+    },
+  }
+}

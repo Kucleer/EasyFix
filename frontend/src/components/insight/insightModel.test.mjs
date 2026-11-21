@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   status_of_value, recent_marks, point_row, module_summary, group_points, point_query, daily_counts, frequency_option,
+  create_request_gate,
 } from './insightModel.js'
 
 // 和 /api/starmap 一样：二级考点在前，一级模块在后
@@ -91,4 +92,20 @@ test('频率折线图配置用主题颜色，横轴只显示月-日', () => {
   assert.deepEqual(option.series[0].data, [2])
   assert.equal(option.xAxis.axisLabel.formatter('2026-11-01'), '11-01')
   assert.equal(option.xAxis.axisLabel.color, '#111')
+})
+
+test('请求闸门：只认最后一次请求，关上后之前和之后的请求都作废', () => {
+  const gate = create_request_gate()
+  const first = gate.next()
+  const second = gate.next()
+  // 快速切换学科：先发的请求后回来，不算数
+  assert.equal(gate.is_current(first), false)
+  assert.equal(gate.is_current(second), true)
+  assert.equal(gate.is_closed(), false)
+  // 离开标签：还在路上的请求回来也不算数，不会再播放点亮时刻
+  gate.close()
+  assert.equal(gate.is_closed(), true)
+  assert.equal(gate.is_current(second), false)
+  // 关上以后再发的请求同样作废
+  assert.equal(gate.is_current(gate.next()), false)
 })
