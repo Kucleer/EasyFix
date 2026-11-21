@@ -4,7 +4,6 @@
 
 - [x] `DELETE /api/achievements/{achievement_id}`
 - [x] `DELETE /api/error-books/{error_book_id}`
-- [x] `DELETE /api/error-types/{et_id}`
 - [x] `DELETE /api/knowledge-points/{kp_id}`
 - [x] `DELETE /api/learning-reports/{report_id}`
 - [x] `DELETE /api/practice-sets/{practice_set_id}`
@@ -20,8 +19,6 @@
 - [x] `GET /api/config/app`
 - [x] `GET /api/config/llm`
 - [x] `GET /api/error-books`
-- [x] `GET /api/error-books/{error_book_id}`
-- [x] `GET /api/error-types`
 - [x] `GET /api/knowledge-points`
 - [x] `GET /api/learning-reports/list`
 - [x] `GET /api/learning-reports/{report_id}`
@@ -44,11 +41,9 @@
 - [x] `GET /api/stats/knowledge-points`
 - [x] `GET /api/stats/overview`
 - [x] `GET /api/stats/summary`
-- [x] `GET /api/stats/today`
 - [x] `GET /api/subjects`
 - [x] `GET /api/tags`
 - [x] `GET /api/words`
-- [x] `GET /api/words/errors`
 - [x] `GET /api/words/stats/summary`
 - [x] `GET /api/words/{word_id}`
 - [x] `GET /api/words/{word_id}/audio`
@@ -57,50 +52,38 @@
 - [x] `POST /api/config/app`
 - [x] `POST /api/config/llm`
 - [x] `POST /api/error-books`
-- [x] `POST /api/error-types`
 - [x] `POST /api/knowledge-points`
-- [x] `POST /api/learning-reports/generate`
 - [x] `POST /api/motivation/trigger/review_word_accuracy`
-- [x] `POST /api/motivation/trigger/{action_code}`
 - [x] `POST /api/practice-sets`
 - [x] `POST /api/practice-sets/batch-delete`
 - [x] `POST /api/practice-sets/batch-download-pdf`
-- [x] `POST /api/practice-sets/generate-from-questions`
 - [x] `POST /api/practice-sets/generate-from-reading`
 - [x] `POST /api/practice-sets/{practice_set_id}/generate-pdf`
 - [x] `POST /api/practice-sets/{practice_set_id}/mark-reviewed`
 - [x] `POST /api/questions`
-- [x] `POST /api/questions/batch`
 - [x] `POST /api/questions/batch-similar`
 - [x] `POST /api/questions/{question_id}/similar`
-- [x] `POST /api/readings`
 - [x] `POST /api/readings/generate`
 - [x] `POST /api/rewards`
 - [x] `POST /api/rewards/{reward_id}/redeem`
-- [x] `POST /api/rewards/{reward_id}/upload-image`
 - [x] `POST /api/stars/actions`
 - [x] `POST /api/stars/adjust`
 - [x] `POST /api/stats/analysis/llm`
 - [x] `POST /api/subjects`
 - [x] `POST /api/tags`
-- [x] `POST /api/upload/batch-simple`
-- [x] `POST /api/upload/file`
-- [x] `POST /api/upload/to-error-book/{error_book_id}`
+- [x] `POST /api/upload/batch-simple` （由 Pages 网关直接写入 R2，不转给后端）
+- [x] `POST /api/upload/file` （由 Pages 网关直接写入 R2，不转给后端）
 - [x] `POST /api/words`
 - [x] `POST /api/words/batch`
-- [x] `POST /api/words/generate-audio` （改为播放时生成并缓存，减少调用）
 - [x] `POST /api/words/print-pdf`
 - [x] `POST /api/words/review/start`
 - [x] `POST /api/words/review/submit`
 - [x] `PUT /api/achievements/{achievement_id}`
 - [x] `PUT /api/error-books/{error_book_id}`
-- [x] `PUT /api/error-types/{et_id}`
 - [x] `PUT /api/knowledge-points/{kp_id}`
 - [x] `PUT /api/practice-sets/{practice_set_id}`
 - [x] `PUT /api/practice-sets/{practice_set_id}/review-images`
-- [x] `PUT /api/questions/debug/{question_id}` （旧调试接口返回410）
 - [x] `PUT /api/questions/{question_id}`
-- [x] `PUT /api/readings/{reading_id}`
 - [x] `PUT /api/rewards/{reward_id}`
 - [x] `PUT /api/stars/actions/{action_id}`
 - [x] `PUT /api/words/{word_id}`
@@ -112,13 +95,11 @@
 - [x] `POST/PUT/DELETE /api/knowledge-points`：改由 `cloudflare/src/knowledge.py` 实现；触发器兜底层级、学科、移动与删除引用约束，错误码 `KP_*` 映射 409/422。
 - [x] `GET /api/questions`：新增 `knowledge_parent_id`、`knowledge_point_id`、`unclassified`；旧 `knowledge_point` 改为精确 `name_key` 匹配，不再子串匹配。
 - [x] `POST/PUT /api/questions`：新增 `knowledge_point_ids`、`primary_knowledge_point_id`、`knowledge_revision`；响应增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`。
-- [x] `POST /api/questions/batch`：单题知识点无效只进入该题 `errors`，其余题目正常入库。
 - [x] `GET /api/questions/filter-options/{subject_id}`：增加 `knowledge_point_options`、`knowledge_modules`，旧 `knowledge_points` 保留供过渡。
 - [x] `GET /api/practice-sets/{id}`：条目增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`；阅读条目改用 `topic`。
 - [x] `POST /api/practice-sets/{id}/mark-reviewed`：支持 `question_knowledge` 并在同一批次写入分类；响应返回更新后的题目知识点。
 - [x] `GET /api/stats/knowledge-points`：新增 `level`（默认 1）、`parent_id`、`grade`、`days`；返回 `taxonomy_version`、`counting_mode`、`unclassified_count` 与模块指标。
 - [x] `GET /api/stats/summary`、`/api/stats/analysis/full`：知识点部分统一按一级模块；`knowledge_graph` 返回一级/二级节点与父子边。
-- [x] `POST /api/learning-reports/generate`：模块指标由服务端写入 `content.metrics`，`schema_version=2`，模型只输出叙述。
 - [x] `POST /api/words/{word_id}/audio` 与所有写请求：维护开关开启时 Bearer 写入同样返回 503；音频缓存未命中不写 R2。
 
 ## 考点卷（项目 3，2026-11-12）

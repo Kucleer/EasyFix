@@ -37,12 +37,12 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 
 | 模块 | 用途 |
 |------|------|
-| `main.py` | FastAPI 入口，注册路由；`/health`、`/api/subjects`、`/api/upload/file` |
+| `main.py` | FastAPI 入口，注册路由；`/health`；定时任务入口 |
 | `auth.py` | 密码登录、签名会话 Cookie、Agent Bearer 令牌、维护写开关 |
 | `database.py` / `cache.py` | D1 访问封装与统计缓存 |
 | `questions.py` / `similar.py` | 错题 CRUD、批量入库、相似题生成 |
 | `knowledge.py` / `knowledge_model.py` / `knowledge_stats.py` | 两级知识点目录、关联与统计 |
-| `catalog.py` | 学科、标签、错题本、错误类型等目录 |
+| `catalog.py` | 学科、标签、错题本等目录 |
 | `words.py` / `review.py` / `word_focus.py` / `phrase_focus.py` | 单词本、复习与默写、词组重点标注 |
 | `readings.py` | 阅读短文与题目 |
 | `practices.py` / `pdf.py` | 练习集、批改、PDF 生成与复用 |
@@ -51,7 +51,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `analytics.py` / `reports.py` | 统计分析、学习报告（旧） |
 | `weekly.py` / `weekly_model.py` | 每周周报：定时入口与分步推进（算数字 → 写文字）、`/api/weekly-reports`；一周窗口、考点变化、毕业、文字检查与兜底文字的纯函数 |
 | `motivation.py` | 星星、奖励、成就 |
-| `media.py` / `audio_index.py` | 上传、单词音频、打印 |
+| `media.py` / `audio_index.py` | 单词音频、打印（图片上传由 Pages 网关处理） |
 | `settings.py` / `prompts.py` / `provenance.py` | 应用与 LLM 配置、提示词、阅读来源 |
 
 完整接口清单见 `docs/cloudflare-api-checklist.md`。
