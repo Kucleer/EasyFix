@@ -82,18 +82,4 @@ export const questionApi = {
   },
 }
 
-// 学习概览API
-export const statsOverviewApi = {
-  getOverview(params) {
-    return api.get('/stats/overview', { params })
-  },
-}
-
-// 统计API
-export const statsApi = {
-  getSummary(params) {
-    return api.get('/stats/summary', { params })
-  },
-}
-
 export default api

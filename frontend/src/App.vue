@@ -79,9 +79,8 @@ import { useRoute } from 'vue-router'
 import LineIcon from '@/components/ui/LineIcon.vue'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { useReviewCountStore } from '@/stores/reviewCount'
-
-// "翻一翻"入口开关：第 4 步页面做好后改成 true
-const FLIP_READY = false
+// "翻一翻"入口开关放在 config/features.js，首页和菜单共用
+import { FLIP_READY } from '@/config/features'
 
 // 菜单项：id 同时是图标名；match 判断当前地址是否算这一项（用来高亮）
 const ITEMS = {
