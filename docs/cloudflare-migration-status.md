@@ -279,4 +279,5 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 部署核对：`/health` 200、未登录 `/api/subjects` 401、登录页 200、录入小工具 `guide` 正常。用录入口令调 `POST /api/weekly-reports/advance` 补出第 1 期（11 月 9 日–15 日），三次调用后 `done`，文字来源是模型。
 - 入口验证（计划 Task 7 第 5 步）：走到第 1 条，本机 `wrangler dev` 加载真实 `main.py`，原有接口照常，定时入口能被 `/cdn-cgi/local/scheduled` 触发；没有部署临时测试 Worker。
 - 本机情况：主检出里的 `cloudflare/python_modules` 只有一部分，第一次部署报 `No module named 'fastapi'`（10021，未生效）；按 `pylock.toml` 的地址下载 13 个 wheel、逐个核对 SHA-256 后解压重建，依赖版本未变，原目录挪到 `tmp/python_modules_partial_20261120`。Cloudflare 会把 Python 默认的 `Python-urllib` 请求标识当机器人返回 403（1010），脚本调线上接口要带自己的 User-Agent。
+- 2026-11-21 追加：提示词第 10 条（`5b13f47d`），"变好"只用于升了一档的考点，模块掌握度小幅升高写成"有一点点改善"。重新部署 Worker `1b12a3b3`（上一版本 `c39ee0ea`），核对 `/health` 200、未登录 401、登录页 200、`guide` 正常、周报列表正常。第 1 期是旧提示词写的，保留不变。
 - 未验证：真实的定时任务要到上线后第一个周日（2026-11-22）20:20 之后才能验证——查 Workers Logs 里有没有 `weekly 2026-11-22 20:00:00 ...` 的日志行、`weekly_report` 里有没有那一期且为 `done`。维护开关的读取失败时按"维护中"处理，所以周日日志若是 `maintenance`，先确认是不是 D1 出错。
