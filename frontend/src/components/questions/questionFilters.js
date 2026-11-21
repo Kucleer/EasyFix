@@ -45,7 +45,7 @@ export function explicit_question_tab(query) {
 }
 
 // 地址里能带进来的筛选参数（学情页、首页、旧书签会带）
-export const ROUTE_FILTER_KEYS = ['subject_id', 'knowledge_parent_id', 'knowledge_point_id', 'unclassified', 'grade']
+export const ROUTE_FILTER_KEYS = ['subject_id', 'knowledge_parent_id', 'knowledge_point_id', 'unclassified', 'grade', 'semester']
 
 /** 年级的显示文字；没填返回"未设置"，不认识的数字显示成"N年级" */
 export function grade_label(grade) {
@@ -88,22 +88,35 @@ export function positive_int(value) {
   return Number.isInteger(number) && number > 0 ? number : null
 }
 
+/** 地址里的学期：只认 1（上学期）和 2（下学期），其余返回 null */
+export function route_semester(value) {
+  const number = positive_int(value)
+  return number === 1 || number === 2 ? number : null
+}
+
 /**
  * 从地址参数算出要套用的筛选条件。
- * defaults 是 { grade, semester }（管理中心设的默认年级、学期）：
- * 地址没带 grade 时用默认年级；学期一律用默认学期（和旧页面一样）。
+ * defaults 是 { grade, semester }（管理中心设的默认年级、学期）。
+ * - 地址带了知识点筛选（一级模块、二级考点或只看未分类）：是从学情页等地方专门来看这些题的，
+ *   年级、学期只用地址里的值，没带就不筛，不套默认值，免得别的年级学期的同考点错题看不到；
+ * - 地址没带知识点筛选（比如直接打开 /questions）：没带年级、学期就用默认值。
  * 勾了"只看未分类"时不再带知识点（两者互斥）。
  */
 export function route_filters(query, defaults = {}) {
   const q = query || {}
   const unclassified = q.unclassified === '1' || q.unclassified === 'true'
+  const parent_id = unclassified ? null : positive_int(q.knowledge_parent_id)
+  const point_id = unclassified ? null : positive_int(q.knowledge_point_id)
+  const has_knowledge = unclassified || parent_id != null || point_id != null
+  const grade = positive_int(q.grade)
+  const semester = route_semester(q.semester)
   return {
     subject_id: positive_int(q.subject_id),
-    knowledge_parent_id: unclassified ? null : positive_int(q.knowledge_parent_id),
-    knowledge_point_id: unclassified ? null : positive_int(q.knowledge_point_id),
+    knowledge_parent_id: parent_id,
+    knowledge_point_id: point_id,
     unclassified,
-    grade: positive_int(q.grade) ?? (defaults.grade ?? null),
-    semester: defaults.semester ?? null,
+    grade: has_knowledge ? grade : (grade ?? defaults.grade ?? null),
+    semester: has_knowledge ? semester : (semester ?? defaults.semester ?? null),
   }
 }
 
@@ -179,16 +192,23 @@ export function remove_filter(filters, key, value) {
  * 2. 按这个学科取一次筛选项（知识点下拉要用）；
  * 3. 再套上地址里的知识点筛选（这一步在取筛选项之后，不会被任何"换学科就清知识点"的逻辑清掉）；
  * 4. 回到第 1 页，查列表。
- * state = { filters, page }；deps = { load_options(subject_id), fetch_list() }，都可以是异步函数。
+ * 每一步等待之后都检查这次进入是不是已经过时（又有新的进入，或者用户自己改了筛选），
+ * 过时就什么都不做，免得旧地址的知识点落到新学科上（后端会报"知识点与学科不匹配"）。
+ * state = { filters, page, entry }；
+ * deps = { load_defaults() → { grade, semester }, load_options(subject_id), fetch_list() }，都可以是异步函数。
  */
-export async function enter_with_route(state, query, defaults, deps) {
-  const wanted = route_filters(query, defaults)
+export async function enter_with_route(state, query, deps) {
+  const entry = supersede_entry(state)
+  const defaults = deps.load_defaults ? await deps.load_defaults() : {}
+  if (state.entry !== entry) return
+  const wanted = route_filters(query, defaults || {})
   Object.assign(state.filters, empty_filters(), {
     subject_id: wanted.subject_id,
     grade: wanted.grade,
     semester: wanted.semester,
   })
   await deps.load_options(wanted.subject_id)
+  if (state.entry !== entry || state.filters.subject_id !== wanted.subject_id) return
   state.filters.knowledge_parent_id = wanted.knowledge_parent_id
   state.filters.knowledge_point_id = wanted.knowledge_point_id
   state.filters.unclassified = wanted.unclassified
@@ -197,14 +217,34 @@ export async function enter_with_route(state, query, defaults, deps) {
 }
 
 /**
+ * 让正在进行的"从地址进入"作废（给它换一个新编号），返回新编号。
+ * 用户手动改筛选时也调用它：手动改的条件优先，旧的地址进入不再往下套。
+ */
+export function supersede_entry(state) {
+  state.entry = (state.entry || 0) + 1
+  return state.entry
+}
+
+/**
  * 电脑上换学科：先清掉知识点筛选、回到第 1 页，再查列表；
  * 同时取新学科的筛选项（和查列表同时进行，互不等待）。
  */
 export async function change_subject(state, subject_id, deps) {
+  supersede_entry(state)
   state.filters.subject_id = subject_id || null
   clear_knowledge(state.filters)
   state.page = 1
   await Promise.all([deps.load_options(state.filters.subject_id), deps.fetch_list()])
+}
+
+/**
+ * 选一级模块：二级考点跟着清掉；选了模块就不再"只看未分类"（两者同时带后端会拒绝）。
+ * 电脑筛选栏和手机抽屉的草稿都用它。
+ */
+export function pick_module(filters, parent_id) {
+  filters.knowledge_parent_id = parent_id || null
+  filters.knowledge_point_id = null
+  if (filters.knowledge_parent_id) filters.unclassified = false
 }
 
 /** 一道题的正确率（0~1）；还没练过返回 -1，排序时排在最前 */

@@ -68,7 +68,7 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useAppConfigStore } from '@/stores/appConfig'
 import { useReviewCountStore } from '@/stores/reviewCount'
 import { use_is_mobile } from '@/composables/useIsMobile'
-import { change_subject, empty_filters, enter_with_route, list_params, route_filter_key } from './questionFilters'
+import { change_subject, empty_filters, enter_with_route, list_params, route_filter_key, supersede_entry } from './questionFilters'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,7 +79,8 @@ const reviewCountStore = useReviewCountStore()
 const is_mobile = use_is_mobile()
 
 // 筛选条件和页码放在一起，规则函数（questionFilters.js）直接改它
-const state = reactive({ filters: empty_filters(), page: 1, limit: 20 })
+// entry 是"从地址进入"的编号，用来让过时的进入停下（见 questionFilters.js 的 enter_with_route）
+const state = reactive({ filters: empty_filters(), page: 1, limit: 20, entry: 0 })
 const questions = ref({ total: 0, items: [] })
 const loading = ref(false)
 const subjects = ref([])
@@ -121,10 +122,17 @@ async function fetch_list() {
   }
 }
 
-const deps = { load_options, fetch_list }
+/** 默认年级、学期（管理中心设的） */
+async function load_defaults() {
+  await appConfigStore.load()
+  return { grade: appConfigStore.defaultGrade, semester: appConfigStore.defaultSemester }
+}
 
-/** 任何筛选变了：回到第 1 页再查 */
+const deps = { load_defaults, load_options, fetch_list }
+
+/** 任何筛选变了：回到第 1 页再查；手动改的条件优先，还没套完的地址进入作废 */
 function refetch_from_first() {
+  supersede_entry(state)
   state.page = 1
   fetch_list()
 }
@@ -140,11 +148,9 @@ function on_drawer_apply(next) {
   refetch_from_first()
 }
 
-/** 按地址里的筛选进入：先取默认年级学期，再按规则取筛选项、套知识点、查列表 */
-async function apply_route() {
-  await appConfigStore.load()
-  const defaults = { grade: appConfigStore.defaultGrade, semester: appConfigStore.defaultSemester }
-  await enter_with_route(state, route.query, defaults, deps)
+/** 按地址里的筛选进入：取默认年级学期，再按规则取筛选项、套知识点、查列表（过时的进入会自己停下） */
+function apply_route() {
+  return enter_with_route(state, route.query, deps)
 }
 
 // 停在本页时地址里的筛选变了（比如从学情页又点了另一个考点进来）：重新套用。只切换标签不算。

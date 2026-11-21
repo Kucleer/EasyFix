@@ -74,7 +74,7 @@
         </div>
         <div class="qd-label">知识点</div>
         <div class="qd-grid">
-          <el-select v-model="draft.knowledge_parent_id" placeholder="一级模块" clearable filterable :disabled="!draft.subject_id" @change="draft.knowledge_point_id = null">
+          <el-select v-model="draft.knowledge_parent_id" placeholder="一级模块" clearable filterable :disabled="!draft.subject_id" @change="value => pick_module(draft, value)">
             <el-option v-for="m in modules_of(draft.subject_id)" :key="m.id" :label="m.name" :value="m.id" />
           </el-select>
           <el-select v-model="draft.knowledge_point_id" placeholder="二级考点" clearable filterable :disabled="!draft.knowledge_parent_id">
@@ -115,7 +115,7 @@ import { computed, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import {
   GRADE_OPTIONS, ACCURACY_RANGE_OPTIONS, grade_label, semester_label, accuracy_range_label,
-  empty_filters, active_filter_count, clear_knowledge, reset_filters, remove_filter, tag_style,
+  empty_filters, active_filter_count, clear_knowledge, reset_filters, remove_filter, tag_style, pick_module,
 } from './questionFilters'
 
 const props = defineProps({
@@ -168,9 +168,9 @@ function tag_color(id) {
   return props.tags.find(t => t.id === id)?.color || ''
 }
 
-/** 电脑上换一级模块：二级考点跟着清掉 */
-function on_module_change() {
-  props.filters.knowledge_point_id = null
+/** 电脑上换一级模块：二级考点跟着清掉，并取消"只看未分类"（规则见 pick_module） */
+function on_module_change(value) {
+  pick_module(props.filters, value)
   emit('change')
 }
 
