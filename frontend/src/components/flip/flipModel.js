@@ -58,14 +58,25 @@ export function progress_dots(done, total) {
 }
 
 /**
- * 页面该显示什么：'empty' 今天没有要翻的、'finished' 今天翻完了、'card' 正在翻
- * today 是 /api/flip/today 的返回，index 是这次打开后翻到 cards 里的第几张
+ * 页面该显示什么：'empty' 今天没有要翻的、'finished' 今天翻完了、'card' 正在翻、'reload' 要重新取卡片
+ * today 是 /api/flip/today 的返回（翻牌后 done、total 换成服务器新给的），index 是这次取回后翻到 cards 里的第几张
  */
 export function page_state(today, index) {
   if (today.total <= 0) return 'empty'
-  // 已翻张数到了总数，或者这次拿到的卡片都翻过了，就算翻完（不能继续刷）
-  if (today.done >= today.total || index >= today.cards.length) return 'finished'
-  return 'card'
+  // 只有服务器说已翻张数到了总数才算翻完（不能继续刷）
+  if (today.done >= today.total) return 'finished'
+  if (index < today.cards.length) return 'card'
+  // 手里的卡片翻完了，服务器却说还有没翻的（翻的过程中又录了新题，今天这组变多了）：重新取一次。
+  // 刚取回来就一张卡片都没有（index 为 0）时不再取，当作翻完，免得一直重取
+  return index > 0 ? 'reload' : 'finished'
+}
+
+/**
+ * 记下一张卡片后的新状态：进度换成服务器返回的 { done, total }，位置往后挪一张。
+ * 同一题今天已经记过时服务器的 done 不变，位置照样往后挪（这张卡不会再出现）
+ */
+export function after_record(today, index, progress) {
+  return { today: { ...today, done: progress.done, total: progress.total }, index: index + 1 }
 }
 
 /** 翻完后的一句话 */

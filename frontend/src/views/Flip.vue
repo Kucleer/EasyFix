@@ -1,8 +1,8 @@
 <template>
   <!-- 翻一翻：每天一组旧错题卡片，看题 → 想 → 看答案 → 点"我记得 / 我忘了"。手机优先，电脑上居中一张卡 -->
   <div class="flip-page">
-    <!-- 读取中 -->
-    <div v-if="loading && !today" class="flip-loading" aria-busy="true" aria-label="正在读取">
+    <!-- 读取中；手里的卡片翻完、服务器说还有没翻的时候也先显示这个，再重新取 -->
+    <div v-if="(loading && !today) || state === 'reload'" class="flip-loading" aria-busy="true" aria-label="正在读取">
       <div class="bone top-bone"></div>
       <div class="bone card-bone"></div>
     </div>
@@ -46,7 +46,7 @@
           @answer="answer"
         />
       </div>
-      <p class="flip-hint">不用打字，也不打分。点“我忘了”的题，过两三天会再出现。</p>
+      <p class="flip-hint">不用打字，也不打分。点“我忘了”的题，过两天会再出现。</p>
     </template>
   </div>
 </template>
@@ -57,7 +57,7 @@ import { ElMessage } from 'element-plus'
 import FlipCard from '@/components/flip/FlipCard.vue'
 import LineIcon from '@/components/ui/LineIcon.vue'
 import { flipApi } from '@/api/flip'
-import { card_view, finish_text, page_state, progress_dots, progress_text } from '@/components/flip/flipModel'
+import { after_record, card_view, finish_text, page_state, progress_dots, progress_text } from '@/components/flip/flipModel'
 
 const today = ref(null)        // /api/flip/today 的返回：{ total, done, cards }；没读到之前是 null
 const index = ref(0)           // 这次打开后翻到 cards 里的第几张
@@ -65,7 +65,7 @@ const revealed = ref(false)    // 当前卡片是否已经看了答案
 const submitting = ref(false)  // 正在提交"我记得 / 我忘了"
 const loading = ref(true)     // 一打开就在读取，避免先闪一下"没有读到"
 
-// 页面状态：empty 没有要翻的、finished 翻完了、card 正在翻
+// 页面状态：empty 没有要翻的、finished 翻完了、card 正在翻、reload 要重新取卡片
 const state = computed(() => (today.value ? page_state(today.value, index.value) : ''))
 // 当前这张卡要显示的内容
 const card = computed(() => card_view(today.value.cards[index.value]))
@@ -100,11 +100,13 @@ async function answer(result) {
   const question_id = card.value.id
   try {
     const { data } = await flipApi.record(question_id, result)
-    // 用服务器算的进度，和首页、周报一致
-    today.value.done = data.done
-    today.value.total = data.total
-    index.value += 1
+    // 用服务器算的进度（和首页、周报一致），换下一张
+    const next = after_record(today.value, index.value, data)
+    today.value = next.today
+    index.value = next.index
     revealed.value = false
+    // 手里的卡片翻完了、今天这组却变多了（翻的过程中录了新题）：重新取剩下的卡片，不显示"翻完了"
+    if (page_state(today.value, index.value) === 'reload') await load_today()
   } catch (error) {
     if (error.response?.status === 404) {
       // 这道题已经不在今天这组里（比如刚被删掉或毕业了）：重新取一次剩下的卡片

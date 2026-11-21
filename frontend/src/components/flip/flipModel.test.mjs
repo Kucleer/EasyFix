@@ -1,7 +1,7 @@
 // 翻一翻的纯逻辑测试。运行：node --test frontend/src/components/flip/flipModel.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { card_tag, card_view, progress_text, progress_dots, page_state, finish_text } from './flipModel.js'
+import { card_tag, card_view, progress_text, progress_dots, page_state, after_record, finish_text } from './flipModel.js'
 
 /** 一张示例卡片（和 /api/flip/today 的 cards 里一项同形状） */
 function sample(extra = {}) {
@@ -62,9 +62,29 @@ test('进度条：翻过的、正在翻的、还没翻的', () => {
 test('页面状态：没有要翻的 / 翻完了 / 正在翻', () => {
   assert.equal(page_state({ total: 0, done: 0, cards: [] }, 0), 'empty')
   assert.equal(page_state({ total: 3, done: 3, cards: [] }, 0), 'finished')
-  assert.equal(page_state({ total: 3, done: 1, cards: [sample(), sample()] }, 2), 'finished')
+  assert.equal(page_state({ total: 3, done: 3, cards: [sample(), sample()] }, 2), 'finished')
   assert.equal(page_state({ total: 3, done: 1, cards: [sample(), sample()] }, 1), 'card')
   assert.equal(page_state({ total: 2, done: 2, cards: [sample()] }, 0), 'finished')
+})
+
+test('页面状态：手里的卡片翻完了但服务器说还有没翻的，重新取；刚取回来就没卡片时当作翻完', () => {
+  // 翻了 2 张，期间录了新题，服务器的总数从 3 变成 5
+  assert.equal(page_state({ total: 5, done: 3, cards: [sample(), sample()] }, 2), 'reload')
+  assert.equal(page_state({ total: 5, done: 3, cards: [] }, 0), 'finished')
+})
+
+test('记下一张后：进度用服务器的，位置往后挪；今天已经记过的题 done 不变也往后挪', () => {
+  const today = { total: 3, done: 1, cards: [sample(), sample()] }
+  const next = after_record(today, 0, { done: 2, total: 3 })
+  assert.deepEqual([next.today.done, next.today.total, next.index], [2, 3, 1])
+  assert.equal(next.today.cards, today.cards)
+  assert.equal(today.done, 1)
+  const again = after_record(today, 0, { done: 1, total: 3 })
+  assert.deepEqual([again.today.done, again.index], [1, 1])
+  assert.equal(page_state(again.today, again.index), 'card')
+  // 总数变多（翻的过程中录了新题），翻完手里的卡后要重新取
+  const grown = after_record({ total: 3, done: 2, cards: [sample()] }, 0, { done: 3, total: 5 })
+  assert.equal(page_state(grown.today, grown.index), 'reload')
 })
 
 test('翻完的话', () => {
