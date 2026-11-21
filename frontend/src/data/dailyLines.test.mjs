@@ -7,7 +7,7 @@ test('句库数量足够', () => {
 })
 
 test('每句不超过 20 字、互不重复、不含禁用词', () => {
-  const banned = ['加油', '最棒', '孩子', '父母', '爸爸', '妈妈']
+  const banned = ['加油', '最棒', '棒', '孩子', '父母', '爸爸', '妈妈', '应该', '必须', '赢']
   for (const line of DAILY_LINES) {
     assert.ok(line.length <= 20, `太长：${line}`)
     for (const w of banned) assert.ok(!line.includes(w), `含禁用词 ${w}：${line}`)
@@ -22,6 +22,17 @@ test('beijingDate 按 UTC+8 取日期', () => {
 
 test('同一天两次取到同一句', () => {
   assert.equal(pickDailyLine('2026-11-21'), pickDailyLine('2026-11-21'))
+})
+
+test('算法固定：从 2026-01-01 起按天数取模', () => {
+  const n = DAILY_LINES.length
+  assert.equal(pickDailyLine('2026-01-01'), DAILY_LINES[0])
+  assert.equal(pickDailyLine('2026-01-02'), DAILY_LINES[1])
+  // 2026-01-01 之前（负天数）也要落在句库末尾
+  assert.equal(pickDailyLine('2025-12-31'), DAILY_LINES[n - 1])
+  // 过了一整轮回到第一句
+  const wrap = new Date(Date.UTC(2026, 0, 1) + n * 86400000).toISOString().slice(0, 10)
+  assert.equal(pickDailyLine(wrap), DAILY_LINES[0])
 })
 
 test('连续 30 天相邻两天不同', () => {
