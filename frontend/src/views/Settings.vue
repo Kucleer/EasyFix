@@ -1,90 +1,85 @@
 <template>
-  <div class="settings">
-    <PageHeading title="模型配置" description="配置内容辅助生成与学习报告使用的模型。" />
-    <!-- 访问密码验证 -->
-    <el-dialog v-model="showPasswordDialog" title="请输入访问密码" width="400px" :close-on-click-modal="false" :show-close="false">
-      <el-form>
+  <!-- 设置页：进来先验一次访问密码；标签和地址 ?tab= 同步，点到哪个标签才加载哪个标签的数据 -->
+  <div class="settings-page">
+    <header class="page-head">
+      <h1>设置</h1>
+      <p>不常改的东西都在这里，进来只验一次密码。</p>
+    </header>
+
+    <!-- 访问密码：关不掉，验过之前下面什么都不显示；回车直接验证 -->
+    <el-dialog
+      :model-value="!verified"
+      title="请输入访问密码"
+      :width="is_mobile ? '92%' : '400px'"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      append-to-body
+    >
+      <el-form @submit.prevent>
         <el-form-item label="访问密码">
-          <el-input v-model="password" type="password" placeholder="请输入访问密码" @keyup.enter="verifyPassword" show-password />
+          <el-input v-model="password" type="password" placeholder="请输入访问密码" show-password autofocus @keyup.enter="verify" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button type="primary" @click="verifyPassword" :loading="verifying">验证</el-button>
+        <el-button @click="router.push('/')">返回首页</el-button>
+        <el-button type="primary" :loading="verifying" @click="verify">验证</el-button>
       </template>
     </el-dialog>
 
-    <el-card v-if="isVerified">
-      <template #header>
-        <span>系统配置</span>
-      </template>
-
-      <el-tabs v-model="activeTab">
-        <!-- 模型配置 -->
-        <el-tab-pane label="LLM配置" name="llm">
-          <el-form :model="llmForm" label-width="120px" style="max-width: 600px">
-            <el-form-item label="API类型">
-              <el-select v-model="llmForm.provider">
-                <el-option label="OpenAI" value="openai" />
-                <el-option label="Claude" value="claude" />
-                <el-option label="自定义" value="custom" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="API Key">
-              <el-input v-model="llmForm.api_key" placeholder="请输入API Key" show-password />
-            </el-form-item>
-            <el-form-item label="Base URL">
-              <el-input v-model="llmForm.base_url" placeholder="API地址，如 https://api.openai.com/v1" />
-            </el-form-item>
-            <el-form-item label="模型名称">
-              <el-input v-model="llmForm.model" placeholder="如 gpt-4o, claude-3-sonnet" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="saveLlmConfig" :loading="saving">
-                保存LLM配置
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-tab-pane>
-      </el-tabs>
-      </el-card>
+    <template v-if="verified">
+      <TabBar v-model="tab" :tabs="SETTINGS_TABS" class="page-tabs" />
+      <section class="panel">
+        <!-- 标签组件缓存着：第一次点到时才挂载、才请求数据，切回来时保留筛选和弹窗里记住的内容 -->
+        <KeepAlive>
+          <component :is="TAB_COMPONENTS[tab]" :key="tab" />
+        </KeepAlive>
+      </section>
+    </template>
   </div>
 </template>
 
 <script setup>
-import PageHeading from '@/components/PageHeading.vue'
-import { ref, reactive, onMounted } from 'vue'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { configApi } from '@/api/config'
 import { authApi } from '@/api/auth'
+import TabBar from '@/components/ui/TabBar.vue'
+import StarMapSettings from '@/components/StarMapSettings.vue'
+import GradeTab from '@/components/settings/GradeTab.vue'
+import SubjectsTab from '@/components/settings/SubjectsTab.vue'
+import TagsTab from '@/components/settings/TagsTab.vue'
+import KnowledgeTab from '@/components/settings/KnowledgeTab.vue'
+import ErrorBooksTab from '@/components/settings/ErrorBooksTab.vue'
+import ModelTab from '@/components/settings/ModelTab.vue'
+import { SETTINGS_TABS } from '@/components/settings/settingsModel'
+import { useTabQuery } from '@/composables/useTabQuery'
+import { use_is_mobile } from '@/composables/useIsMobile'
 
-const activeTab = ref('llm')
-const saving = ref(false)
-const loading = ref(false)
-const showPasswordDialog = ref(true)
-const isVerified = ref(false)
+// 每个标签对应的组件；成就相关的三块（StarActionsPanel、AchievementsPanel、RewardsPanel）
+// 暂不放进标签栏，等成就项目再加回来
+const TAB_COMPONENTS = {
+  grade: GradeTab,
+  subjects: SubjectsTab,
+  tags: TagsTab,
+  knowledge: KnowledgeTab,
+  books: ErrorBooksTab,
+  starmap: StarMapSettings,
+  model: ModelTab,
+}
+
+const router = useRouter()
+const is_mobile = use_is_mobile()
+const tab = useTabQuery(SETTINGS_TABS.map(t => t.key), 'grade')
+
+// 这次打开页面是否已经验过密码；验过以后切换标签不再问
+const verified = ref(false)
 const password = ref('')
 const verifying = ref(false)
 
-const llmForm = reactive({
-  provider: 'openai',
-  api_key: '',
-  base_url: 'https://api.openai.com/v1',
-  model: 'gpt-4o',
-})
-
-const saveLlmConfig = async () => {
-  saving.value = true
-  try {
-    await configApi.saveLlm(llmForm)
-    ElMessage.success('LLM配置已保存')
-  } catch (error) {
-    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
-  } finally {
-    saving.value = false
-  }
-}
-
-const verifyPassword = async () => {
+/** 验证访问密码（会话本身已经登录，这里是改设置前再确认一次） */
+async function verify() {
+  if (verifying.value) return
   if (!password.value) {
     ElMessage.warning('请输入密码')
     return
@@ -92,51 +87,26 @@ const verifyPassword = async () => {
   verifying.value = true
   try {
     await authApi.verifyPassword(password.value)
-    isVerified.value = true
-    showPasswordDialog.value = false
-    loadConfigs()
-  } catch (error) {
+    verified.value = true
+  } catch {
     ElMessage.error('密码错误')
+  } finally {
     password.value = ''
-  } finally {
     verifying.value = false
-  }
-}
-
-const loadConfigs = async () => {
-  loading.value = true
-  try {
-    const { data: llmData } = await configApi.getLlm()
-    Object.assign(llmForm, llmData)
-  } catch (error) {
-    console.error('加载配置失败:', error)
-  } finally {
-    loading.value = false
   }
 }
 </script>
 
 <style scoped>
-.settings  {
+.settings-page { max-width: 1280px; }
+.page-head h1 { margin: 0; font-size: 24px; color: var(--ink); }
+.page-head p { margin: 4px 0 16px; color: var(--muted); }
+.page-tabs { width: fit-content; max-width: 100%; margin-bottom: 16px; }
+.panel { padding: 20px 22px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); }
 
-  max-width: 900px;
-  margin: 0 auto;
+@media (max-width: 768px) {
+  .page-head h1 { font-size: 22px; }
+  .page-head p { margin-bottom: 12px; font-size: 13px; }
+  .panel { padding: 14px 12px; }
 }
-
-.form-tip  {
-
-  font-size: 12px;
-  color: #999;
-  margin-top: 5px;
-}
-
-.el-divider  {
-
-  margin: 20px 0 10px;
-}
-.settings {
-  max-width:1000px;
-  margin:0}
-.form-tip {
-  color:var(--text-muted)}
 </style>
