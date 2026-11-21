@@ -299,3 +299,14 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 部署：Pages `e0359b2e`（上一部署 `40a3ca16`），从提交 `30cd8c1e` 构建，网关未变。Worker 不变（`c99d1ba0`）。
 - 核对：`/health` 200、首页跳登录 303、新主脚本从正式域名取到。前端测试 44 项全过；独立审阅没有严重问题，提出的"请求途中失效会拿到旧列表"已修。
 - 未验证（等第 4 步完成后和用户一起核对）：学科下拉、出卷页和知识星空只有数学英语、管理中心增删学科标签后录入页能看到、练习中心上传批改照片、单词读音、配置页验密码和模型配置、阅读页生成和做题提交、周报图表颜色。
+
+## 变更记录：新菜单、新首页、四页重写（项目 5 第 3 步，2026-11-21 已上线）
+
+- 代码 `ec89f88f..3571fa51`（分支 `feature/unify-step3-pages` 快进合并进 `main`）。计划 `docs/superpowers/plans/2026-11-21-unify-step3-pages.md`。没有迁移，没有删表、列和数据。
+- 新增：`GET /api/home`（`home.py`、`home_model.py`：待核对、待批改、上次出卷、待温习单词、连续天数、这一周的数字直接调用周报的计算函数、星空三个数）；`GET /api/stats/words`（单词学情）。待批改数改成不限 30 天，首页和考点卷状态共用一个函数。
+- 前端：新菜单（学生用 / 家长用 / 看成果，手机底部 5 格加"更多"），去掉顶部栏；新首页（每日一句 112 句，按北京时间每天一句）；错题页三个标签（待核对 / 全部错题 / 卷子和作业），修掉带筛选进入时知识点被清掉、换学科时 422 的问题；学情页（考点：星空和明细表；单词）；设置页（七个标签，进入验一次密码，按标签加载）。翻一翻入口在第 4 步前隐藏（`frontend/src/config/features.js`）。旧地址 `/review`、`/papers`、`/star-map`、`/learning-analysis`、`/stats`、`/management` 跳到新页面并保留筛选。
+- 删除：`/api/stats/summary`、`/api/stats/overview`、`/api/stats/knowledge-points`、`/api/stats/analysis/full`、`POST /api/stats/analysis/llm`、`POST /api/questions/batch-similar`、练习集同步生成相似题的分支，以及只为它们服务的函数和测试；旧页面 `ReviewQueue.vue`、`Papers.vue`、`StarMap.vue`、`LearningAnalysis.vue`、`Management.vue`；手工勾题打印和批量生成相似题。
+- 部署：先在任务 1 之后单独部署只新增接口的 Worker `ec8cedc4`（上一版本 `c99d1ba0`）；全部完成后 Pages `3cc2487b`（上一部署 `e0359b2e`），再部署删了旧接口的 Worker `bc91c7be`。PDF Worker 不变。
+- 核对：`/health` 200、首页和新地址跳登录 303；录入口令读 `/api/home`（约 4.8 秒，60 秒缓存）、`/api/stats/words`、待核对数（18，与首页一致）、考点卷状态都是 200，被删的 `/api/stats/summary`、`/api/stats/analysis/full` 返回 404；录入小工具 `guide` 正常。线上 D1 里 `reviewed IS NULL` 的练习集为 0，待批改数和列表口径一致。
+- 发布前全部测试通过；每个任务都做了独立审阅，全分支终审没有严重问题，终审提出的手机底部导航遮住批改页提交栏已修。
+- 未验证（第 4 步完成后和用户一起核对）：菜单和手机底部导航；首页四块的数字与点进去看到的是否一致；错题三个标签的全部操作；学情两个标签和"点亮时刻"；设置七个标签和验密码；旧地址跳转；`/api/home` 首次打开约 5 秒是否可以接受。
