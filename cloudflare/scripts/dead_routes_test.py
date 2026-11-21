@@ -54,6 +54,8 @@ REMOVED = [
 # 必须还在：(文件, 源码里必须出现的片段)
 KEPT = [
     ('home.py', "@router.get('/api/home')"),
+    ('flip.py', "@router.get('/today')"),
+    ('flip.py', "@router.post('/{question_id}')"),
     ('analytics.py', "@router.get('/words')"),
     ('media.py', "@router.get('/api/words/{word_id}/audio')"),
     ('media.py', "@router.post('/api/words/print-pdf')"),

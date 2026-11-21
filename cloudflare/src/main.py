@@ -27,6 +27,7 @@ from starmap import router as starmap_router
 from media import router as media_router
 from weekly import router as weekly_router, run_scheduled
 from home import router as home_router
+from flip import router as flip_router
 
 app = FastAPI(title='EasyFix Cloudflare', docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -56,6 +57,8 @@ app.include_router(starmap_router)
 app.include_router(media_router)
 app.include_router(weekly_router)
 app.include_router(home_router)
+# 翻一翻：固定路径 /api/flip/today（GET）写在同一模块里 /{question_id}（POST）之前
+app.include_router(flip_router)
 app.include_router(catalog_router)
 app.include_router(knowledge_router)
 app.include_router(scan_router)

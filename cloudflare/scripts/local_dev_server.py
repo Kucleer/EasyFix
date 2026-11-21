@@ -43,11 +43,12 @@ STARMAP_SEED = ROOT / 'migrations' / '0013_starmap_seed.sql'
 SCAN_MIGRATION = ROOT / 'migrations' / '0014_scan_page.sql'
 TARGETED_MIGRATION = ROOT / 'migrations' / '0015_targeted_paper.sql'
 WEEKLY_MIGRATION = ROOT / 'migrations' / '0016_weekly_report.sql'
+FLIP_MIGRATION = ROOT / 'migrations' / '0017_flip_log.sql'
 CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
 # 挂载顺序与 main.py 一致：intake、scan 的固定路径要排在 questions 的 {question_id} 之前，
 # targeted（/api/practice-sets/targeted/...）要排在 practices 的 {practice_set_id} 之前
 ROUTER_MODULES = ('intake', 'papers', 'similar', 'catalog', 'knowledge', 'scan', 'questions', 'settings', 'analytics',
-                  'targeted', 'grading_scan', 'practices', 'reports', 'starmap', 'weekly', 'home')
+                  'targeted', 'grading_scan', 'practices', 'reports', 'starmap', 'weekly', 'home', 'flip')
 IMAGE_TYPES = ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_FILES = 10
@@ -83,7 +84,7 @@ def seed_catalog(connection, subject_ids):
 
 
 def build_connection():
-    """建一份内存库：结构基线 + 0011、0012、0014、0015、0016 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
+    """建一份内存库：结构基线 + 0011、0012、0014、0015、0016、0017 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
     # 测试客户端和 uvicorn 都会在别的线程里使用连接，单用户本机工具可以放开线程检查
     connection = sqlite3.connect(':memory:', check_same_thread=False)
     connection.row_factory = sqlite3.Row
@@ -93,6 +94,7 @@ def build_connection():
     connection.executescript(SCAN_MIGRATION.read_text(encoding='utf-8'))
     connection.executescript(TARGETED_MIGRATION.read_text(encoding='utf-8'))
     connection.executescript(WEEKLY_MIGRATION.read_text(encoding='utf-8'))
+    connection.executescript(FLIP_MIGRATION.read_text(encoding='utf-8'))
     connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')
     connection.execute('INSERT INTO knowledge_assert(id,guard,structure) VALUES(1,1,1)')
     config = {'data_revision': '0', 'taxonomy_version': '1', 'app': '{"default_grade":6,"default_semester":1}'}
