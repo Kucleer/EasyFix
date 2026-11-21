@@ -61,10 +61,11 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | 目录/文件 | 用途 |
 |-----------|------|
 | `main.js` / `App.vue` | 应用入口；桌面分组侧栏与手机底部导航 |
-| `api/` | Axios 封装（`http.js` 带 GET 去重与短时缓存） |
+| `api/` | Axios 封装（`http.js` 带 GET 去重与短时缓存）；同一个接口只留一个函数，页面不直接写地址（`apiLayer.test.mjs` 钉住） |
 | `views/` | 页面组件 |
-| `composables/` | 默写判分（`dictation.js`）、知识点配色 |
-| `stores/appConfig.js` | 默认年级/学期 |
+| `components/ui/` | 共用组件：线条图标 `LineIcon`、统计数字卡 `StatCard`、图表卡 `ChartCard`、页内标签栏 `TabBar` |
+| `composables/` | 默写判分（`dictation.js`）、知识点配色、图表主题（`chartTheme.js`）、页内标签与地址同步（`useTabQuery.js`） |
+| `stores/` | `appConfig.js` 默认年级/学期；`catalog.js` 学科、标签、知识点树集中存放（目录写入后调用 `invalidate`）；`reviewCount.js` 待核对数量 |
 | `router/index.js` | 路由配置 |
 
 | 路径 | 页面 |
@@ -92,8 +93,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 python cloudflare/scripts/phrase_focus_test.py
 python cloudflare/scripts/knowledge_invariants_test.py
 python cloudflare/scripts/weekly_report_test.py
-node --test frontend/src/composables/dictation.test.mjs
-node --test frontend/src/composables/weeklyReport.test.mjs
+node --test frontend/src/composables/dictation.test.mjs frontend/src/composables/weeklyReport.test.mjs frontend/src/composables/chartTheme.test.mjs
+node --test frontend/src/stores/catalogModel.test.mjs frontend/src/api/apiLayer.test.mjs frontend/src/components/ui/ui.test.mjs
 
 # 后端：语法检查后部署 Worker
 python -m compileall -q cloudflare/src

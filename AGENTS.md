@@ -20,6 +20,7 @@ python cloudflare/scripts/weekly_report_test.py           # 周报：一周窗�
 # 前端
 node --test frontend/src/composables/dictation.test.mjs   # 默写判分
 node --test frontend/src/composables/weeklyReport.test.mjs  # 周报图表配置
+node --test frontend/src/stores/catalogModel.test.mjs frontend/src/api/apiLayer.test.mjs frontend/src/components/ui/ui.test.mjs frontend/src/composables/chartTheme.test.mjs  # 目录 store、接口层、共用组件、图表主题
 python backend/scripts/prepare_cloudflare_frontend.py     # 生产构建，输出到 tmp/cloudflare-pages-build
 ```
 
