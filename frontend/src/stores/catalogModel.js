@@ -43,18 +43,21 @@ export function createLoader(fetcher) {
     if (!force && has_value) return value
     if (pending) return pending
     const started = version
-    pending = Promise.resolve()
+    const request = Promise.resolve()
       .then(fetcher)
       .then(result => {
-        // reset 之后才回来的结果不记住，避免把旧数据写回去
-        if (started === version) {
-          value = result
-          has_value = true
-        }
+        // 请求途中被 reset（目录刚改过）：旧结果不记住，也不交给调用方，重新取一次
+        if (started !== version) return load()
+        value = result
+        has_value = true
         return result
       })
-      .finally(() => { pending = null })
-    return pending
+      .finally(() => {
+        // 只清掉自己：reset 之后新发的请求还在路上时，不能把它的去重也清掉
+        if (pending === request) pending = null
+      })
+    pending = request
+    return request
   }
 
   /** 忘掉记住的结果；下次 load 重新请求 */
