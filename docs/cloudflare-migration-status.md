@@ -310,3 +310,13 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 核对：`/health` 200、首页和新地址跳登录 303；录入口令读 `/api/home`（约 4.8 秒，60 秒缓存）、`/api/stats/words`、待核对数（18，与首页一致）、考点卷状态都是 200，被删的 `/api/stats/summary`、`/api/stats/analysis/full` 返回 404；录入小工具 `guide` 正常。线上 D1 里 `reviewed IS NULL` 的练习集为 0，待批改数和列表口径一致。
 - 发布前全部测试通过；每个任务都做了独立审阅，全分支终审没有严重问题，终审提出的手机底部导航遮住批改页提交栏已修。
 - 未验证（第 4 步完成后和用户一起核对）：菜单和手机底部导航；首页四块的数字与点进去看到的是否一致；错题三个标签的全部操作；学情两个标签和"点亮时刻"；设置七个标签和验密码；旧地址跳转；`/api/home` 首次打开约 5 秒是否可以接受。
+
+## 变更记录：翻一翻（项目 5 第 4 步，2026-11-21 已上线）
+
+- 代码 `e4cc4691..`（分支 `feature/unify-step4-flip` 快进合并进 `main`）。计划 `docs/superpowers/plans/2026-11-21-unify-step4-flip.md`。
+- 迁移 `0017_flip_log.sql`（只新建 `flip_log` 表和两个索引）。执行前备份 `backups/flip_release_20261121T145818Z/remote.sql`（4,505,803 字节，SHA-256 `85ca0bb3662ec45db7940192c5e837dd358cdfb24cd86099b109fbd4536fcd10`）。执行后表从 43 张变 44 张，`flip_log` 为空；`question` 710、`word` 1611、`word_review_log` 2705、`practice_set` 242、`practice_set_question` 1198、`weekly_report` 1 与执行前一致。未开启维护开关（只建表）。
+- 内容：`GET /api/flip/today`、`POST /api/flip/{question_id}`（`flip.py`、`flip_model.py`）。每天最多 8 张；候选是已核对、没毕业、有题干或原图的错题；"我忘了"满 2 天再出现，"我记得"按 3 / 7 / 14 天拉长；同一题同一天只记一次；不改考点掌握度和错题毕业。首页 `flip` 显示今天这组、`week.flip_days` 和周报同一口径；七天打卡条和连续天数把翻一翻算作有学习记录的一天；周报数字加"翻了几天、几张"，只翻了卡片的一周不算安静，模型只说翻了多少、不评价忘了多少。前端新页面 `/flip`，菜单"学生用"和手机"更多"里出现，首页学生入口显示翻一翻卡。
+- 部署：Worker `33cca91c`（上一版本 `bc91c7be`），Pages `6c8e1750`（上一部署 `3cc2487b`），先 Worker 后 Pages。PDF Worker 不变。
+- 核对：`/health` 200、首页和 `/flip` 跳登录 303；录入口令读 `/api/flip/today` 200（今天 8 张，约 4 秒）、`/api/home` 的 `flip` 为 `{total: 8, done: 0}`；录入小工具 `guide` 正常。没有用口令提交翻牌（会写入学生的真实记录）。
+- 发布前全部测试通过（后端 13 个脚本、前端 144 项）；三个任务各自审阅，全分支终审没有严重问题。
+- 未验证：手机上真机翻一组卡片（看答案、记得/忘了、翻完、刷新后接着翻）；周日晚上第一次带翻一翻数字的周报；`/api/home`、`/api/flip/today` 在历史数据变多以后的 CPU 用量（终审提醒：每次都读全部错题和全部翻牌记录，条数固定但量会增长）。
