@@ -36,9 +36,6 @@ export const scanApi = {
   dismiss(id, seq) {
     return api.post(`/scan/pages/${id}/items/${seq}/dismiss`)
   },
-  restore(id, seq) {
-    return api.post(`/scan/pages/${id}/items/${seq}/restore`)
-  },
   promote(id, seq) {
     return api.post(`/scan/pages/${id}/items/${seq}/promote`, null, { timeout: 150000 })
   },

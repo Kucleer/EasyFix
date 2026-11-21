@@ -16,9 +16,6 @@ export const questionApi = {
   create(data) {
     return api.post('/questions', data)
   },
-  createBatch(data) {
-    return api.post('/questions/batch', data)
-  },
   update(id, data) {
     return api.put(`/questions/${id}`, data)
   },
@@ -147,12 +144,6 @@ export const uploadApi = {
 export const statsApi = {
   getSummary(params) {
     return api.get('/stats/summary', { params })
-  },
-  getTodayStats() {
-    return api.get('/stats/today')
-  },
-  getKnowledgePoints(params) {
-    return api.get('/stats/knowledge-points', { params })
   },
 }
 

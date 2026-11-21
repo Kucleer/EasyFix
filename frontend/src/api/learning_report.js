@@ -7,14 +7,6 @@ const api = axios.create({
 
 export const learningReportApi = {
   /**
-   * 生成学习分析报告
-   * @param {Object} data - { subject_id, grade, time_range_days, title }
-   */
-  generate(data) {
-    return api.post('/learning-reports/generate', data)
-  },
-
-  /**
    * 获取报告列表
    * @param {Object} params - { skip, limit, subject_id, grade }
    */

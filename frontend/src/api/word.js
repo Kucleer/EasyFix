@@ -47,11 +47,6 @@ export const wordApi = {
     return api.post('/words/review/submit', data)
   },
 
-  // 获取错词列表
-  getErrors(params) {
-    return api.get('/words/errors', { params })
-  },
-
   // 生成打印PDF
   printPdf(params) {
     return api.post('/words/print-pdf', null, { params })
