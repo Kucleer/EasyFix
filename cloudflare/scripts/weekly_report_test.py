@@ -309,6 +309,8 @@ def test_prompt_carries_rules():
     prompt = PromptLibrary()._build_weekly_report_prompt(brief_of(sample_facts()), ['上一期的鼓励'])
     for needle in ('你', '「」', '阿拉伯数字', '上一期的鼓励', '合并同类项', '去括号', '不要用“薄弱”这个词'):
         assert needle in prompt
+    for needle in ('一点点改善', '有一点进步', '“变好”“变亮”只能用在 subjects 的 improved', '不要夸'):
+        assert needle in prompt
     assert prompt.count('薄弱') == 1                                                              # 只在那条规则里出现
 
 
