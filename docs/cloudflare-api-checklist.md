@@ -123,3 +123,10 @@
 - [x] `GET /api/stats/words`：单词学情（原 `analytics.py` 里单词部分，学情页的"单词"标签使用）。
 - [x] `GET /api/practice-sets/targeted/status`（改动）：`pending_count` 不再限 30 天，和练习中心列表里的待批改一致。
 - [x] 已删除：`POST /api/questions/batch-similar`；`GET /api/stats/summary`、`/api/stats/overview`、`/api/stats/knowledge-points`、`/api/stats/analysis/full`；`POST /api/stats/analysis/llm`。
+
+## 翻一翻（项目 5 第 4 步，2026-11-21）
+
+- [x] `GET /api/flip/today`：今天这一组还没翻的卡片，返回 `{total, done, cards}`；`total` 是今天总张数，`done` 是已翻张数，`cards` 每项 `id`、`subject_name`、`point_name`、`parsed_question`、`images`、`wrong_answer`、`answer`、`analysis`、`analysis_image`。每天最多 8 张，候选是已核对、未删除、未毕业且有题干或原图的错题（所有学科、年级），选题规则见 `cloudflare/src/flip_model.py`。
+- [x] `POST /api/flip/{question_id}`：请求 `{result}`，`result` 为 `remember`（我记得）或 `forget`（我忘了）；同一题同一天只记一次，重复提交不再写入；题目不在候选范围（不存在、未核对、已删除、已毕业、无题干也无原图）返回 404，`result` 非法返回 422；返回今天的 `{done, total}`。只写 `flip_log`，不影响考点掌握度和错题毕业。
+- [x] `GET /api/home`（改动）：增加 `flip: {total, done}`（今天的进度），`week` 增加 `flip_days`（本周翻过卡片的天数）。
+- [x] 每周周报（改动）：`facts` 增加 `flip: {days, cards}`（翻了几天、几张）；改动前生成的旧周报没有这个字段。

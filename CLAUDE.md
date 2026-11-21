@@ -48,6 +48,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `practices.py` / `pdf.py` | 练习集、批改、PDF 生成与复用 |
 | `targeted.py` / `targeted_model.py` | 考点卷：状态、选题预览、创建、相似题准备与换题；选题与毕业规则的纯函数 |
 | `grading_scan.py` / `grading_model.py` | 批改识别预批：逐页读卷面照片、调一次模型按题号比对；比对提示词与输出清洗的纯函数（不写库） |
+| `flip.py` / `flip_model.py` | 翻一翻：每天一组（最多 8 张）错题卡片的选题、记录"记得/忘了"（`flip_log` 表，迁移 0017）；只读掌握度和毕业，不改它们；选题规则是纯函数 |
 | `home.py` / `home_model.py` | 首页接口 `/api/home`：待办、这一周（直接用周报的计算函数）、星空三个数 |
 | `analytics.py` / `reports.py` | `analytics.py` 现在只剩单词学情 `/api/stats/words` 和 `now()`；`reports.py` 学习报告（旧） |
 | `weekly.py` / `weekly_model.py` | 每周周报：定时入口与分步推进（算数字 → 写文字）、`/api/weekly-reports`；一周窗口、考点变化、毕业、文字检查与兜底文字的纯函数 |
@@ -66,7 +67,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `views/` | 页面组件 |
 | `components/home/`、`components/questions/`、`components/insight/`、`components/settings/` | 首页、错题（待核对 / 全部 / 卷子三个标签）、学情（考点 / 单词）、设置（七个标签）各页的组件与纯函数 |
 | `data/dailyLines.js` | 首页每日一句 |
-| `config/features.js` | 功能开关（`FLIP_READY`：翻翻卡就绪前为关） |
+| `config/features.js` | 功能开关（`FLIP_READY` 已为开；以后没做完的功能先在这里藏起来） |
+| `components/flip/` | 翻一翻的卡片组件与纯函数 |
 | `components/ui/` | 共用组件：线条图标 `LineIcon`、图表卡 `ChartCard`、页内标签栏 `TabBar` |
 | `composables/` | 默写判分（`dictation.js`）、知识点配色、图表主题（`chartTheme.js`）、页内标签与地址同步（`useTabQuery.js`） |
 | `stores/` | `appConfig.js` 默认年级/学期；`catalog.js` 学科、标签、知识点树集中存放（目录写入后调用 `invalidate`）；`reviewCount.js` 待核对数量 |
@@ -84,6 +86,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `/targeted-paper` | 考点卷：出卷页（选科目、题量、分法，预览后生成） |
 | `/grade/:id` | 错题练习卷批改（电脑、手机共用）：拍照 → 识别预批 → 复核；`/grade` 跳到练习中心并只看待批改的卷子 |
 | `/words` | 单词本 |
+| `/flip` | 翻一翻（学生用；手机在"更多"里）：每天一组错题卡片，翻看后点"我记得"或"我忘了" |
 | `/reading`、`/reading-test/:id` | 阅读理解 |
 | `/learning-reports` | 周报（每周日 20:00 自动生成，打开页面时补做） |
 | `/learning-reports/legacy` | 旧报告（只看和删，不再生成） |
@@ -101,9 +104,11 @@ python cloudflare/scripts/phrase_focus_test.py
 python cloudflare/scripts/knowledge_invariants_test.py
 python cloudflare/scripts/weekly_report_test.py
 python cloudflare/scripts/home_test.py
+python cloudflare/scripts/flip_test.py
 node --test frontend/src/composables/dictation.test.mjs frontend/src/composables/weeklyReport.test.mjs frontend/src/composables/chartTheme.test.mjs
 node --test frontend/src/stores/catalogModel.test.mjs frontend/src/api/apiLayer.test.mjs frontend/src/components/ui/ui.test.mjs
 node --test frontend/src/data/dailyLines.test.mjs frontend/src/components/home/homeText.test.mjs frontend/src/components/questions/questionFilters.test.mjs frontend/src/components/insight/insightModel.test.mjs frontend/src/components/settings/settingsModel.test.mjs
+node --test frontend/src/components/flip/flipModel.test.mjs
 
 # 后端：语法检查后部署 Worker
 python -m compileall -q cloudflare/src
