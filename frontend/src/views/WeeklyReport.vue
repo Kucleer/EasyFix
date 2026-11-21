@@ -31,7 +31,7 @@
           <div class="wr-legend">
             <span><i style="background: #c9c9f2"></i>默写了单词</span>
             <span><i style="background: #8f8fe6"></i>录了错题</span>
-            <span><i style="background: #5b5bd6"></i>两样都做了</span>
+            <span><i style="background: var(--brand)"></i>两样都做了</span>
           </div>
           <p v-if="captions.calendar" class="wr-say">{{ captions.calendar }}</p>
         </section>
@@ -101,6 +101,7 @@ import {
 } from 'echarts/components'
 import { weeklyReportApi } from '@/api/weekly_report'
 import { use_is_mobile } from '@/composables/useIsMobile'
+import { useChartTheme } from '@/composables/chartTheme'
 import {
   weekTitle, badges, calendarOption, visibleSubjects, defaultSubjectId,
   donutOption, modulesOption, gaugeOption, trendOption, practiceLine,
@@ -160,17 +161,6 @@ const modules_option = computed(() => (subject.value ? modulesOption(subject.val
 const gauge_option = computed(() => gaugeOption(facts.value, theme.value))
 const trend_option = computed(() => trendOption(facts.value, theme.value))
 const practice_line = computed(() => practiceLine(facts.value))
-
-/** 从页面的 CSS 变量读图表要用的颜色；读不到的不传，用默认值 */
-function read_theme() {
-  const css = getComputedStyle(document.documentElement)
-  const colors = {
-    text: css.getPropertyValue('--el-text-color-secondary').trim(),
-    strong: css.getPropertyValue('--el-text-color-primary').trim(),
-    line: css.getPropertyValue('--el-border-color-light').trim(),
-  }
-  return Object.fromEntries(Object.entries(colors).filter(([, value]) => value))
-}
 
 /** 等一会儿 */
 function sleep(ms) {
@@ -237,7 +227,7 @@ async function catch_up() {
 }
 
 onMounted(async () => {
-  theme.value = read_theme()
+  theme.value = useChartTheme()   // 图表颜色读 CSS 变量，读不到用默认主题
   const due = await load_list()
   // 有已生成的期就先显示最新一期
   if (items.value.length) await go(0)
@@ -262,12 +252,12 @@ onBeforeUnmount(() => {
 .weekly:not(.is-wide) .wr-head h1 { white-space: nowrap; }
 .wr-notice { background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: 14px; padding: 12px 14px; font-size: 14px; color: var(--text-secondary); margin: 0 0 10px; }
 
-.wr-cheer { background: #5b5bd6; color: #fff; border-radius: 14px; padding: 14px 16px; font-size: 17px; font-weight: 700; line-height: 1.5; }
+.wr-cheer { background: var(--brand); color: #fff; border-radius: 14px; padding: 14px 16px; font-size: 17px; font-weight: 700; line-height: 1.5; }
 .wr-summary { background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.7; margin-top: 10px; }
 
 .wr-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
-.wr-badge { border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; background: rgba(91, 91, 214, 0.14); color: #5b5bd6; }
-.wr-badge.green { background: rgba(31, 157, 99, 0.16); color: #1f9d63; }
+.wr-badge { border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; background: var(--brand-soft); color: var(--brand); }
+.wr-badge.green { background: var(--mint-soft); color: var(--mint); }
 .wr-badge.orange { background: rgba(230, 138, 46, 0.18); color: #b4641a; }
 
 .wr-blocks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 12px; }

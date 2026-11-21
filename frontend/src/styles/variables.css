@@ -48,7 +48,32 @@
   --el-border-color-light:#e8eaf1;
   --el-border-radius-base:8px;
   --el-bg-color-page:#f6f7fb;
-  --el-font-family:'Microsoft YaHei','Segoe UI',sans-serif
+  --el-font-family:'Microsoft YaHei','Segoe UI',sans-serif;
+  /* 以下照抄样稿 2026-11-21-workspace-mockup.html，第 3 步起新页面和共用组件使用 */
+  --bg:#f3f2fa;
+  --surface:#ffffff;
+  --ink:#1f2340;
+  --ink-2:#4c5372;
+  --muted:#686e89;
+  --line:#e6e5f2;
+  --brand:#4f46e5;
+  --brand-deep:#3b33b8;
+  --brand-soft:#ecebff;
+  --mint:#17895a;
+  --mint-deep:#0f6e47;
+  --mint-soft:#e2f5ec;
+  --sun:#b4641a;
+  --sun-soft:#fdf1df;
+  --coral:#d6455a;
+  --coral-soft:#fdecef;
+  --night:#14162b;
+  --r-lg:22px;
+  --r-md:16px;
+  --r-sm:10px;
+  --shadow-1:0 1px 2px rgba(31,35,64,.05),0 6px 18px rgba(31,35,64,.06);
+  --shadow-2:0 2px 4px rgba(31,35,64,.06),0 16px 36px rgba(31,35,64,.12);
+  --font:'PingFang SC','HarmonyOS Sans SC','Microsoft YaHei','Segoe UI',sans-serif;
+  --font-num:ui-rounded,'SF Pro Rounded','Nunito','Segoe UI',var(--font)
 }
 
 * {

@@ -1,13 +1,15 @@
 // 周报：把后端的 facts 变成奖章、标题和 ECharts 配置（都是纯函数，不依赖 Vue）
 import { colorOf, GREY } from '../components/starmap/starmapColors.js'
+import { CHART_THEME } from './chartTheme.js'
 
-const MAIN = '#5b5bd6'
-const SOFT = '#b9b9ee'
-const GREEN = '#1f9d63'
-const LINE_GREY = '#b4b4bb'
+// 颜色统一取自图表主题（chartTheme.js），学情页和周报页一致
+const MAIN = CHART_THEME.main
+const SOFT = CHART_THEME.soft
+const GREEN = CHART_THEME.green
+const LINE_GREY = CHART_THEME.grey
 
 // 默认的文字、强调文字、线条颜色；页面可以传入 CSS 变量的值覆盖
-const DEFAULT_THEME = { text: '#6b6b76', strong: '#1f1f24', line: '#e3e3e8' }
+const DEFAULT_THEME = { text: CHART_THEME.text, strong: CHART_THEME.strong, line: CHART_THEME.line }
 
 // 合并主题：没传的颜色用默认值
 function withTheme(theme) {
@@ -152,7 +154,7 @@ export function modulesOption(subject, theme) {
           { name: '上周', value: modules.map(m => m.before ?? 0), lineStyle: { color: LINE_GREY, type: 'dashed' }, itemStyle: { color: LINE_GREY } },
           {
             name: '本周', value: modules.map(m => m.after),
-            lineStyle: { color: MAIN, width: 2.5 }, itemStyle: { color: MAIN }, areaStyle: { color: 'rgba(91,91,214,0.2)' },
+            lineStyle: { color: MAIN, width: 2.5 }, itemStyle: { color: MAIN }, areaStyle: { color: MAIN, opacity: 0.2 },
           },
         ],
       }],
