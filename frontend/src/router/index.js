@@ -112,6 +112,13 @@ const routes = [
     component: () => import('@/views/Words.vue'),
   },
   {
+    // 翻一翻：每天一组旧错题卡片（菜单"更多"和首页大卡进入，不占手机底部格子）
+    path: '/flip',
+    name: 'Flip',
+    component: () => import('@/views/Flip.vue'),
+    meta: { title: '翻一翻' },
+  },
+  {
     // 周报：每周一期，打开时会自动补做还没生成好的那一期
     path: '/learning-reports',
     name: 'WeeklyReport',

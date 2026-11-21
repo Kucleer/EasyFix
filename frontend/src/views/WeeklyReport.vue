@@ -29,10 +29,12 @@
           <p class="wr-hint">每个格子是一天，颜色越深做的事越多</p>
           <VChart :option="calendar_option" autoresize class="wr-chart" style="height: 215px" />
           <div class="wr-legend">
-            <span><i style="background: #c9c9f2"></i>默写了单词</span>
+            <span><i style="background: #c9c9f2"></i>默写或翻了错题</span>
             <span><i style="background: #8f8fe6"></i>录了错题</span>
             <span><i style="background: var(--brand)"></i>两样都做了</span>
           </div>
+          <!-- 翻一翻：旧周报没有这项数据、或者这周一张没翻时不显示 -->
+          <p v-if="flip_line" class="wr-number">{{ flip_line }}</p>
           <p v-if="captions.calendar" class="wr-say">{{ captions.calendar }}</p>
         </section>
 
@@ -104,7 +106,7 @@ import { use_is_mobile } from '@/composables/useIsMobile'
 import { useChartTheme } from '@/composables/chartTheme'
 import {
   weekTitle, badges, calendarOption, visibleSubjects, defaultSubjectId,
-  donutOption, modulesOption, gaugeOption, trendOption, practiceLine,
+  donutOption, modulesOption, gaugeOption, trendOption, practiceLine, flipLine,
 } from '@/composables/weeklyReport'
 
 // 按需引入要用到的图表类型和组件
@@ -161,6 +163,7 @@ const modules_option = computed(() => (subject.value ? modulesOption(subject.val
 const gauge_option = computed(() => gaugeOption(facts.value, theme.value))
 const trend_option = computed(() => trendOption(facts.value, theme.value))
 const practice_line = computed(() => practiceLine(facts.value))
+const flip_line = computed(() => flipLine(facts.value))
 
 /** 等一会儿 */
 function sleep(ms) {

@@ -57,7 +57,7 @@ export function badges(facts) {
   return all.filter(b => b.n > 0).map(b => ({ key: b.key, text: b.text(b.n) }))
 }
 
-/** 打卡日历热力图：值 1 只默写、2 只录入、3 两样都有；没有记录的天不放 */
+/** 打卡日历热力图：值 1 只默写或翻了错题、2 只录入、3 两样都有；没有记录的天不放（后端的 dictated 已包含翻一翻） */
 export function calendarOption(facts, theme) {
   const t = withTheme(theme)
   const days = facts.calendar || []
@@ -67,7 +67,7 @@ export function calendarOption(facts, theme) {
   const range = days.length ? [days[0].date, days[days.length - 1].date] : undefined
   return {
     textStyle: { color: t.text, fontFamily: 'inherit' },
-    tooltip: { formatter: p => p.value[0] + '：' + ['', '默写了单词', '录了错题', '两样都做了'][p.value[1]] },
+    tooltip: { formatter: p => p.value[0] + '：' + ['', '默写或翻了错题', '录了错题', '两样都做了'][p.value[1]] },
     visualMap: {
       show: false, type: 'piecewise', dimension: 1,
       pieces: [{ value: 1, color: '#c9c9f2' }, { value: 2, color: '#8f8fe6' }, { value: 3, color: MAIN }],
@@ -222,6 +222,13 @@ export function trendOption(facts, theme) {
       data: trend.map((w, i) => ({ value: w.count, itemStyle: { color: i === last ? MAIN : SOFT, borderRadius: [3, 3, 0, 0] } })),
     }],
   }
+}
+
+/** 翻一翻一行字：`这周翻了 N 天错题，一共 M 张`；旧周报没有 flip、或者一张没翻时 null */
+export function flipLine(facts) {
+  const f = facts.flip
+  if (!f || !(f.cards > 0)) return null
+  return `这周翻了 ${f.days} 天错题，一共 ${f.cards} 张`
 }
 
 /** 练习卷一行字：有批改时 `批改 N 份 · 做对 A / B 道`，没有时 null */

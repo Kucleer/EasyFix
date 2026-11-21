@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   weekTitle, badges, calendarOption, visibleSubjects, defaultSubjectId,
-  donutOption, modulesOption, gaugeOption, trendOption, practiceLine,
+  donutOption, modulesOption, gaugeOption, trendOption, practiceLine, flipLine,
 } from './weeklyReport.js'
 
 // 一份和设计文档示例一致的 facts
@@ -124,4 +124,18 @@ test('默写和练习卷', () => {
   assert.equal(practiceLine(sample()), null)
   const done = sample(); Object.assign(done.practice, { papers: 2, questions: 10, correct: 7 })
   assert.equal(practiceLine(done), '批改 2 份 · 做对 7 / 10 道')
+})
+
+test('翻一翻一行字：旧周报没有 flip、一张没翻时不显示', () => {
+  const facts = sample()
+  assert.equal(flipLine(facts), null)
+  facts.flip = { days: 0, cards: 0 }
+  assert.equal(flipLine(facts), null)
+  facts.flip = { days: 3, cards: 17 }
+  assert.equal(flipLine(facts), '这周翻了 3 天错题，一共 17 张')
+})
+
+test('日历提示：第 1 档是默写或翻了错题', () => {
+  const option = calendarOption(sample())
+  assert.equal(option.tooltip.formatter({ value: ['2026-11-18', 1] }), '2026-11-18：默写或翻了错题')
 })
