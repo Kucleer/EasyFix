@@ -1,5 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+/**
+ * 生成"旧地址跳到新地址"的跳转函数：原地址上的其余参数（如 subject_id）原样带过去。
+ * tab 有值时作为新页面的标签放在最前面；原地址自己的 tab 不带（旧页面的标签名对新页面没有意义）。
+ */
+function redirect_to(path, tab = '') {
+  return (to) => {
+    const { tab: _old_tab, ...rest } = to.query
+    const query = tab ? { tab, ...rest } : rest
+    return { path, query, hash: to.hash }
+  }
+}
+
 const routes = [
   {
     path: '/',
@@ -12,14 +24,14 @@ const routes = [
     component: () => import('@/views/Questions.vue'),
   },
   {
+    // 待核对合进错题页的"待核对"标签
     path: '/review',
-    name: 'ReviewQueue',
-    component: () => import('@/views/ReviewQueue.vue'),
+    redirect: redirect_to('/questions', 'review'),
   },
   {
+    // 卷子和作业合进错题页的"卷子和作业"标签，筛选参数照带
     path: '/papers',
-    name: 'Papers',
-    component: () => import('@/views/Papers.vue'),
+    redirect: redirect_to('/questions', 'papers'),
   },
   {
     path: '/papers/:id',
@@ -32,8 +44,23 @@ const routes = [
     component: () => import('@/views/Upload.vue'),
   },
   {
+    // 旧的统计页、知识星空、知识点分析都合进学情页
     path: '/stats',
-    redirect: '/learning-analysis',
+    redirect: redirect_to('/insight'),
+  },
+  {
+    path: '/star-map',
+    redirect: redirect_to('/insight'),
+  },
+  {
+    path: '/learning-analysis',
+    redirect: redirect_to('/insight'),
+  },
+  {
+    // 学情：考点和单词两个标签（第 6 步的新页面做好前先用旧的知识点分析页）
+    path: '/insight',
+    name: 'Insight',
+    component: () => import('@/views/LearningAnalysis.vue'),
   },
   {
     path: '/settings',
@@ -41,9 +68,9 @@ const routes = [
     component: () => import('@/views/Settings.vue'),
   },
   {
+    // 资料管理合进设置页
     path: '/management',
-    name: 'Management',
-    component: () => import('@/views/Management.vue'),
+    redirect: redirect_to('/settings'),
   },
   {
     path: '/practice-sets',
@@ -98,19 +125,10 @@ const routes = [
     meta: { title: '旧报告' },
   },
   {
+    // 成就：不在菜单里，地址保留，能直接打开
     path: '/motivation',
     name: 'Motivation',
     component: () => import('@/views/Motivation.vue'),
-  },
-  {
-    path: '/star-map',
-    name: 'StarMap',
-    component: () => import('@/views/StarMap.vue'),
-  },
-  {
-    path: '/learning-analysis',
-    name: 'LearningAnalysis',
-    component: () => import('@/views/LearningAnalysis.vue'),
   },
 ]
 

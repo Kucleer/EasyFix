@@ -112,9 +112,10 @@ h2 {
 h3 {
   font-size:16px
 }
+/* ========== 外壳：左侧菜单 + 页面内容（照样稿，没有顶部栏） ========== */
 .app-shell {
   display:grid;
-  grid-template-columns:205px minmax(0,1fr);
+  grid-template-columns:212px minmax(0,1fr);
   min-height:100vh
 }
 .app-sidebar {
@@ -122,9 +123,9 @@ h3 {
   top:0;
   height:100vh;
   overflow:auto;
-  background:#fff;
-  border-right:1px solid var(--border-light);
-  padding:22px 14px;
+  background:var(--surface);
+  border-right:1px solid var(--line);
+  padding:20px 14px;
   display:flex;
   flex-direction:column
 }
@@ -132,114 +133,117 @@ h3 {
   display:flex;
   align-items:center;
   gap:10px;
-  padding:0 12px 17px;
-  font-size:23px;
-  font-weight:750;
-  letter-spacing:-.7px
+  padding:0 8px 18px;
+  font-size:18px;
+  font-weight:700;
+  letter-spacing:.2px;
+  color:var(--ink)
 }
 .brand-mark {
   display:grid;
   place-items:center;
-  background:var(--accent-blue);
-  color:#fff;
-  width:34px;
-  height:34px;
+  width:32px;
+  height:32px;
   border-radius:10px;
-  font-size:22px
+  color:#fff;
+  font-family:var(--font-num);
+  font-size:17px;
+  background:linear-gradient(140deg,#6a62f2,var(--brand-deep));
+  box-shadow:inset 0 -3px 0 rgba(0,0,0,.18),0 4px 10px rgba(79,70,229,.35)
 }
+/* 分组标题："学生用""家长用""看成果" */
 .nav-label {
-  padding:14px 13px 4px;
-  margin:0;
-  font-size:11px;
+  margin:16px 10px 6px;
+  padding:0;
+  font-size:12px;
   letter-spacing:1px;
-  color:var(--text-muted)
+  color:var(--muted)
 }
+/* 菜单项：侧栏和手机"更多"抽屉共用 */
 .nav-link {
   display:flex;
   align-items:center;
-  gap:12px;
-  padding:9px 13px;
-  min-height:40px;
-  border-radius:8px;
-  margin:2px 0;
-  color:var(--text-secondary);
-  font-size:14px;
-  transition:background .15s
-}
-.nav-link .el-icon {
-  font-size:18px
+  gap:10px;
+  width:100%;
+  min-height:42px;
+  padding:8px 10px;
+  border-radius:12px;
+  color:var(--ink-2);
+  font-size:15px;
+  transition:background .18s,color .18s
 }
 .nav-link:hover {
-  background:#f6f5ff
+  background:var(--bg)
 }
-.nav-link.active {
-  background:#eeedff;
-  color:var(--accent-blue);
+.nav-link.on {
+  background:var(--brand-soft);
+  color:var(--brand-deep);
+  font-weight:600
+}
+/* 红色数字（待核对数量） */
+.nav-badge {
+  min-width:20px;
+  height:20px;
+  padding:0 6px;
+  border-radius:10px;
+  background:var(--coral);
+  color:#fff;
+  font-size:12px;
+  font-weight:700;
+  font-family:var(--font-num);
+  line-height:20px;
+  text-align:center
+}
+.nav-link .nav-badge,.nav-link .nav-new {
+  margin-left:auto
+}
+/* "新"小标签（翻一翻上线时用） */
+.nav-new {
+  padding:1px 7px;
+  border-radius:8px;
+  background:var(--mint-soft);
+  color:var(--mint-deep);
+  font-size:11px;
   font-weight:600
 }
 .sidebar-note {
-  font-size:11px;
-  color:var(--text-muted);
-  margin:auto 12px 0;
-  padding-top:20px
-}
-.app-workspace {
-  min-width:0
-}
-.app-topbar {
-  height:66px;
-  background:#ffffffd9;
-  border-bottom:1px solid var(--border-light);
-  padding:0 30px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:15px
-}
-.app-breadcrumb {
+  margin:auto 0 0;
+  padding:14px 10px 0;
   font-size:12px;
-  color:var(--text-muted)
-}
-.app-breadcrumb span {
-  margin:0 10px;
-  color:#a3a8b7
-}
-.app-breadcrumb strong {
-  font-weight:500;
-  color:var(--text-primary)
-}
-.topbar-actions {
-  display:flex;
-  align-items:center;
-  gap:18px
-}
-.topbar-add {
-  display:flex;
-  align-items:center;
-  gap:6px;
-  font-size:12px;
-  color:var(--accent-blue)
-}
-.profile-mark {
-  display:grid;
-  place-items:center;
-  border-radius:50%;
-  width:32px;
-  height:32px;
-  background:#eeedff;
-  color:var(--accent-blue);
-  font-weight:600
+  color:var(--muted)
 }
 .app-main {
-  max-width:none;
-  margin:auto;
-  padding:24px 30px 36px
+  min-width:0;
+  padding:28px 34px 36px
 }
 .app-main>div {
   min-width:0
 }
 .mobile-navigation {
   display:none
+}
+/* 手机"更多"抽屉：底部弹出的圆角面板，顶上一条小横杠 */
+.el-drawer.more-sheet {
+  border-radius:24px 24px 0 0;
+  max-height:85vh
+}
+.more-sheet .el-drawer__body {
+  padding:10px 14px calc(22px + env(safe-area-inset-bottom))
+}
+.more-sheet .el-drawer__body::before {
+  content:'';
+  display:block;
+  width:40px;
+  height:4px;
+  margin:0 auto 12px;
+  border-radius:2px;
+  background:var(--line)
+}
+.more-sheet-mask {
+  background:rgba(20,22,43,.45)
+}
+.mobile-more .nav-link {
+  min-height:44px
 }
 .el-card {
   border-radius:10px!important;
@@ -324,13 +328,10 @@ h3 {
 
 @media(max-width:1000px) {
   .app-shell {
-  grid-template-columns:180px minmax(0,1fr)
+  grid-template-columns:184px minmax(0,1fr)
 }
 .app-main {
-  padding:20px
-}
-.app-topbar {
-  padding:0 20px
+  padding:24px 20px 30px
 }
 .app-sidebar {
   padding:20px 10px
@@ -346,24 +347,10 @@ h3 {
   display:none
 }
 .app-main {
-  padding:18px 14px calc(90px + env(safe-area-inset-bottom))
+  /* 上方不再有顶部栏；下方给底部导航（约 68px 高）留出位置 */
+  padding:18px 16px calc(90px + env(safe-area-inset-bottom))
 }
-.app-topbar {
-  height:58px;
-  padding:0 15px
-}
-.app-breadcrumb {
-  font-size:12px
-}
-.app-breadcrumb span {
-  margin:0 5px
-}
-.topbar-actions {
-  gap:12px
-}
-.topbar-add {
-  font-size:12px
-}
+/* 手机底部导航：5 格平分，图标外面一个胶囊底，选中时胶囊变浅紫 */
 .mobile-navigation {
   display:flex;
   position:fixed;
@@ -371,33 +358,49 @@ h3 {
   right:0;
   bottom:0;
   z-index:100;
-  background:#fff;
-  border-top:1px solid var(--border-light);
-  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
-  justify-content:space-around
+  background:var(--surface);
+  border-top:1px solid var(--line);
+  padding:6px 8px calc(10px + env(safe-area-inset-bottom))
 }
 .mobile-navigation>a,.mobile-navigation>button {
-  border:0;
-  background:transparent;
-  color:var(--text-muted);
-  font-size:12px;
-  padding:5px 14px;
-  min-height:48px;
-  border-radius:8px;
+  flex:1;
+  min-width:0;
+  min-height:52px;
   display:flex;
-  align-items:center;
   flex-direction:column;
-  gap:3px
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  position:relative;
+  padding:0;
+  border:0;
+  border-radius:14px;
+  background:transparent;
+  color:var(--muted);
+  font-size:11.5px;
+  cursor:pointer;
+  transition:color .18s
 }
-.mobile-navigation .el-icon {
-  font-size:20px
+.mobile-navigation .pill {
+  display:grid;
+  place-items:center;
+  width:46px;
+  height:28px;
+  border-radius:14px;
+  transition:background .18s
 }
-.mobile-navigation .active {
-  color:var(--accent-blue);
-  background:#eeedff
+.mobile-navigation .on {
+  color:var(--brand-deep);
+  font-weight:600
 }
-.mobile-more .nav-link {
-  min-height:44px
+.mobile-navigation .on .pill {
+  background:var(--brand-soft)
+}
+/* 底部格子上的红色数字：贴在图标右上角 */
+.mobile-navigation .nav-badge {
+  position:absolute;
+  top:2px;
+  left:calc(50% + 8px)
 }
 .el-card__body,.el-card__header {
   padding:14px

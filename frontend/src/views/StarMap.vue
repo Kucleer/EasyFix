@@ -172,8 +172,9 @@ onMounted(async () => {
 <style scoped>
 .starmap-page {
   position: relative;
-  margin: -24px -30px -36px;
-  height: calc(100vh - 66px);
+  /* 抵消 .app-main 的内边距，铺满整个内容区（已经没有顶部栏） */
+  margin: -28px -34px -36px;
+  height: 100vh;
   overflow: hidden;
   background: #030306;
   color: #e6e9f2;
@@ -256,6 +257,13 @@ onMounted(async () => {
   color: rgba(230, 233, 242, 0.7);
 }
 @media (max-width: 1000px) {
-  .starmap-page { margin: -20px; }
+  .starmap-page { margin: -24px -20px -30px; }
+}
+/* 手机：底部导航约 68px 高，星空只铺到它上面 */
+@media (max-width: 768px) {
+  .starmap-page {
+    margin: -18px -16px calc(-90px - env(safe-area-inset-bottom));
+    height: calc(100vh - 68px - env(safe-area-inset-bottom));
+  }
 }
 </style>
