@@ -332,7 +332,7 @@ def test_changes_library():
     assert scan_model.changes_library('POST', '/api/scan/pages/3/items/2/accept') is True
     assert scan_model.changes_library('POST', '/api/scan/pages/3/items/2/withdraw') is True
     for path in ['/api/scan/pages', '/api/scan/pages/3/advance', '/api/scan/pages/3/items/2/dismiss',
-                 '/api/scan/pages/3/items/2/restore', '/api/scan/pages/3/items/2/promote',
+                 '/api/scan/pages/3/items/2/promote',
                  '/api/scan/pages/3/items', '/api/scan/pages/3/close', '/api/scan/pages/3/accept-all',
                  '/api/scan/pages/3/items/2/accept/extra']:
         assert scan_model.changes_library('POST', path) is False
@@ -1295,8 +1295,8 @@ def test_withdraw_soft_deletes():
     assert connection.execute('SELECT deleted FROM question WHERE id=?', (second_id,)).fetchone()[0] == 0
 
 
-def test_edit_dismiss_restore_manual():
-    """保存修改、去掉、恢复、手工加一道；越界的序号 404。"""
+def test_edit_dismiss_manual():
+    """保存修改、去掉、手工加一道；越界的序号 404。"""
     connection = build_scan_database()
     db = SQLiteDB(connection)
     with items_patched():
@@ -1319,9 +1319,6 @@ def test_edit_dismiss_restore_manual():
         assert page['items'][0]['state'] == 'dismissed'
         expect_http(409, lambda: item_call(scan.accept_item, page_id, 0, db))
         expect_http(409, lambda: item_call(scan.dismiss_item, page_id, 0, db))
-        page = item_call(scan.restore_item, page_id, 0, db)
-        assert page['items'][0]['state'] == 'open'
-        expect_http(409, lambda: item_call(scan.restore_item, page_id, 0, db))
         page = run(scan.add_item(page_id, PageRequest(db)))
     added = page['items'][-1]
     assert len(page['items']) == 3 and added['seq'] == 2 and added['source'] == 'manual'
@@ -1342,7 +1339,7 @@ class FloatBindingDB(SQLiteDB):
 
 
 def test_item_operations_work_when_integers_bind_as_reals():
-    """D1 把整数参数绑成小数时，修改、去掉、恢复、补成错题、录入、撤回都照常工作。"""
+    """D1 把整数参数绑成小数时，修改、去掉、补成错题、录入、撤回都照常工作。"""
     connection = build_scan_database()
     db = FloatBindingDB(connection)
     before = live_questions(connection)
@@ -1353,7 +1350,6 @@ def test_item_operations_work_when_integers_bind_as_reals():
         page_id = ready_page(connection, SQLiteDB(connection), [draft_item(0), draft_item(1), right])
         item_call(scan.edit_item, page_id, 0, db, {'answer': '新答案'})
         item_call(scan.dismiss_item, page_id, 1, db)
-        item_call(scan.restore_item, page_id, 1, db)
         result = item_call(scan.promote_item, page_id, 2, db)
         assert result['fill_error'] is None and result['page']['items'][2]['answer'] == '2'
         page = item_call(scan.accept_item, page_id, 0, db)
@@ -1428,7 +1424,6 @@ def test_closed_page_rejects_item_operations():
             expect_http(409, lambda: item_call(scan.accept_item, page_id, 0, db))
             expect_http(409, lambda: item_call(scan.withdraw_item, page_id, 2, db))
             expect_http(409, lambda: item_call(scan.dismiss_item, page_id, 0, db))
-            expect_http(409, lambda: item_call(scan.restore_item, page_id, 0, db))
             expect_http(409, lambda: item_call(scan.promote_item, page_id, 1, db))
             expect_http(409, lambda: run(scan.add_item(page_id, PageRequest(db))))
         assert page_row(connection, page_id)['items'] == items_before
@@ -1734,7 +1729,7 @@ TESTS = [
     test_accept_rejected_by_save_keeps_item_open,
     test_accept_rejects_empty_question,
     test_withdraw_soft_deletes,
-    test_edit_dismiss_restore_manual,
+    test_edit_dismiss_manual,
     test_promote_fills_from_model_and_survives_model_failure,
     test_closed_page_rejects_item_operations,
     test_page_closed_during_accept_drops_question,

@@ -586,12 +586,6 @@ async def listing(request: Request, subject_id: int | None = Query(None, ge=1),
     return await decorate_directory(db, rows, include_legacy)
 
 
-@router.get('/api/knowledge-points/{item_id}')
-async def detail(item_id: int, request: Request):
-    """读取单个未删除的知识点节点。"""
-    return await directory_item(Database(request.scope['env'].DB), item_id)
-
-
 @router.post('/api/knowledge-points', status_code=201)
 async def create(request: Request):
     """创建一级或二级知识点，非法层级、跨学科与重名返回明确错误。"""

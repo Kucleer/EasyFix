@@ -71,12 +71,6 @@ async def save(request, payload):
     return await decorate(db, row)
 
 
-@router.post('', status_code=201)
-async def create(request: Request):
-    """手动创建阅读理解。"""
-    return await save(request, await request.json())
-
-
 @router.post('/generate', status_code=201)
 async def generate(request: Request):
     """按明确指定的学段和话题生成短文与四道题。"""
@@ -85,17 +79,6 @@ async def generate(request: Request):
         raise HTTPException(422, '请选择年级')
     result = await generate_json(request, '请生成适合' + str(payload['grade']) + '年级、话题为' + str(payload.get('topic', '校园生活')) + '、难度' + str(payload.get('difficulty', 3)) + '的英语阅读理解。返回JSON对象，包含title,content,questions。questions恰好4题，每题包含question_number,question_text,option_a,option_b,option_c,option_d,correct_answer(A-D),explanation。')
     return await save(request, {**result, 'grade': payload['grade'], 'topic': payload.get('topic', '校园生活'), 'difficulty': payload.get('difficulty', 3), 'source': 'generated'})
-
-
-@router.put('/{reading_id}')
-async def update(reading_id: int, request: Request):
-    """更新现有短文信息。"""
-    await detail(reading_id, request)
-    payload = await request.json()
-    data = {key: value for key, value in payload.items() if key in ('title', 'topic', 'grade', 'difficulty')}
-    if data:
-        await Database(request.scope['env'].DB).run('UPDATE reading_passage SET ' + ','.join(key + '=?' for key in data) + ' WHERE id=? AND deleted=0', [*data.values(), reading_id])
-    return await detail(reading_id, request)
 
 
 @router.delete('/{reading_id}', status_code=204)

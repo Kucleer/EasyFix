@@ -133,14 +133,6 @@ async def word_stats(db):
             'by_type': {entry_type: type_summary(rows, entry_type) for entry_type in ENTRY_TYPES}}
 
 
-@router.get('/errors')
-async def errors(request: Request, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=1000)):
-    """返回有复习记录且正确率低于60%的单词。"""
-    db = Database(request.scope['env'].DB)
-    rows = await db.all('SELECT w.* FROM word w JOIN word_review_log l ON l.word_id=w.id AND l.deleted=0 WHERE w.deleted=0 AND w.review_count>0 GROUP BY w.id HAVING AVG(l.is_correct)<0.6 ORDER BY w.review_count DESC')
-    return {'total': len(rows), 'items': await decorate_many(db,rows[skip:skip + limit])}
-
-
 @router.get('/{word_id}/memory-curve')
 async def curve(word_id: int, request: Request):
     """读取真实复习日志和记忆阶段。"""

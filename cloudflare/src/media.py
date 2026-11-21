@@ -97,13 +97,6 @@ async def audio(word_id:int,request:Request):
     raise HTTPException(502,'音频来源暂时不可用，请稍后重试')
 
 
-@router.post('/api/words/generate-audio')
-async def generate_audio(request:Request,grade:int|None=None):
-    """按用户节约调用的要求，音频改为播放时生成并缓存。"""
-    row=await Database(request.scope['env'].DB).first('SELECT COUNT(*) AS total FROM word WHERE deleted=0'+(' AND grade=?' if grade else ''),[grade] if grade else [])
-    return {'total':row['total'],'message':'音频采用按需缓存：首次播放时生成，之后复用，不批量请求未播放的单词。'}
-
-
 PRINT_WORD_COLUMNS='id,english,chinese,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,grade'
 
 

@@ -138,12 +138,6 @@ async def word_accuracy(request: Request,total_count:int,correct_count:int,reaso
     return {'unlocked':bool(result),'unlocked_achievements':[result] if result else [],'progress':{'level':target['level'],'current_count':count,'trigger_count':target['trigger_count']},'accuracy':accuracy,'total_count':total_count,'correct_count':correct_count}
 
 
-@router.post('/motivation/trigger/{action_code}')
-async def trigger_endpoint(action_code:str,request:Request,reason:str|None=None):
-    """触发配置的激励行为。"""
-    return await trigger(Database(request.scope['env'].DB),action_code,reason)
-
-
 @router.get('/motivation/overview')
 async def overview(request:Request):
     """读取真实余额、成就和当日积分。"""

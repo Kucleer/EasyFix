@@ -93,12 +93,6 @@ async def login_page():
     return HTMLResponse(LOGIN, headers={'Cache-Control': 'no-store'})
 
 
-@router.get('/api/auth/session')
-async def session():
-    """由统一中间件校验后向前端网关返回登录状态。"""
-    return {'authenticated': True}
-
-
 @router.post('/api/auth/verify-password')
 async def login(request: Request):
     """验证已配置密码，签发一天有效的 HttpOnly 会话。"""

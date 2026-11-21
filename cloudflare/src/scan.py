@@ -437,12 +437,6 @@ async def dismiss_item(page_id: int, seq: int, request: Request):
     return await change_state(request, page_id, seq, 'open', 'dismissed', '只有未处理的题才能去掉')
 
 
-@router.post('/api/scan/pages/{page_id}/items/{seq}/restore')
-async def restore_item(page_id: int, seq: int, request: Request):
-    """恢复一道：dismissed → open。"""
-    return await change_state(request, page_id, seq, 'dismissed', 'open', '这道题没有被去掉')
-
-
 @router.post('/api/scan/pages/{page_id}/items/{seq}/promote')
 async def promote_item(page_id: int, seq: int, request: Request):
     """补成错题：把模型认为做对的一道移到主列表，再调一次模型补全这一道。

@@ -5,7 +5,6 @@ import random
 from fastapi import APIRouter,HTTPException,Query,Request
 from database import Database
 from analytics import now
-from question_scope import COUNTED
 from knowledge import (ensure_guard_rows,guard_statement,link_statements,
                        question_links,resolve_many,structure_statement)
 from knowledge_model import map_error, projection_name
@@ -158,21 +157,6 @@ async def create_set(request,payload):
 async def create(request:Request):
     """创建选中错题的练习集。"""
     return await create_set(request,await request.json())
-
-
-@router.post('/generate-from-questions',status_code=201)
-async def generate_questions(request:Request):
-    """按未复习、需巩固、其他的优先级抽取题目。"""
-    payload=await request.json();db=Database(request.scope['env'].DB)
-    count=payload.get('count',5)
-    if type(count) is not int or not 1<=count<=90:raise HTTPException(422,'题数需在1至90之间')
-    rows=await db.all('SELECT id FROM question WHERE '+COUNTED+' AND subject_id=?'+(' AND grade=?' if payload.get('grade') else '')+' ORDER BY CASE WHEN COALESCE(review_count,0)=0 THEN 0 WHEN error_count>0 OR correct_count*1.0/NULLIF(review_count,0)<0.6 THEN 1 ELSE 2 END,RANDOM() LIMIT ?',[payload.get('subject_id'),*([payload['grade']] if payload.get('grade') else []),count])
-    if not rows:raise HTTPException(400,'没有符合条件的题目')
-    result=await create_set(request,{'question_ids':[row['id'] for row in rows]})
-    from pdf import generate_practice
-    try:result.update(await generate_practice(result['id'],request))
-    except HTTPException as error:result['pdf_error']=error.detail
-    return result
 
 
 @router.post('/generate-from-reading',status_code=201)

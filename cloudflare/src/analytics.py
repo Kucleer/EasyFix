@@ -113,13 +113,6 @@ async def date_stats(db, start, end, grade=None, use_last_review=False):
             'question_review_count': q['total'], 'question_accuracy': round(q['correct'] / q['total'] * 100, 1) if q['total'] else 0}
 
 
-@router.get('/today')
-async def today(request: Request):
-    """返回今日学习统计。"""
-    start = now().replace(hour=0, minute=0, second=0, microsecond=0)
-    return {'today_' + key: value for key, value in (await date_stats(Database(request.scope['env'].DB), start, start + timedelta(days=1), use_last_review=True)).items()}
-
-
 @router.get('/overview')
 async def overview(request: Request, grade: int | None = Query(None, ge=1, le=12)):
     """返回今日和昨日的学习概览。"""

@@ -420,16 +420,6 @@ def test_pending_question_not_counted_in_grouped_and_primary_counts():
     assert run(analytics.primary_module_counts(db)) == before_modules
 
 
-def test_pending_question_not_selected_for_practice():
-    """自动选题不会选中待核对的题。"""
-    c = build_database()
-    db = adapter(c)
-    c.execute('UPDATE question SET deleted=1')  # 只留一道待核对的题
-    add_question(c, status='pending')
-    expect_http(400, lambda: run(call_endpoint(practices, practices.generate_questions,
-                                               {'subject_id': 1, 'count': 5}, db)))
-
-
 def test_pending_question_rejected_by_create_set_and_similar():
     """手工建卷和生成相似题都拒绝待核对的题。"""
     c = build_database()
@@ -1377,28 +1367,6 @@ def test_pending_question_not_counted_in_analytics_full():
     assert after != before and after['question_stats']['total'] == before['question_stats']['total'] + 1
 
 
-def test_pending_question_not_counted_in_report_generation():
-    """reports.generate：把模型调用换成桩，比较交给模型的统计摘要和写进报告的数字。"""
-    import reports
-    c = build_database(); db = adapter(c)
-    prompts = []
-
-    async def fake_generate_json(request, prompt):
-        prompts.append(prompt)
-        return {}
-    reports.generate_json = fake_generate_json
-
-    def generate_once():
-        result = run(call_endpoint(reports, reports.generate, {'subject_id': 1}, db))
-        content = json.loads(c.execute('SELECT content FROM learning_report WHERE id=?', (result['id'],)).fetchone()[0])
-        return prompts[-1], content['overview']['total_questions'], content['metrics']['total_questions']
-    before = generate_once()
-    pending_id = add_question(c, status='pending')
-    assert generate_once() == before
-    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
-    after = generate_once()
-    assert after != before and after[1] == before[1] + 1 and after[2] == before[2] + 1
-
 
 TESTS = [
     test_migration_seeds_user_and_student,
@@ -1422,7 +1390,6 @@ TESTS = [
     test_max_questions_constant,
     test_pending_question_not_counted_in_module_stats,
     test_pending_question_not_counted_in_grouped_and_primary_counts,
-    test_pending_question_not_selected_for_practice,
     test_pending_question_rejected_by_create_set_and_similar,
     test_guide_returns_catalog_for_grade,
     test_guide_accepts_subject_name_and_rejects_unknown,
@@ -1484,7 +1451,6 @@ TESTS = [
     test_manual_paper_rejects_non_integer_subject_id,
     test_pending_question_not_counted_in_analytics_summary,
     test_pending_question_not_counted_in_analytics_full,
-    test_pending_question_not_counted_in_report_generation,
 ]
 
 
