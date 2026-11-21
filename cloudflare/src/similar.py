@@ -1,4 +1,4 @@
-"""按用户请求生成相似题，批量生成时优先复用已有结果。"""
+"""按用户请求生成单道相似题；出卷时复用已有相似题的规则见 reusable_similar。"""
 
 import html
 from fastapi import APIRouter,HTTPException,Request
@@ -62,19 +62,3 @@ async def generate(question_id:int,request:Request):
     try:await trigger(db,'generate_similar','生成相似题')
     except HTTPException:pass
     return row
-
-
-@router.post('/batch-similar')
-async def batch(request:Request):
-    """批量复用已有相似题，缺少时再调用模型。"""
-    payload=await request.json();ids=payload.get('question_ids',[])
-    if not isinstance(ids,list) or len(ids)>20:raise HTTPException(422,'每批最多20道题')
-    db=Database(request.scope['env'].DB);results=[]
-    for question_id in ids:
-        try:
-            row=await db.first('SELECT id FROM similar_question WHERE source_question_id=? AND deleted=0 ORDER BY id DESC LIMIT 1',(question_id,))
-            if not row:row=await generate(question_id,request)
-            results.append({'question_id':question_id,'similar_question_id':row['id'],'error':None})
-        except HTTPException as error:results.append({'question_id':question_id,'similar_question_id':None,'error':error.detail})
-    success=sum(row['error'] is None for row in results)
-    return {'success_count':success,'failed_count':len(results)-success,'results':results}

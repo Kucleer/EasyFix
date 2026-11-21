@@ -430,6 +430,16 @@ def test_pending_question_rejected_by_create_set_and_similar():
     expect_http(409, lambda: run(similar.generate(pending_id, fake_request({}, db, similar))))
 
 
+def test_create_set_rejects_similar_question_type():
+    """手工建练习集不再同步生成相似题：question_type 为 similar 时直接拒绝，原题照常能建。"""
+    c = build_database()
+    db = adapter(c)
+    question_id = add_question(c)
+    expect_http(422, lambda: run(call_endpoint(practices, practices.create,
+                                               {'question_ids': [question_id], 'question_type': 'similar'}, db)))
+    assert c.execute('SELECT COUNT(*) FROM practice_set').fetchone()[0] == 0
+
+
 # ---------------------------------------------------------------- 任务 4：录入资料接口
 
 
@@ -1391,6 +1401,7 @@ TESTS = [
     test_pending_question_not_counted_in_module_stats,
     test_pending_question_not_counted_in_grouped_and_primary_counts,
     test_pending_question_rejected_by_create_set_and_similar,
+    test_create_set_rejects_similar_question_type,
     test_guide_returns_catalog_for_grade,
     test_guide_accepts_subject_name_and_rejects_unknown,
     test_guide_marks_missing_catalog,

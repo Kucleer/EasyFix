@@ -40,6 +40,7 @@ REMOVED = [
     ('main.py', "@app.get('/uploads/{key:path}')"),
     ('catalog.py', "'error-types'"),
     ('cache.py', "'/api/stats/today'"),
+    ('similar.py', "'/batch-similar'"),
 ]
 
 # 必须还在：(文件, 源码里必须出现的片段)
@@ -56,6 +57,7 @@ KEPT = [
     ('scan.py', "/items/{seq}/dismiss'"),
     ('questions.py', "'/api/questions/filter-options/{subject_id}'"),
     ('main.py', "@app.get('/health')"),
+    ('similar.py', "@router.post('/{question_id}/similar')"),
     ('intake.py', "/guide'"),
     ('intake.py', "/papers/check'"),
 ]

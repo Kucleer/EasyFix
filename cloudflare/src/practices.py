@@ -139,17 +139,12 @@ async def create_set(request,payload):
     if len(rows)!=len(ids):raise HTTPException(400,'部分题目不存在或已删除')
     if len({row['subject_id'] for row in rows})!=1:raise HTTPException(400,'请选择同一学科的题目')
     if any(row['review_status']!='approved' for row in rows):raise HTTPException(400,'所选题目里有待核对的题，请先处理')
-    similar_ids={}
-    if payload.get('question_type')=='similar':
-        from similar import generate
-        for row in rows:
-            existing=await db.first('SELECT id FROM similar_question WHERE source_question_id=? AND deleted=0 ORDER BY id DESC LIMIT 1',(row['id'],))
-            if not existing:existing=await generate(row['id'],request)
-            similar_ids[row['id']]=existing['id']
+    # 手工练习集只放原题；相似题只在出练习卷（考点卷）时准备，这里不再同步生成
+    if payload.get('question_type','original')!='original':raise HTTPException(422,'手工练习集只能用原题，相似题请用出练习卷')
     stamp=now().isoformat(' ')
     name=payload.get('name') or '练习集_'+now().strftime('%Y%m%d%H%M%S')
     row=await db.first('INSERT INTO practice_set(name,subject_id,source_type,question_type,total_questions,reviewed,review_count,deleted,created_at) VALUES(?,?,\'question\',?,?,0,0,0,?) RETURNING *',(name,rows[0]['subject_id'],payload.get('question_type','original'),len(ids),stamp))
-    await batch_or_http(db, [('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) VALUES(?,?,?,?)',(row['id'],question_id,similar_ids.get(question_id),index)) for index,question_id in enumerate(ids)])
+    await batch_or_http(db, [('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) VALUES(?,?,?,?)',(row['id'],question_id,None,index)) for index,question_id in enumerate(ids)])
     return await get(db,row['id'])
 
 
