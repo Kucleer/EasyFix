@@ -48,7 +48,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `practices.py` / `pdf.py` | 练习集、批改、PDF 生成与复用 |
 | `targeted.py` / `targeted_model.py` | 考点卷：状态、选题预览、创建、相似题准备与换题；选题与毕业规则的纯函数 |
 | `grading_scan.py` / `grading_model.py` | 批改识别预批：逐页读卷面照片、调一次模型按题号比对；比对提示词与输出清洗的纯函数（不写库） |
-| `analytics.py` / `reports.py` | 统计分析、学习报告（旧） |
+| `home.py` / `home_model.py` | 首页接口 `/api/home`：待办、这一周（直接用周报的计算函数）、星空三个数 |
+| `analytics.py` / `reports.py` | `analytics.py` 现在只剩单词学情 `/api/stats/words` 和 `now()`；`reports.py` 学习报告（旧） |
 | `weekly.py` / `weekly_model.py` | 每周周报：定时入口与分步推进（算数字 → 写文字）、`/api/weekly-reports`；一周窗口、考点变化、毕业、文字检查与兜底文字的纯函数 |
 | `motivation.py` | 星星、奖励、成就 |
 | `media.py` / `audio_index.py` | 单词音频、打印（图片上传由 Pages 网关处理） |
@@ -63,6 +64,9 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `main.js` / `App.vue` | 应用入口；桌面分组侧栏与手机底部导航 |
 | `api/` | Axios 封装（`http.js` 带 GET 去重与短时缓存）；同一个接口只留一个函数，页面不直接写地址（`apiLayer.test.mjs` 钉住） |
 | `views/` | 页面组件 |
+| `components/home/`、`components/questions/`、`components/insight/`、`components/settings/` | 首页、错题（待核对 / 全部 / 卷子三个标签）、学情（考点 / 单词）、设置（七个标签）各页的组件与纯函数 |
+| `data/dailyLines.js` | 首页每日一句 |
+| `config/features.js` | 功能开关（`FLIP_READY`：翻翻卡就绪前为关） |
 | `components/ui/` | 共用组件：线条图标 `LineIcon`、统计数字卡 `StatCard`、图表卡 `ChartCard`、页内标签栏 `TabBar` |
 | `composables/` | 默写判分（`dictation.js`）、知识点配色、图表主题（`chartTheme.js`）、页内标签与地址同步（`useTabQuery.js`） |
 | `stores/` | `appConfig.js` 默认年级/学期；`catalog.js` 学科、标签、知识点树集中存放（目录写入后调用 `invalidate`）；`reviewCount.js` 待核对数量 |
@@ -71,9 +75,11 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | 路径 | 页面 |
 |------|------|
 | `/` | 首页 |
-| `/questions` | 错题列表 |
-| `/upload` | 录入错题 |
-| `/stats`、`/learning-analysis` | 统计与学习分析 |
+| `/questions?tab=review|all|papers` | 错题：待核对、全部错题、卷子 |
+| `/papers/:id` | 卷子详情 |
+| `/upload` | 手工添加错题 |
+| `/insight?tab=points|words` | 学情：考点、单词 |
+| `/settings` | 设置 |
 | `/practice-sets` | 练习中心：所有练习一个列表（错题练习卷、单词、阅读），待批改的卷子也在这里筛选和批改 |
 | `/targeted-paper` | 考点卷：出卷页（选科目、题量、分法，预览后生成） |
 | `/grade/:id` | 错题练习卷批改（电脑、手机共用）：拍照 → 识别预批 → 复核；`/grade` 跳到练习中心并只看待批改的卷子 |
@@ -81,8 +87,9 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `/reading`、`/reading-test/:id` | 阅读理解 |
 | `/learning-reports` | 周报（每周日 20:00 自动生成，打开页面时补做） |
 | `/learning-reports/legacy` | 旧报告（只看和删，不再生成） |
-| `/motivation` | 激励 |
-| `/management`、`/settings` | 管理中心、配置 |
+| `/motivation` | 激励（不在菜单） |
+
+旧地址 `/review`、`/papers`、`/stats`、`/learning-analysis`、`/star-map`、`/management` 在路由里重定向到新地址。
 
 ## 常用命令
 
@@ -93,8 +100,10 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 python cloudflare/scripts/phrase_focus_test.py
 python cloudflare/scripts/knowledge_invariants_test.py
 python cloudflare/scripts/weekly_report_test.py
+python cloudflare/scripts/home_test.py
 node --test frontend/src/composables/dictation.test.mjs frontend/src/composables/weeklyReport.test.mjs frontend/src/composables/chartTheme.test.mjs
 node --test frontend/src/stores/catalogModel.test.mjs frontend/src/api/apiLayer.test.mjs frontend/src/components/ui/ui.test.mjs
+node --test frontend/src/data/dailyLines.test.mjs frontend/src/components/home/homeText.test.mjs frontend/src/components/questions/questionFilters.test.mjs frontend/src/components/insight/insightModel.test.mjs frontend/src/components/settings/settingsModel.test.mjs
 
 # 后端：语法检查后部署 Worker
 python -m compileall -q cloudflare/src

@@ -37,10 +37,6 @@
 - [x] `GET /api/stars/actions`
 - [x] `GET /api/stars/balance`
 - [x] `GET /api/stars/records`
-- [x] `GET /api/stats/analysis/full`
-- [x] `GET /api/stats/knowledge-points`
-- [x] `GET /api/stats/overview`
-- [x] `GET /api/stats/summary`
 - [x] `GET /api/subjects`
 - [x] `GET /api/tags`
 - [x] `GET /api/words`
@@ -61,14 +57,12 @@
 - [x] `POST /api/practice-sets/{practice_set_id}/generate-pdf`
 - [x] `POST /api/practice-sets/{practice_set_id}/mark-reviewed`
 - [x] `POST /api/questions`
-- [x] `POST /api/questions/batch-similar`
 - [x] `POST /api/questions/{question_id}/similar`
 - [x] `POST /api/readings/generate`
 - [x] `POST /api/rewards`
 - [x] `POST /api/rewards/{reward_id}/redeem`
 - [x] `POST /api/stars/actions`
 - [x] `POST /api/stars/adjust`
-- [x] `POST /api/stats/analysis/llm`
 - [x] `POST /api/subjects`
 - [x] `POST /api/tags`
 - [x] `POST /api/upload/batch-simple` （由 Pages 网关直接写入 R2，不转给后端）
@@ -98,8 +92,6 @@
 - [x] `GET /api/questions/filter-options/{subject_id}`：增加 `knowledge_point_options`、`knowledge_modules`，旧 `knowledge_points` 保留供过渡。
 - [x] `GET /api/practice-sets/{id}`：条目增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`；阅读条目改用 `topic`。
 - [x] `POST /api/practice-sets/{id}/mark-reviewed`：支持 `question_knowledge` 并在同一批次写入分类；响应返回更新后的题目知识点。
-- [x] `GET /api/stats/knowledge-points`：新增 `level`（默认 1）、`parent_id`、`grade`、`days`；返回 `taxonomy_version`、`counting_mode`、`unclassified_count` 与模块指标。
-- [x] `GET /api/stats/summary`、`/api/stats/analysis/full`：知识点部分统一按一级模块；`knowledge_graph` 返回一级/二级节点与父子边。
 - [x] `POST /api/words/{word_id}/audio` 与所有写请求：维护开关开启时 Bearer 写入同样返回 503；音频缓存未命中不写 R2。
 
 ## 考点卷（项目 3，2026-11-12）
@@ -124,3 +116,10 @@
 - [x] `GET /api/weekly-reports`：各期简表（只列已算出数字的期，新的在前），每项 `id`、`number`、`monday`、`sunday`、`status`；`due` 为真表示最近一期还没做完，页面据此补做。
 - [x] `GET /api/weekly-reports/{id}`：一期的完整内容（`facts` 数字、`text` 文字）；不存在 404。
 - [x] `POST /api/weekly-reports/advance`：把最近一期推进一步（算数字 → 写文字），返回 `{id, status, busy}`；`busy` 为真表示这一步正被别人做着。这是写请求，维护开关开启时返回 503；它不清统计缓存（`auth.py` 已豁免）。定时任务（`*/10 12 * * sun`，UTC，即北京时间周日 20:00–20:50）走同一套推进逻辑，不经过这个接口。
+
+## 界面整合（项目 5 第 3 步，2026-11-21）
+
+- [x] `GET /api/home`：首页一次取齐，字段 `review`（待核对数和最新待核对卷子）、`grading`（待批改）、`targeted`（最近一份考点卷时间）、`words`（到期单词数）、`streak_days`（连续天数）、`week`（这一周：直接用周报的计算函数，含录题、卷子、默写天数、进步与退步考点）、`sky`（星空三个数）。
+- [x] `GET /api/stats/words`：单词学情（原 `analytics.py` 里单词部分，学情页的"单词"标签使用）。
+- [x] `GET /api/practice-sets/targeted/status`（改动）：`pending_count` 不再限 30 天，和练习中心列表里的待批改一致。
+- [x] 已删除：`POST /api/questions/batch-similar`；`GET /api/stats/summary`、`/api/stats/overview`、`/api/stats/knowledge-points`、`/api/stats/analysis/full`；`POST /api/stats/analysis/llm`。
