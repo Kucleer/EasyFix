@@ -804,7 +804,7 @@ def test_prepare_and_reroll_reject_closed_paper(calls):
 
 
 def test_status_endpoint():
-    """有 PDF、没批改的考点卷：to_grade，算进 pending_count；40 天前没批改的旧卷不算。"""
+    """有 PDF、没批改的考点卷：to_grade，算进 pending_count；待批改数不限日期，40 天前没批改的旧卷也算。"""
     import targeted
     c, db = paper_fixture()
     add_set(c, 80, days_ago(40), None, [(1, None, 'original')])
@@ -814,7 +814,7 @@ def test_status_endpoint():
     c.execute('UPDATE practice_set SET accuracy=83.3 WHERE id=82')
     c.commit()
     body = starmap_test.run(targeted.status(request_for(db)))
-    assert body['pending_count'] == 1
+    assert body['pending_count'] == 2
     subjects = {row['subject_id']: row for row in body['subjects']}
     assert subjects[1]['subject_name'] == '数学'
     assert subjects[1]['last_paper']['id'] == 81 and subjects[1]['last_paper']['state'] == 'to_grade'

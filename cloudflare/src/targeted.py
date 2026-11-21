@@ -96,13 +96,22 @@ def int_in_range(payload, key, default, low, high, label):
 # ---------------------------------------------------------------- 状态
 
 
+async def pending_grading(db):
+    """待批改的错题练习卷（不限日期，两条 SQL）：{count, oldest: {id, name, created_at} | None}。"""
+    where = "deleted=0 AND source_type='question' AND COALESCE(reviewed,0)=0"
+    count = await db.first('SELECT COUNT(*) AS total FROM practice_set WHERE ' + where)
+    oldest = await db.first('SELECT id, name, created_at FROM practice_set WHERE ' + where +
+                            ' ORDER BY created_at ASC, id ASC LIMIT 1')
+    return {'count': count['total'],
+            'oldest': {'id': oldest['id'], 'name': oldest['name'], 'created_at': oldest['created_at']}
+            if oldest else None}
+
+
 @router.get('/status')
 async def status(request: Request):
-    """待批改卷子数（最近 30 天、错题练习集），以及每科最近一份考点卷的出卷日期和状态。"""
+    """待批改卷子数（错题练习集，不限日期），以及每科最近一份考点卷的出卷日期和状态。"""
     db = Database(request.scope['env'].DB)
-    count = await db.first(
-        "SELECT COUNT(*) AS total FROM practice_set WHERE deleted=0 AND source_type='question' "
-        'AND COALESCE(reviewed,0)=0 AND created_at>=?', (open_cutoff(),))
+    pending = await pending_grading(db)
     # 每科取最新的一份考点卷（子查询按出卷时间、编号倒序取第一份）
     rows = await db.all(
         'SELECT s.id AS subject_id, s.name AS subject_name, p.id, p.name, p.created_at, p.pdf_path, '
@@ -111,7 +120,7 @@ async def status(request: Request):
         'ORDER BY x.created_at DESC, x.id DESC LIMIT 1) WHERE s.deleted=0 ORDER BY s.id')
     subjects = [{'subject_id': row['subject_id'], 'subject_name': row['subject_name'],
                  'last_paper': paper_summary(row) if row['id'] is not None else None} for row in rows]
-    return {'pending_count': count['total'], 'subjects': subjects}
+    return {'pending_count': pending['count'], 'subjects': subjects}
 
 
 # ---------------------------------------------------------------- 选题预览

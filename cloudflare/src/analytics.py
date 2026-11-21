@@ -137,6 +137,15 @@ async def knowledge(request: Request, subject_id: int | None = Query(None, ge=1)
                               days=days, level=level, parent_id=parent_id, practice_days=days)
 
 
+@router.get('/words')
+async def words(request: Request):
+    """单词学情：正确率偏低的词（最多 20 个）和每天的复习次数（不分学科）。"""
+    db = Database(request.scope['env'].DB)
+    low = await db.all('SELECT english AS word,ROUND(correct_count*100.0/review_count,1) AS accuracy FROM word WHERE deleted=0 AND review_count>0 AND correct_count*1.0/review_count<0.7 ORDER BY id LIMIT 20')
+    frequency = await db.all('SELECT date(reviewed_at) AS date,COUNT(*) AS count FROM word_review_log WHERE deleted=0 GROUP BY date(reviewed_at) ORDER BY date')
+    return {'low_accuracy_words': low, 'frequency': frequency}
+
+
 @router.get('/analysis/full')
 async def full(request: Request, subject_id: int | None = Query(None, ge=1)):
     """用数据库聚合生成完整分析，避免 ORM 初始化开销。"""
