@@ -209,7 +209,7 @@
         </div>
 
         <p v-if="result.newly_mastered > 0" class="result-line">
-          <RouterLink to="/star-map" class="star-link"><el-icon><Star /></el-icon>点亮了 {{ result.newly_mastered }} 颗星</RouterLink>
+          <RouterLink to="/insight" class="star-link"><el-icon><Star /></el-icon>点亮了 {{ result.newly_mastered }} 颗星</RouterLink>
         </p>
         <p v-if="result.graduated && result.graduated.length" class="result-line">第 {{ result.graduated.join('、') }} 题毕业了</p>
         <p v-if="resultWrongNumbers.length" class="result-line">做错的题：第 {{ resultWrongNumbers.join('、') }} 题，请在纸上圈出来让孩子订正</p>

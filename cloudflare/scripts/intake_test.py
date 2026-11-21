@@ -21,12 +21,10 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from fastapi import HTTPException  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
-import analytics  # noqa: E402
 import intake  # noqa: E402
 import settings  # noqa: E402
 import practices  # noqa: E402
 import similar  # noqa: E402
-from knowledge_stats import module_stats  # noqa: E402
 from intake_model import (IntakeError, MAX_QUESTIONS, decide_review, default_paper_name,  # noqa: E402
                           find_broken_backslash, normalize_paper, normalize_question)
 
@@ -395,29 +393,7 @@ async def call_endpoint(module, endpoint, payload, db):
     return await endpoint(fake_request(payload, db, module))
 
 
-# ---------------------------------------------------------------- 任务 3：统计口径
-
-
-def test_pending_question_not_counted_in_module_stats():
-    """待核对的题不进考点统计；通过后才计入。"""
-    c = build_database()
-    db = adapter(c)
-    before = run(module_stats(db, subject_id=1, level=1))['total_questions']
-    pending_id = add_question(c, status='pending')
-    assert run(module_stats(db, subject_id=1, level=1))['total_questions'] == before
-    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
-    assert run(module_stats(db, subject_id=1, level=1))['total_questions'] == before + 1
-
-
-def test_pending_question_not_counted_in_grouped_and_primary_counts():
-    """待核对的题不进分组统计和一级模块题数。"""
-    c = build_database()
-    db = adapter(c)
-    before = run(analytics.grouped(db, 'grade'))
-    before_modules = run(analytics.primary_module_counts(db))
-    add_question(c, status='pending')
-    assert run(analytics.grouped(db, 'grade')) == before
-    assert run(analytics.primary_module_counts(db)) == before_modules
+# ---------------------------------------------------------------- 任务 3：待核对的题不能出卷
 
 
 def test_pending_question_rejected_by_create_set_and_similar():
@@ -1350,34 +1326,6 @@ def test_manual_paper_rejects_non_integer_subject_id():
             raise AssertionError('应当 400：%r' % (bad,))
 
 
-# ---------------------------------------------------------------- 统计口径：待核对的题不计入
-
-
-def test_pending_question_not_counted_in_analytics_summary():
-    """analytics.summary：加入待核对的题前后完全相同，改成 approved 后变化。"""
-    c = build_database(); db = adapter(c)
-    request = fake_request({}, db, analytics)
-    before = run(analytics.summary(request, grade=None))
-    pending_id = add_question(c, status='pending')
-    assert run(analytics.summary(request, grade=None)) == before
-    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
-    after = run(analytics.summary(request, grade=None))
-    assert after != before and after['total_questions'] == before['total_questions'] + 1
-
-
-def test_pending_question_not_counted_in_analytics_full():
-    """analytics.full：同上。"""
-    c = build_database(); db = adapter(c)
-    request = fake_request({}, db, analytics)
-    before = run(analytics.full(request, subject_id=None))
-    pending_id = add_question(c, status='pending')
-    assert run(analytics.full(request, subject_id=None)) == before
-    c.execute("UPDATE question SET review_status='approved' WHERE id=?", (pending_id,))
-    after = run(analytics.full(request, subject_id=None))
-    assert after != before and after['question_stats']['total'] == before['question_stats']['total'] + 1
-
-
-
 TESTS = [
     test_migration_seeds_user_and_student,
     test_migration_keeps_question_rows_and_approves_them,
@@ -1398,8 +1346,6 @@ TESTS = [
     test_question_review_fields_rules,
     test_decide_review,
     test_max_questions_constant,
-    test_pending_question_not_counted_in_module_stats,
-    test_pending_question_not_counted_in_grouped_and_primary_counts,
     test_pending_question_rejected_by_create_set_and_similar,
     test_create_set_rejects_similar_question_type,
     test_guide_returns_catalog_for_grade,
@@ -1460,8 +1406,6 @@ TESTS = [
     test_image_key_and_date_patterns_are_strict,
     test_review_with_invalid_json_body_is_422,
     test_manual_paper_rejects_non_integer_subject_id,
-    test_pending_question_not_counted_in_analytics_summary,
-    test_pending_question_not_counted_in_analytics_full,
 ]
 
 

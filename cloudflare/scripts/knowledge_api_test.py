@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from analytics import router as analytics_router  # noqa: E402
 from knowledge import router as knowledge_router  # noqa: E402
 import starmap_test  # noqa: E402  复用建库助手
 from practices import router as practices_router  # noqa: E402
@@ -106,7 +105,6 @@ def build_client():
 
     app.include_router(knowledge_router)
     app.include_router(questions_router)
-    app.include_router(analytics_router)
     app.include_router(reports_router)
     app.include_router(practices_router)
     return TestClient(app), connection
@@ -216,29 +214,6 @@ def test_question_http_flow():
     expect_status(client.delete('/api/knowledge-points/32'), 204)
 
 
-def test_stats_http():
-    client, _ = build_client()
-    empty = expect_status(client.get('/api/stats/knowledge-points', params={'subject_id': 1}), 200).json()
-    assert empty['level'] == 1
-    assert empty['counting_mode'].startswith('level1_primary_share')
-    assert any(item['name'] == '有理数' and item['question_count'] == 0 for item in empty['items'])
-    expect_status(client.post('/api/questions', json={
-        'subject_id': 2, 'parsed_question': 'A cat.', 'difficulty': 2,
-        'knowledge_point_ids': [31], 'primary_knowledge_point_id': 31,
-    }), 201)
-    stats = expect_status(client.get('/api/stats/knowledge-points', params={'subject_id': 2}), 200).json()
-    module = next(item for item in stats['items'] if item['name'] == '名词与数量表达')
-    assert module['question_count'] == 1 and module['primary_question_count'] == 1
-    assert module['accuracy'] is None
-    level2 = expect_status(client.get('/api/stats/knowledge-points', params={
-        'subject_id': 2, 'level': 2, 'parent_id': 30,
-    }), 200).json()
-    assert any(item['name'] == '可数名词' and item['question_count'] == 1 for item in level2['items'])
-    expect_status(client.get('/api/stats/knowledge-points', params={
-        'subject_id': 2, 'level': 2,
-    }), 422)
-
-
 def test_practice_review_version_conflict():
     client, connection = build_client()
     connection.execute(
@@ -278,7 +253,6 @@ def main():
     check('树接口与路由顺序', test_tree_route_order)
     check('目录 HTTP CRUD', test_directory_crud_http)
     check('题目 HTTP 写入/筛选/旧文本', test_question_http_flow)
-    check('统计 HTTP 口径', test_stats_http)
     check('批改版本冲突 409 且整批回滚', test_practice_review_version_conflict)
     failed = [item for item in RESULTS if not item[1]]
     print('\n合计 {} 项，通过 {} 项，失败 {} 项'.format(

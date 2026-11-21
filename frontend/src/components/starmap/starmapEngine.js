@@ -8,7 +8,7 @@ import { select } from 'd3-selection'
 import { colorOf, lighten, between } from './starmapColors.js'
 
 const MASTER_GREEN = '88,214,141'
-const BACKGROUND = '#030306'
+const BACKGROUND = '#14162b'   // 夜色，和样式变量 --night 一致
 
 // 把接口数据整理成绘制用的节点和连线（复制一份，避免改到外面的数据）
 function prepare(data) {
@@ -265,8 +265,17 @@ export function createStarEngine(canvas, data, options = {}) {
   let zoomBehavior = null
   const handlers = []
   if (!mini) {
-    zoomBehavior = d3zoom().scaleExtent([0.4, 4]).on('zoom', event => { transform = event.transform })
+    // 星空嵌在可以上下滚动的学情页里：滚轮要按住 Ctrl（触控板双指捏合也算）才缩放，
+    // 手机上单指留给页面滚动，两指才缩放和拖动，免得滑到星空上页面就滚不动
+    zoomBehavior = d3zoom().scaleExtent([0.4, 4])
+      .filter(event => {
+        if (event.type === 'wheel') return event.ctrlKey || event.metaKey
+        if (event.type.startsWith('touch')) return event.touches.length > 1
+        return !event.ctrlKey && !event.button
+      })
+      .on('zoom', event => { transform = event.transform })
     select(canvas).call(zoomBehavior)
+    canvas.style.touchAction = 'pan-x pan-y'
     const move = event => {
       const node = findAt(event.offsetX, event.offsetY)
       if (node !== hover) setHover(node)
@@ -280,6 +289,22 @@ export function createStarEngine(canvas, data, options = {}) {
     canvas.addEventListener('click', click)
     handlers.push(['mousemove', move], ['mouseleave', leave], ['click', click])
   }
+
+  // 画布比星图小（比如手机上）时，先缩小到能看全整张图；之后还可以手动放大
+  function fitView() {
+    if (!nodes.length || !width || !height) return
+    const pad = 36
+    const xs = nodes.map(n => n.x)
+    const ys = nodes.map(n => n.y)
+    const left = Math.min(...xs) - pad, right = Math.max(...xs) + pad
+    const top = Math.min(...ys) - pad, bottom = Math.max(...ys) + pad
+    const k = Math.max(0.4, Math.min(1, width / (right - left), height / (bottom - top)))
+    if (k >= 1) return
+    const fitted = zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-(left + right) / 2, -(top + bottom) / 2)
+    if (zoomBehavior) select(canvas).call(zoomBehavior.transform, fitted)
+    else transform = fitted
+  }
+  fitView()
 
   function screenOf(id) {
     const node = nodes.find(n => n.id === id)

@@ -3,7 +3,7 @@
 </template>
 
 <script setup>
-// 知识星空的绘制组件：首页缩略图和星空页共用
+// 知识星空的绘制组件：学情页的星空用它（mini 是缩略图模式）
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { createStarEngine } from './starmapEngine.js'
 

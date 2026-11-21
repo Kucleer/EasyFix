@@ -26,7 +26,7 @@ from knowledge import (  # noqa: E402
     structure_statement,
 )
 from knowledge_model import map_error, normalize_name_key  # noqa: E402
-from knowledge_stats import module_stats, validate_filter_ids  # noqa: E402
+from knowledge_stats import validate_filter_ids  # noqa: E402
 from knowledge_backfill import assertion_sql  # noqa: E402
 from questions import save  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
@@ -387,101 +387,6 @@ def test_legacy_compatibility():
     async_test(scenario())
 
 
-def seed_stats_data(connection):
-    seed_tree(connection)
-    for question_id in (301, 302, 303, 304):
-        insert_question(connection, question_id)
-    insert_question(connection, 305)
-    link(connection, 301, [11, 12], 11)
-    link(connection, 302, [11, 21], 11)
-    link(connection, 304, [21], 21)
-
-
-def test_module_stats():
-    async def scenario():
-        connection = build_database()
-        seed_stats_data(connection)
-        db = SQLiteDB(connection)
-        stats = await module_stats(db, subject_id=1, level=1)
-        assert stats['total_questions'] == 5, stats
-        assert stats['unclassified_count'] == 2, stats
-        by_name = {item['name']: item for item in stats['items']}
-        assert by_name['有理数']['question_count'] == 2
-        assert by_name['有理数']['primary_question_count'] == 2
-        assert by_name['有理数']['share_percent'] == 40.0
-        assert by_name['线段与角']['question_count'] == 2
-        assert by_name['线段与角']['primary_question_count'] == 1
-        assert by_name['线段与角']['share_percent'] == 20.0
-        assert by_name['线段与角']['accuracy'] is None
-        level2 = await module_stats(db, subject_id=1, level=2, parent_id=10)
-        points = {item['name']: item for item in level2['items']}
-        assert points['乘方']['question_count'] == 2
-        assert points['混合运算']['question_count'] == 1
-        assert points['混合运算']['primary_question_count'] == 0
-        assert points['乘方']['parent_share_percent'] == 100.0
-        assert points['混合运算']['parent_share_percent'] == 0.0
-    async_test(scenario())
-
-
-def test_practice_accuracy():
-    async def scenario():
-        connection = build_database()
-        seed_stats_data(connection)
-        db = SQLiteDB(connection)
-        connection.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,reviewed,deleted,created_at,last_reviewed_at) VALUES(1,'P1',1,'question','original',1,0,'2026-01-01','2026-01-02')")
-        connection.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,reviewed,deleted,created_at,last_reviewed_at) VALUES(2,'P2',1,'question','original',1,0,'2026-01-01','2026-01-02')")
-        connection.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,reviewed,deleted,created_at,last_reviewed_at) VALUES(3,'P3',1,'question','original',0,0,'2026-01-01',NULL)")
-        connection.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,reviewed,deleted,created_at,last_reviewed_at) VALUES(4,'W1',2,'word','original',1,0,'2026-01-01','2026-01-02')")
-        rows = [
-            (1, 1, 301, 1), (2, 1, 301, 1), (3, 1, 302, 0),
-            (4, 2, 304, 1), (5, 3, 304, 0), (6, 4, 301, 1),
-        ]
-        for row in rows:
-            connection.execute('INSERT INTO practice_set_question(id,practice_set_id,question_id,is_correct,display_order,deleted) VALUES(?,?,?,?,0,0)', row)
-        connection.commit()
-        stats = await module_stats(db, subject_id=1, level=1)
-        by_name = {item['name']: item for item in stats['items']}
-        # Q1 关联同模块两个二级，同一次作答只计一次；两种作答各计一次。
-        assert by_name['有理数']['answer_count'] == 3, by_name['有理数']
-        assert by_name['有理数']['correct_count'] == 2
-        assert by_name['有理数']['accuracy'] == 66.7
-        assert by_name['有理数']['reviewed_question_count'] == 2
-        assert by_name['有理数']['review_coverage'] == 100.0
-        # 未批改与单词练习不计入；Q302 与 Q304 各一次作答。
-        assert by_name['线段与角']['answer_count'] == 2
-        assert by_name['线段与角']['correct_count'] == 1
-        assert by_name['线段与角']['accuracy'] == 50.0
-        # 零作答模块 accuracy 为 None
-        assert by_name['空模块']['question_count'] == 0
-        assert by_name['空模块']['accuracy'] is None
-    async_test(scenario())
-
-
-def test_stats_time_window():
-    async def scenario():
-        connection = build_database()
-        seed_stats_data(connection)
-        connection.execute("UPDATE question SET created_at='2020-01-01 00:00:00' WHERE id IN (301,302)")
-        insert_question(connection, 306, created_at='2026-11-10 00:00:00')
-        link(connection, 306, [11], 11)
-        connection.commit()
-        db = SQLiteDB(connection)
-        connection.execute("INSERT INTO practice_set(id,name,subject_id,source_type,question_type,reviewed,deleted,created_at,last_reviewed_at) VALUES(1,'P1',1,'question','original',1,0,'2026-01-01',CURRENT_TIMESTAMP)")
-        connection.execute('INSERT INTO practice_set_question(id,practice_set_id,question_id,is_correct,display_order,deleted) VALUES(1,1,301,1,0,0)')
-        connection.execute('INSERT INTO practice_set_question(id,practice_set_id,question_id,is_correct,display_order,deleted) VALUES(2,1,306,1,0,0)')
-        connection.commit()
-        stats = await module_stats(db, subject_id=1, days=30, level=1, practice_days=30)
-        by_name = {item['name']: item for item in stats['items']}
-        # 题数与覆盖率分母只含收录窗口内的 Q306；旧题 Q301 不计入覆盖率分子
-        assert by_name['有理数']['question_count'] == 1
-        assert by_name['有理数']['reviewed_question_count'] == 1
-        assert by_name['有理数']['review_coverage'] == 100.0
-        # 正确率不叠加题目收录时间，旧题 Q301 的近期练习仍计入
-        assert by_name['有理数']['answer_count'] == 2
-        assert by_name['有理数']['accuracy'] == 100.0
-    async_test(scenario())
-
-
 def test_filter_path_validation():
     async def scenario():
         connection = build_database()
@@ -500,26 +405,6 @@ def test_filter_path_validation():
             assert '二级' in str(error)
         else:
             raise AssertionError('一级被当作二级筛选未被拒绝')
-    async_test(scenario())
-
-
-def test_soft_delete_metrics():
-    async def scenario():
-        connection = build_database()
-        seed_stats_data(connection)
-        db = SQLiteDB(connection)
-        connection.execute('UPDATE question SET deleted=1 WHERE id=304')
-        connection.commit()
-        stats = await module_stats(db, subject_id=1, level=1)
-        by_name = {item['name']: item for item in stats['items']}
-        assert by_name['线段与角']['question_count'] == 1
-        assert stats['total_questions'] == 4
-        connection.execute('UPDATE question_knowledge_point SET deleted=1 WHERE question_id=302 AND knowledge_point_id=21')
-        connection.commit()
-        stats = await module_stats(db, subject_id=1, level=1)
-        by_name = {item['name']: item for item in stats['items']}
-        assert by_name['线段与角']['question_count'] == 0
-        assert stats['unclassified_count'] == 2
     async_test(scenario())
 
 
@@ -699,11 +584,7 @@ def main():
     check('版本守卫与结构断言', test_guard_and_structure_assertions)
     check('目录版本递增', test_taxonomy_version_bump)
     check('旧文本兼容规则', test_legacy_compatibility)
-    check('一级/二级聚合口径', test_module_stats)
-    check('模块练习正确率', test_practice_accuracy)
-    check('时间窗口口径', test_stats_time_window)
     check('筛选组合校验', test_filter_path_validation)
-    check('软删除后的指标', test_soft_delete_metrics)
     check('目录 CRUD 与引用保护', test_directory_crud)
     check('回填集合完整性断言', test_backfill_assertions)
     check('单题保存原子路径', test_question_save_path)

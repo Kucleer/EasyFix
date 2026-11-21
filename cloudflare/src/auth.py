@@ -81,7 +81,7 @@ async def guard(request, call_next):
     from scan_model import changes_library
     scan_only = request.url.path.startswith('/api/scan/') and not changes_library(request.method, request.url.path)
     # 周报推进只写周报表，页面会循环调用，不清统计缓存、不记操作日志
-    if request.method not in ('GET','HEAD','OPTIONS') and 200<=response.status_code<300 and request.url.path not in ('/api/stats/analysis/llm','/api/intake/papers/check','/api/weekly-reports/advance') and not scan_only:
+    if request.method not in ('GET','HEAD','OPTIONS') and 200<=response.status_code<300 and request.url.path not in ('/api/intake/papers/check','/api/weekly-reports/advance') and not scan_only:
         await invalidate(request)
     response.headers['Cache-Control'] = 'private, no-store'
     return response

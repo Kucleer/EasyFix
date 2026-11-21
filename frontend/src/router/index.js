@@ -57,10 +57,10 @@ const routes = [
     redirect: redirect_to('/insight'),
   },
   {
-    // 学情：考点和单词两个标签（第 6 步的新页面做好前先用旧的知识点分析页）
+    // 学情：考点（知识星空 + 考点明细）和单词两个标签
     path: '/insight',
     name: 'Insight',
-    component: () => import('@/views/LearningAnalysis.vue'),
+    component: () => import('@/views/Insight.vue'),
   },
   {
     path: '/settings',

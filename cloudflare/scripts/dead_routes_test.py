@@ -41,6 +41,14 @@ REMOVED = [
     ('catalog.py', "'error-types'"),
     ('cache.py', "'/api/stats/today'"),
     ('similar.py', "'/batch-similar'"),
+    ('analytics.py', "@router.get('/summary')"),
+    ('analytics.py', "@router.get('/overview')"),
+    ('analytics.py', "@router.get('/knowledge-points')"),
+    ('analytics.py', "@router.get('/analysis/full')"),
+    ('analytics.py', "@router.post('/analysis/llm')"),
+    ('cache.py', "'/api/stats/summary'"),
+    ('auth.py', "'/api/stats/analysis/llm'"),
+    ('knowledge_stats.py', 'async def module_stats'),
 ]
 
 # 必须还在：(文件, 源码里必须出现的片段)
