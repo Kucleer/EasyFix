@@ -156,9 +156,9 @@ test('不是表单的上传请求返回 422', async () => {
 
 test('其他接口仍然转给 Python 后端', async () => {
   const { env, stored, backendCalls } = makeEnv();
-  await worker.fetch(uploadRequest('/api/upload/to-error-book/3', [['files', 'p.jpg', 'image/jpeg', 10]]), env);
+  await worker.fetch(uploadRequest('/api/questions', [['file', 'p.jpg', 'image/jpeg', 10]]), env);
   await worker.fetch(new Request(SITE + '/api/subjects'), env);
   await worker.fetch(new Request(SITE + '/health'), env);
-  assert.deepEqual(backendCalls, ['/api/upload/to-error-book/3', '/api/subjects', '/health']);
+  assert.deepEqual(backendCalls, ['/api/questions', '/api/subjects', '/health']);
   assert.equal(stored.size, 0);
 });

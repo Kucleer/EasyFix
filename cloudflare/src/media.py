@@ -1,64 +1,14 @@
-"""原图、奖励图片与音频的按需存储接口。"""
+"""单词音频的按需缓存与单词打印接口；图片上传由 Pages 网关直接写入 R2。"""
 
 import hashlib
-import json
 from uuid import uuid4
 from urllib.parse import quote
-from fastapi import APIRouter,HTTPException,Request,File,UploadFile,Query
+from fastapi import APIRouter,HTTPException,Request,Query
 from fastapi.responses import Response
 from database import Database
-from analytics import now
 from audio_index import AUDIO_INDEX
 
 router=APIRouter()
-
-
-async def save_image(request,file):
-    """校验并保存图片，统一返回兼容路径字段。"""
-    from js import Object
-    from pyodide.ffi import to_js
-    if file.content_type not in ('image/jpeg','image/jpg','image/png','image/webp'):raise HTTPException(400,'不支持的图片类型')
-    content=await file.read(10*1024*1024+1)
-    if not content or len(content)>10*1024*1024:raise HTTPException(400,'图片为空或超过10MB')
-    name=(file.filename or 'image').replace('/','_').replace('\\','_')
-    key=now().strftime('%Y/%m/')+uuid4().hex[:8]+'_'+name
-    await request.scope['env'].IMAGES.put(key,to_js(content),to_js({'httpMetadata':{'contentType':file.content_type}},dict_converter=Object.fromEntries))
-    return {'path':key,'image_path':key,'original_filename':file.filename,'size':len(content)}
-
-
-@router.post('/api/upload/batch-simple')
-async def batch(request:Request,files:list[UploadFile]=File(...)):
-    """保存一批原图，逐项返回失败原因。"""
-    if len(files)>10:raise HTTPException(422,'每批最多10张图片')
-    items=[]
-    for file in files:
-        try:items.append({**await save_image(request,file),'success':True})
-        except HTTPException as error:items.append({'original_filename':file.filename,'success':False,'error':error.detail})
-    success=sum(item['success'] for item in items)
-    return {'images':items,'total_count':len(items),'success_count':success,'failed_count':len(items)-success}
-
-
-@router.post('/api/upload/to-error-book/{error_book_id}')
-async def to_book(error_book_id:int,request:Request,files:list[UploadFile]=File(...)):
-    """在错题本中保留原图关联。"""
-    db=Database(request.scope['env'].DB)
-    book=await db.first('SELECT * FROM error_book WHERE id=? AND deleted=0',(error_book_id,))
-    if not book:raise HTTPException(404,'错题本不存在')
-    result=await batch(request,files)
-    items=[item for item in result['images'] if item['success']]
-    paths=json.loads(book['original_images'] or '[]')+[item['image_path'] for item in items]
-    await db.run('UPDATE error_book SET original_images=?,cover_image=COALESCE(cover_image,?) WHERE id=? AND deleted=0',(json.dumps(paths,ensure_ascii=False),items[0]['image_path'] if items else None,error_book_id))
-    return {'error_book_id':error_book_id,'images':items}
-
-
-@router.post('/api/rewards/{reward_id}/upload-image')
-async def reward_image(reward_id:int,request:Request,file:UploadFile=File(...)):
-    """上传奖励图片并返回原接口字段。"""
-    db=Database(request.scope['env'].DB)
-    if not await db.first('SELECT id FROM reward WHERE id=? AND deleted=0',(reward_id,)):raise HTTPException(404,'奖励不存在')
-    item=await save_image(request,file);url='/uploads/'+item['path']
-    await db.run('UPDATE reward SET image_url=? WHERE id=? AND deleted=0',(url,reward_id))
-    return {'Image_url':url,'image_url':url}
 
 
 @router.get('/api/words/{word_id}/audio')
