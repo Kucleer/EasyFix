@@ -558,6 +558,7 @@
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
@@ -641,8 +642,7 @@ const fetchPracticeSets = async () => {
 
 const fetchSubjects = async () => {
   try {
-    const { data } = await questionApi.listSubjects()
-    subjects.value = data
+    subjects.value = [...await useCatalogStore().loadSubjects()]
   } catch (error) {
     console.error('获取学科失败:', error)
   }

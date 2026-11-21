@@ -54,7 +54,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
-import { starmapApi, loadStarmapSubjects } from '@/api/starmap'
+import { starmapApi } from '@/api/starmap'
+import { useCatalogStore } from '@/stores/catalog'
 import { colorOf, statusText } from '@/components/starmap/starmapColors.js'
 
 const KINDS = [
@@ -149,7 +150,7 @@ async function saveProgress(value) {
 
 onMounted(async () => {
   try {
-    subjects.value = await loadStarmapSubjects()
+    subjects.value = await useCatalogStore().loadStarmapSubjects()
   } catch (error) {
     showError(error, '加载失败，请稍后再试')
     return

@@ -674,6 +674,7 @@
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import PageHeading from '@/components/PageHeading.vue'
 import StarMapSettings from '@/components/StarMapSettings.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -846,8 +847,7 @@ const rewardForm = reactive({ name: '', description: '', cost_stars: 0, total_st
 // 获取学科列表
 const fetchSubjects = async () => {
   try {
-    const { data } = await questionApi.listSubjects()
-    subjects.value = Array.isArray(data) ? data : (data.items || [])
+    subjects.value = [...await useCatalogStore().loadSubjects()]
   } catch (e) {
     console.error('获取学科失败:', e)
   }
@@ -864,6 +864,7 @@ const createSubject = async () => {
     ElMessage.success('创建成功')
     showSubjectDialog.value = false
     subjectForm.name = ''
+    useCatalogStore().invalidate('subjects')
     fetchSubjects()
   } catch (e) {
     ElMessage.error('创建失败')
@@ -876,6 +877,7 @@ const deleteSubject = async (row) => {
     await ElMessageBox.confirm('确定要删除该学科吗？', '删除确认', { type: 'warning' })
     await questionApi.deleteSubject(row.id)
     ElMessage.success('删除成功')
+    useCatalogStore().invalidate('subjects')
     fetchSubjects()
     fetchKnowledgePoints()
   } catch (e) {
@@ -886,8 +888,7 @@ const deleteSubject = async (row) => {
 // 获取标签列表
 const fetchTags = async () => {
   try {
-    const { data } = await questionApi.listTags()
-    tags.value = Array.isArray(data) ? data : (data.items || [])
+    tags.value = [...await useCatalogStore().loadTags()]
   } catch (e) {
     console.error('获取标签失败:', e)
   }
@@ -905,6 +906,7 @@ const createTag = async () => {
     showTagDialog.value = false
     tagForm.name = ''
     tagForm.color = '#409eff'
+    useCatalogStore().invalidate('tags')
     fetchTags()
   } catch (e) {
     ElMessage.error('创建失败')
@@ -917,6 +919,7 @@ const deleteTag = async (row) => {
     await ElMessageBox.confirm('确定要删除该标签吗？', '删除确认', { type: 'warning' })
     await questionApi.deleteTag(row.id)
     ElMessage.success('删除成功')
+    useCatalogStore().invalidate('tags')
     fetchTags()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败')

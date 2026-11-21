@@ -141,6 +141,7 @@
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 // 手工录入一道错题的表单：图片上传、基本信息、题目内容、难度与分类、保存
 import MathText from '@/components/MathText.vue'
 import MathEditor from '@/components/MathEditor.vue'
@@ -227,15 +228,13 @@ const removeImage = (index) => {
 // 加载元数据
 const loadMetaData = async () => {
   try {
-    const { data } = await questionApi.listSubjects()
-    subjects.value = Array.isArray(data) ? data : (data.items || [])
+    subjects.value = [...await useCatalogStore().loadSubjects()]
   } catch (e) {
     console.error('加载学科失败:', e)
   }
 
   try {
-    const { data } = await questionApi.listTags()
-    allTags.value = Array.isArray(data) ? data : (data.items || [])
+    allTags.value = [...await useCatalogStore().loadTags()]
   } catch (e) {
     console.error('加载标签失败:', e)
   }

@@ -103,6 +103,7 @@
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -147,8 +148,7 @@ function format_short_date(date_str) {
 // 加载学科，供筛选和新增使用
 async function fetchSubjects() {
   try {
-    const { data } = await questionApi.listSubjects()
-    subjects.value = data
+    subjects.value = [...await useCatalogStore().loadSubjects()]
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '加载学科失败')
   }

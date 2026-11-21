@@ -174,7 +174,7 @@ import PageHeading from '@/components/PageHeading.vue'
 import MathText from '@/components/MathText.vue'
 import { targetedApi } from '@/api/targeted'
 import { questionApi } from '@/api/question'
-import { loadStarmapSubjects } from '@/api/starmap'
+import { useCatalogStore } from '@/stores/catalog'
 import {
   REASON_LABELS, FORM_LABELS, MODE_LABELS, STATE_LABELS,
   groupByModule, swapItem, removeItem, toggleForm, createPayload, summary, canResume, pendingSimilarCount,
@@ -556,7 +556,7 @@ async function resumePaper(id) {
 
 onMounted(async () => {
   try {
-    subjects.value = await loadStarmapSubjects()
+    subjects.value = await useCatalogStore().loadStarmapSubjects()
   } catch {
     subjects.value = []
   }

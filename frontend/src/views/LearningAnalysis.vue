@@ -25,6 +25,7 @@
   </div>
 </template>
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import SubjectKnowledgeRanking from '@/components/SubjectKnowledgeRanking.vue'
 import PageHeading from '@/components/PageHeading.vue'
 import { computed, ref } from 'vue'
@@ -41,7 +42,7 @@ const activeTab = ref('questions')
 const selectedSubject = ref(null)
 const subjects = ref([])
 const router = useRouter()
-questionApi.listSubjects().then(({data}) => { subjects.value = data }).catch(() => {})
+useCatalogStore().loadSubjects().then(list => { subjects.value = [...list] }).catch(() => {})
 function changeSubject() { suggestions.value = []; suggestionError.value = ''; clearDrill(); loadStats() }
 const loading = ref(false)
 const loaded = ref(false)

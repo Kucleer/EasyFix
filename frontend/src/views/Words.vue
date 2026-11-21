@@ -709,6 +709,7 @@ orange 橙子"
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import PageHeading from '@/components/PageHeading.vue'
 import DictationInput from '@/components/DictationInput.vue'
 import WordResultList from '@/components/WordResultList.vue'
@@ -1109,8 +1110,7 @@ const fetchWords = async () => {
 
 const fetchTags = async () => {
   try {
-    const { data } = await questionApi.listTags()
-    allTags.value = data
+    allTags.value = [...await useCatalogStore().loadTags()]
   } catch (error) {
     console.error('获取标签失败:', error)
   }

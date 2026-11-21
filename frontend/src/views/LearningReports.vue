@@ -335,6 +335,7 @@
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import SubjectKnowledgeRanking from '@/components/SubjectKnowledgeRanking.vue'
 import PageHeading from '@/components/PageHeading.vue'
 import { ref, reactive, onMounted } from 'vue'
@@ -453,8 +454,7 @@ const fetchReports = async () => {
 
 const fetchSubjects = async () => {
   try {
-    const { data } = await questionApi.listSubjects()
-    subjects.value = data
+    subjects.value = [...await useCatalogStore().loadSubjects()]
   } catch (error) {
     console.error('获取学科列表失败:', error)
   }

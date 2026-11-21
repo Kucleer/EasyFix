@@ -154,6 +154,7 @@
 </template>
 
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 // 录入错题页：选图 → 识别中 → 整理，任何时候都可以改为手工录
 import PageHeading from '@/components/PageHeading.vue'
 import ManualQuestionForm from '@/components/ManualQuestionForm.vue'
@@ -488,8 +489,7 @@ const load_unfinished = async () => {
 /** 加载学科列表。 */
 const load_subjects = async () => {
   try {
-    const { data } = await questionApi.listSubjects()
-    subjects.value = Array.isArray(data) ? data : (data.items || [])
+    subjects.value = [...await useCatalogStore().loadSubjects()]
   } catch (error) {
     console.error('加载学科失败:', error)
   }

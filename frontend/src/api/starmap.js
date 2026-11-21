@@ -30,17 +30,4 @@ export const starmapApi = {
   saveProgress(subjectId, sectionNo) {
     return api.put('/starmap/progress', { section_no: sectionNo }, { params: { subject_id: subjectId } })
   },
-  subjects() {
-    return api.get('/subjects')
-  },
-}
-
-// 星空里出现的两科
-export const STARMAP_SUBJECTS = ['数学', '英语']
-
-// 按名称找到两科的编号：[{ id, name }]
-export async function loadStarmapSubjects() {
-  const { data } = await starmapApi.subjects()
-  const list = Array.isArray(data) ? data : (data.items || [])
-  return STARMAP_SUBJECTS.map(name => list.find(s => s.name === name)).filter(Boolean).map(s => ({ id: s.id, name: s.name }))
 }

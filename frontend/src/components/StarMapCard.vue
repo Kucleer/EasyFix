@@ -14,7 +14,8 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import StarCanvas from '@/components/starmap/StarCanvas.vue'
-import { starmapApi, loadStarmapSubjects } from '@/api/starmap'
+import { starmapApi } from '@/api/starmap'
+import { useCatalogStore } from '@/stores/catalog'
 
 const router = useRouter()
 const data = ref(null)
@@ -23,7 +24,7 @@ const failed = ref(false)
 
 onMounted(async () => {
   try {
-    const subjects = await loadStarmapSubjects()
+    const subjects = await useCatalogStore().loadStarmapSubjects()
     const results = await Promise.all(subjects.map(s => starmapApi.get(s.id)))
     total.value = results.reduce((sum, r) => sum + (r.data.mastered_count || 0), 0)
     data.value = results[0]?.data || null

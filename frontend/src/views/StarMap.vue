@@ -41,7 +41,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import StarCanvas from '@/components/starmap/StarCanvas.vue'
 import { colorOf, statusText } from '@/components/starmap/starmapColors.js'
-import { starmapApi, loadStarmapSubjects } from '@/api/starmap'
+import { starmapApi } from '@/api/starmap'
+import { useCatalogStore } from '@/stores/catalog'
 
 // 背景里若隐若现的淡字
 const FORMULAS = ['a²−b²=(a+b)(a−b)', '|a| ≥ 0', '(−1)ⁿ', '3x+5=20', 'S=πr²', '1/(n(n+2))', 'ab+ac=a(b+c)', '−2²=−4',
@@ -156,7 +157,7 @@ onBeforeUnmount(stopMoment)
 
 onMounted(async () => {
   try {
-    subjects.value = await loadStarmapSubjects()
+    subjects.value = await useCatalogStore().loadStarmapSubjects()
   } catch {
     loadError.value = '星空暂时打不开，请稍后再试'
     return

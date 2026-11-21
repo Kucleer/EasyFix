@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { questionApi } from '@/api/question'
+import { useCatalogStore } from '@/stores/catalog'
 
 const state = reactive({
   taxonomyVersion: '',
@@ -47,8 +47,8 @@ function rebuild(modules) {
 export function loadKnowledgeColors(force = false) {
   if (loading) return loading
   if (!force && state.taxonomyVersion) return Promise.resolve(state)
-  loading = questionApi.getKnowledgePointTree()
-    .then(({ data }) => {
+  loading = useCatalogStore().loadKnowledgeTree(null, force)
+    .then(data => {
       state.taxonomyVersion = String(data.taxonomy_version || '')
       rebuild(data.items || [])
       return state
@@ -60,6 +60,8 @@ export function loadKnowledgeColors(force = false) {
 
 /** 目录写入后强制重新加载，避免颜色与名称残留旧值。 */
 export function refreshKnowledgeColors() {
+  // 目录变了：各学科的知识点树都要重新取
+  useCatalogStore().invalidate('knowledge')
   state.taxonomyVersion = ''
   return loadKnowledgeColors(true)
 }

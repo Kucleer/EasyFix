@@ -40,6 +40,7 @@
   </div>
 </template>
 <script setup>
+import { useCatalogStore } from '@/stores/catalog'
 import { computed, onMounted, ref, watch } from 'vue'
 import { questionApi } from '@/api/question'
 import KnowledgeTag from '@/components/KnowledgeTag.vue'
@@ -120,7 +121,7 @@ async function loadTree() {
   }
   treeLoading.value = true
   try {
-    const { data } = await questionApi.getKnowledgePointTree({ subject_id: props.subjectId })
+    const data = await useCatalogStore().loadKnowledgeTree(props.subjectId)
     const items = (data.items || []).map(module => ({
       ...module,
       disabled: true,
