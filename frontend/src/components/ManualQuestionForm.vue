@@ -133,7 +133,7 @@
         </div>
         <div class="preview-actions">
           <el-button type="primary" size="small" @click="continueAdd">继续录入</el-button>
-          <el-button size="small" @click="router.push('/questions')">查看列表</el-button>
+          <el-button size="small" @click="router.push('/questions?tab=all')">查看列表</el-button>
         </div>
       </el-card>
     </div>

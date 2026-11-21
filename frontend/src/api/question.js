@@ -70,9 +70,6 @@ export const questionApi = {
   deleteKnowledgePoint(id) {
     return api.delete(`/knowledge-points/${id}`)
   },
-  batchGenerateSimilar(data) {
-    return api.post('/questions/batch-similar', data)
-  },
   // 这道题出现在哪些练习里、每次对错
   practiceHistory(id) {
     return api.get(`/questions/${id}/practice-history`)

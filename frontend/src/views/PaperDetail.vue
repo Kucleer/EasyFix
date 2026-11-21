@@ -1,6 +1,6 @@
 <template>
   <div v-loading="loading" class="paper-detail-page">
-    <el-button link type="primary" class="back-link" @click="router.push('/papers')">&larr; 返回卷子和作业</el-button>
+    <el-button link type="primary" class="back-link" @click="router.push('/questions?tab=papers')">&larr; 返回卷子和作业</el-button>
 
     <el-empty v-if="notFound" description="没有找到这份记录" />
 
@@ -47,7 +47,7 @@
           :is="q.review_status === 'pending' ? 'router-link' : 'div'"
           v-for="q in questions"
           :key="q.id"
-          :to="q.review_status === 'pending' ? '/review' : undefined"
+          :to="q.review_status === 'pending' ? '/questions?tab=review' : undefined"
           class="question-row"
           :class="{ clickable: q.review_status === 'pending' }"
         >
@@ -177,7 +177,7 @@ async function removePaper() {
     await paperApi.remove(paper.value.id, count > 0)
     ElMessage.success('已删除')
     reviewCountStore.refresh()
-    router.push('/papers')
+    router.push('/questions?tab=papers')
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '删除失败，请稍后再试')
   } finally {

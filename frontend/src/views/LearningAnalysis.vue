@@ -107,12 +107,13 @@ function clearDrill() {
   drillLoading.value = false
 }
 function goUnclassified() {
-  router.push({ path: '/questions', query: { unclassified: '1', ...(selectedSubject.value ? { subject_id: selectedSubject.value } : {}) } })
+  router.push({ path: '/questions', query: { tab: 'all', unclassified: '1', ...(selectedSubject.value ? { subject_id: selectedSubject.value } : {}) } })
 }
 function viewPointQuestions(row) {
   router.push({
     path: '/questions',
     query: {
+      tab: 'all',
       ...(selectedSubject.value ? { subject_id: selectedSubject.value } : {}),
       knowledge_parent_id: drillParent.value?.id,
       knowledge_point_id: row.id,
