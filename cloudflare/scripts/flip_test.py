@@ -1,6 +1,6 @@
 """翻一翻（每天翻几张旧错题卡片）的本地测试。
 
-在 weekly_report_test 的测试库（迁移执行到 0016）上再执行迁移 0017。运行：
+直接用 weekly_report_test 的测试库（迁移执行到 0017）。运行：
 
     python cloudflare/scripts/flip_test.py
 """
@@ -22,17 +22,13 @@ import weekly_report_test as weekly_test  # noqa: E402  复用建库（迁移到
 from flip_model import (DAILY_LIMIT, FORGOT_GAP_DAYS, REMEMBER_GAPS, days_between, due_rank,  # noqa: E402
                         history_state, pick_today)
 
-MIGRATION_0017 = ROOT / 'migrations' / '0017_flip_log.sql'
 TODAY = '2026-11-21'
 run = starmap_test.run
 
 
 def build_db():
-    """建立测试库：weekly_report_test 的库 + 迁移 0017。"""
-    connection = weekly_test.build_db()
-    connection.executescript(MIGRATION_0017.read_text(encoding='utf-8'))
-    connection.commit()
-    return connection
+    """建立测试库：weekly_report_test 的库（已含迁移 0017）。"""
+    return weekly_test.build_db()
 
 
 def add_question(c, qid, created_at, points=(101,), subject_id=1, **fields):
@@ -358,25 +354,34 @@ def test_flip_does_not_change_mastery():
 
 
 def test_helpers_for_home_and_weekly():
-    """flip_dates / flip_counts 按北京日期区间（含两端）统计；today_progress 和 /api/flip/today 一致。"""
+    """load_flip_rows 按 created_at 落在 [start, end) 取数；flip_dates 按 flip_date 取日期；
+    flip_counts 只数 [start, end) 里的天数和张数；today_progress 和 /api/flip/today 一致。"""
     import flip
     c = stable_fixture()
-    add_log(c, 1, 'remember', '2026-11-15')
+    add_log(c, 1, 'remember', '2026-11-15', '2026-11-15 19:59:59')               # 窗口开始之前
+    add_log(c, 7, 'remember', '2026-11-15', '2026-11-15 21:00:00.123456')        # 上周日 20:00 之后：算本期
     add_log(c, 2, 'forget', '2026-11-16')
     add_log(c, 3, 'remember', '2026-11-16')
     add_log(c, 4, 'remember', '2026-11-18')
     add_log(c, 5, 'remember', '2026-11-18', deleted=1)          # 删除的不算
-    add_log(c, 6, 'remember', '2026-11-23')
+    add_log(c, 6, 'remember', '2026-11-22', '2026-11-22 20:00:00')               # 窗口结束那一刻：不算
+    c.execute("INSERT INTO flip_log(student_id,question_id,result,flip_date,created_at,deleted) "
+              "VALUES(2,8,'remember','2026-11-17','2026-11-17 19:00:00',0)")   # 别的学生
     c.commit()
     db = adapter(c)
-    assert run(flip.flip_dates(db, 1, '2026-11-16', '2026-11-22')) == {'2026-11-16', '2026-11-18'}
-    assert run(flip.flip_counts(db, 1, '2026-11-16', '2026-11-22')) == {'days': 2, 'cards': 3}
-    assert run(flip.flip_counts(db, 1, '2026-12-01', '2026-12-07')) == {'days': 0, 'cards': 0}
-    assert run(flip.flip_dates(db, 2, '2026-11-01', '2026-11-30')) == set()     # 别的学生
+    start, end = '2026-11-15 20:00:00', '2026-11-22 20:00:00'
+    rows = run(flip.load_flip_rows(db, 1, start, end))
+    assert len(rows) == 4
+    assert flip.flip_dates(rows) == {'2026-11-15', '2026-11-16', '2026-11-18'}
+    assert flip.flip_counts(rows, start, end) == {'days': 3, 'cards': 4}
+    assert flip.flip_counts(rows, '2026-11-16 00:00:00', '2026-11-17 00:00:00') == {'days': 1, 'cards': 2}
+    wide = run(flip.load_flip_rows(db, 1, '2026-10-01 00:00:00', '2026-12-01 00:00:00'))
+    assert flip.flip_counts(wide, start, end) == {'days': 3, 'cards': 4}         # 多取的行按窗口筛掉
+    assert run(flip.load_flip_rows(db, 1, '2026-12-01 00:00:00', '2026-12-08 00:00:00')) == []
+    assert flip.flip_counts([], start, end) == {'days': 0, 'cards': 0}
     post(c, 10, {'result': 'remember'})
     body = today_body(c)
-    assert run(flip.today_progress(db, 1, TODAY)) == {'total': body['total'], 'done': body['done']} \
-        == {'total': 8, 'done': 1}
+    assert run(flip.today_progress(db, 1, TODAY)) == {'total': body['total'], 'done': body['done']}         == {'total': 8, 'done': 1}
 
 
 class CountingDB(starmap_test.CountingDB):

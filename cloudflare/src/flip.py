@@ -181,19 +181,31 @@ async def record_flip(db, student_id, question_id, result, today, stamp):
     return {'done': picked['done'], 'total': picked['done'] + len(picked['cards'])}
 
 
-async def flip_dates(db, student_id, start, end) -> set:
-    """日期区间 [start, end]（北京日期，含两端）里翻过卡片的日期集合（一条 SQL）；首页、周报用。"""
-    rows = await db.all('SELECT DISTINCT flip_date FROM flip_log WHERE deleted=0 AND student_id=? '
-                        'AND flip_date>=? AND flip_date<=?', (student_id, str(start)[:10], str(end)[:10]))
+async def load_flip_rows(db, student_id, start, end) -> list:
+    """created_at 落在 [start, end) 的翻牌记录，每条 {'flip_date', 'created_at'}（一条 SQL）；首页、周报用。
+
+    start、end 是 19 位北京时间（周报窗口是"上周日 20:00 到本周日 20:00"，和默写按 reviewed_at 算一样）；
+    库里的 created_at 可能带微秒，按字符串比较就是按时间先后比较。
+    """
+    # flip_date 就是 created_at 那一天，多加一个 flip_date 条件只是为了用上 (student_id, flip_date) 索引
+    return await db.all('SELECT flip_date, created_at FROM flip_log WHERE deleted=0 AND student_id=? '
+                        'AND flip_date>=? AND created_at>=? AND created_at<?',
+                        (student_id, str(start)[:10], start, end))
+
+
+def flip_dates(rows) -> set:
+    """rows（load_flip_rows 的结果）里翻过卡片的日期集合，按 flip_date（YYYY-MM-DD）。"""
     return {str(row['flip_date'])[:10] for row in rows}
 
 
-async def flip_counts(db, student_id, start, end) -> dict:
-    """日期区间 [start, end]（北京日期，含两端）里翻了几天、几张：{'days', 'cards'}（一条 SQL）；周报用。"""
-    row = await db.first('SELECT COUNT(DISTINCT flip_date) AS days, COUNT(*) AS cards FROM flip_log '
-                         'WHERE deleted=0 AND student_id=? AND flip_date>=? AND flip_date<=?',
-                         (student_id, str(start)[:10], str(end)[:10]))
-    return {'days': row['days'] or 0, 'cards': row['cards'] or 0}
+def flip_counts(rows, start, end) -> dict:
+    """rows 里 created_at 落在 [start, end) 的翻了几天、几张：{'days', 'cards'}。
+
+    天数 = 这些记录里不同的 flip_date 个数；张数 = 记录条数（同一题同一天本来就只有一条）。
+    不数"我忘了"有几张：周报只说翻了多少，不评价忘了多少。
+    """
+    kept = [row for row in rows if start <= str(row['created_at']) < end]
+    return {'days': len(flip_dates(kept)), 'cards': len(kept)}
 
 
 async def read_result(request):

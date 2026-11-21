@@ -1,7 +1,7 @@
 """周报：从 D1 读数据，算出一期周报的数字（facts）。
 
 规则（一周怎么算、档位变化怎么判）都在 weekly_model.py；这里只负责取数和组装。
-一次 build_facts 的 SQL 条数固定（每个有考点的学科 5 条，再加 9 条），不随题目数、考点数增加。
+一次 build_facts 的 SQL 条数固定（每个有考点的学科 5 条，再加 10 条），不随题目数、考点数增加。
 时间都是北京时间字符串：库里是 26 位（带微秒），窗口是 19 位，可以直接按字符串比较。
 
 推进一步（advance_once）：定时任务和页面接口共用，每次只做当前状态的下一步，
@@ -21,6 +21,7 @@ import analytics
 import auth
 import starmap
 from database import Database
+from flip import flip_counts, flip_dates, load_flip_rows
 from mastery_model import leaf_detail, status_of, upper_mastery
 from prompts import PromptLibrary
 from question_scope import counted, current_student_id
@@ -108,8 +109,7 @@ async def entries_part(db, win, week_end, names):
 async def dictation_part(db, win, week_end):
     """单词默写（只算 review_type=1）：本周、上周、近 6 周趋势、本周默写天数；另返回有默写的日期集合（一条 SQL）。"""
     starts = week_starts(week_end, TREND_WEEKS)
-    first_day = (datetime.strptime(win['sunday'], DATE_FORMAT)
-                 - timedelta(days=CALENDAR_DAYS - 1)).strftime(TIME_FORMAT)    # 日历第一天 00:00
+    first_day = calendar_first_moment(win)    # 日历第一天 00:00
     rows = await db.all('SELECT reviewed_at, is_correct FROM word_review_log WHERE deleted=0 AND review_type=1 '
                         'AND reviewed_at>=? AND reviewed_at<?', (min(first_day, starts[0]), win['end']))
     totals = [0] * len(starts)
@@ -131,6 +131,20 @@ async def dictation_part(db, win, week_end):
                   for i, start in enumerate(starts)],
     }
     return dictation, dates
+
+
+def calendar_first_moment(win):
+    """日历第一天的 00:00（19 位时间）：本周日往前共 CALENDAR_DAYS 天。"""
+    return (datetime.strptime(win['sunday'], DATE_FORMAT) - timedelta(days=CALENDAR_DAYS - 1)).strftime(TIME_FORMAT)
+
+
+async def flip_part(db, student_id, win, first_moment):
+    """翻一翻：本期（[start, end)）翻了几天、几张 {'days', 'cards'}，另返回 [first_moment, end) 里翻过卡片的日期集合（一条 SQL）。
+
+    和默写一样按记录时间算窗口；天数按 flip_date 去重。首页和周报都用它，口径一致。
+    """
+    rows = await load_flip_rows(db, student_id, min(first_moment, win['start']), win['end'])
+    return flip_counts(rows, win['start'], win['end']), flip_dates(rows)
 
 
 async def practice_part(db, win):
@@ -262,6 +276,7 @@ async def build_facts(db, request, week_end: datetime) -> dict:
     names = {row['id']: row['name'] for row in subjects}
     entries, entered_dates = await entries_part(db, win, week_end, names)
     dictation, dictated_dates = await dictation_part(db, win, week_end)
+    flip, flipped_dates = await flip_part(db, student_id, win, calendar_first_moment(win))
     practice = await practice_part(db, win)
     practice['graduated'] = await graduated_count(db, win, student_id)
     # 教材进度和默认年级用当前配置，不追溯
@@ -275,11 +290,15 @@ async def build_facts(db, request, week_end: datetime) -> dict:
         'schema_version': SCHEMA_VERSION,
         'week': {'start': win['start'], 'end': win['end'], 'monday': win['monday'], 'sunday': win['sunday'],
                  'number': number},
-        'quiet': entries['count'] == 0 and dictation['count'] == 0 and practice['papers'] == 0,
+        # 只翻了卡片的一周也不算安静
+        'quiet': (entries['count'] == 0 and dictation['count'] == 0 and practice['papers'] == 0
+                  and flip['cards'] == 0),
         'entries': entries,
-        'calendar': calendar_days(win['sunday'], entered_dates, dictated_dates),
+        # 日历上翻了卡片的那天和默写同一档（都是学生自己学了的一天）
+        'calendar': calendar_days(win['sunday'], entered_dates, dictated_dates | flipped_dates),
         'dictation': dictation,
         'practice': practice,
+        'flip': flip,
         'subjects': subject_facts,
     }
 

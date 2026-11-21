@@ -76,7 +76,8 @@ def entry_streak(counts):
 def calendar_days(sunday, entered, dictated):
     """生成 CALENDAR_DAYS 天的日历，从早到晚，最后一项是 sunday。
 
-    entered、dictated 是"那天有录入/有默写"的日期集合（YYYY-MM-DD）。
+    entered 是"那天有录入"的日期集合，dictated 是"那天学生自己学了（默写或翻了错题卡片）"的日期集合（YYYY-MM-DD）。
+    字段名 dictated 沿用旧名，旧周报和页面照常能读；页面上这一档的图例是"默写或翻了错题"。
     """
     end_day = datetime.strptime(sunday, DATE_FORMAT)
     days = []
@@ -205,8 +206,17 @@ FALLBACK_CHEERS = (
 QUIET_CHEER = '慢一点没关系，方向对了就好。'   # 安静的一周固定用这一句
 
 
+def flip_of(data):
+    """facts 或 brief 里翻一翻的数字 {'days', 'cards'}；旧周报没有这一项时都按 0。"""
+    flip = data.get('flip') or {}
+    return {'days': flip.get('days') or 0, 'cards': flip.get('cards') or 0}
+
+
 def brief_of(facts):
-    """从 facts 里取出给模型看的那部分（不含日历明细和趋势）。文字里会用到的数量都要在这里有数字。"""
+    """从 facts 里取出给模型看的那部分（不含日历明细和趋势）。文字里会用到的数量都要在这里有数字。
+
+    翻一翻只给天数和张数，不给"忘了"几张（文字只说翻了多少，不评价忘了多少）。
+    """
     calendar = facts['calendar'][-7:]    # 本周周一到周日
     lit = sum(1 for day in calendar if day['entered'] or day['dictated'])
     dictation = facts['dictation']
@@ -235,6 +245,7 @@ def brief_of(facts):
         'dictation': {'count': dictation['count'], 'accuracy': dictation['accuracy'], 'days': dictation['days'],
                       'prev_count': dictation['prev_count'], 'prev_accuracy': dictation['prev_accuracy']},
         'practice': dict(facts['practice']),
+        'flip': flip_of(facts),
         'improved_total': sum(item['improved_count'] for item in subjects),
         'subjects': subjects,
     }
@@ -353,6 +364,9 @@ def fallback_summary(brief):
     dictation = brief['dictation']
     if dictation['days'] > 0:
         parts.append('这周你有 %d 天默写了单词，一共 %d 条。' % (dictation['days'], dictation['count']))
+    flip = flip_of(brief)
+    if flip['cards'] > 0:
+        parts.append('这周你翻了 %d 天错题卡片，一共 %d 张。' % (flip['days'], flip['cards']))
     if brief['improved_total'] > 0:
         parts.append('有 %d 个考点变好了。' % brief['improved_total'])
     if brief['practice']['graduated'] > 0:

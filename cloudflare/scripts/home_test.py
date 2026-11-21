@@ -152,10 +152,48 @@ def test_grading_pending_not_limited_to_30_days():
     assert status['pending_count'] == 2
 
 
-def test_home_flip_fields_empty_before_step4():
-    """第 4 步之前：flip 为 null，week.flip_days 为 0。"""
+def test_home_flip_empty_database():
+    """没有错题、没有翻牌：flip 是 {total: 0, done: 0}，week.flip_days 为 0。"""
     home = home_of(starmap_test.adapter(weekly_test.build_db()))
-    assert home['flip'] is None and home['week']['flip_days'] == 0
+    assert home['flip'] == {'total': 0, 'done': 0} and home['week']['flip_days'] == 0
+
+
+def test_home_flip_progress_and_days():
+    """flip 是今天的进度（和 /api/flip/today 同一套选题）；week.flip_days 和周报 facts 的翻牌天数相同。"""
+    import flip
+    c = weekly_test.build_db()
+    for qid in range(1, 6):
+        starmap_test.add_question(c, qid, 1, '2026-11-01 10:00:00.000000', [101])
+    weekly_test.add_flip(c, 1, '2026-11-15 19:00:00.000000')        # 上一期：不算
+    weekly_test.add_flip(c, 2, '2026-11-15 21:00:00.000000')        # 上周日 20:00 之后：算本期（和周报同一个窗口）
+    weekly_test.add_flip(c, 3, '2026-11-18 19:00:00.000000', result='forget')
+    weekly_test.add_flip(c, 4, '2026-11-21 08:00:00.000000')        # 今天已经翻了 1 张
+    c.commit()
+    db = starmap_test.adapter(c)
+    home = home_of(db)
+    progress = run(flip.today_progress(db, 1, '2026-11-21'))
+    assert home['flip'] == progress, (home['flip'], progress)
+    assert home['flip'] == {'total': 5, 'done': 1}      # 今天翻过的题 4 + 还没翻的 1、2、3（都到期了）、5
+    facts = weekly_test.facts_of(db)
+    assert home['week']['flip_days'] == facts['flip']['days'] == 3
+    assert [d['active'] for d in home['week']['days']] == [False, False, True, False, False, True, False]
+
+
+def test_home_streak_counts_flip_days():
+    """连续天数和七天打卡条：默写或翻一翻都算有学习记录；只录入错题不算。"""
+    c = weekly_test.build_db()
+    weekly_test.add_dictation(c, 1, '2026-11-18 19:00:00', 1)
+    weekly_test.add_flip(c, 1, '2026-11-19 19:00:00.000000')
+    weekly_test.add_dictation(c, 1, '2026-11-20 19:00:00', 1)
+    weekly_test.add_flip(c, 2, '2026-11-20 19:30:00.000000')
+    weekly_test.add_flip(c, 3, '2026-11-21 09:00:00.000000')
+    weekly_test.add_flip(c, 4, '2026-11-16 09:00:00.000000', deleted=1)     # 删除的不算
+    starmap_test.add_question(c, 9, 1, '2026-11-17 10:00:00.000000', [101])  # 录入不算打卡
+    c.commit()
+    home = home_of(starmap_test.adapter(c))
+    assert home['streak_days'] == 4                                     # 11-18 默写、11-19 翻、11-20、11-21 翻
+    assert [d['active'] for d in home['week']['days']] == [False, False, True, True, True, True, False]
+    assert home['week']['flip_days'] == 3 and home['week']['dictation_days'] == 2
 
 
 def test_stats_words_returns_low_accuracy_and_frequency():
@@ -184,7 +222,9 @@ TESTS = [
     test_home_review_targeted_words_and_sky,
     test_home_empty_database,
     test_grading_pending_not_limited_to_30_days,
-    test_home_flip_fields_empty_before_step4,
+    test_home_flip_empty_database,
+    test_home_flip_progress_and_days,
+    test_home_streak_counts_flip_days,
     test_stats_words_returns_low_accuracy_and_frequency,
 ]
 

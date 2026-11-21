@@ -26,12 +26,14 @@ from weekly_model import (FALLBACK_CHEERS, allowed_names, allowed_numbers, brief
                           week_end_before, week_starts, window)
 
 MIGRATION_0016 = ROOT / 'migrations' / '0016_weekly_report.sql'
+MIGRATION_0017 = ROOT / 'migrations' / '0017_flip_log.sql'     # 周报要读翻牌记录
 
 
 def build_db():
-    """建立测试库：targeted_test 的库 + 迁移 0016。"""
+    """建立测试库：targeted_test 的库 + 迁移 0016、0017。"""
     connection = targeted_test.build_db()
     connection.executescript(MIGRATION_0016.read_text(encoding='utf-8'))
+    connection.executescript(MIGRATION_0017.read_text(encoding='utf-8'))
     connection.commit()
     return connection
 
@@ -904,6 +906,116 @@ def test_advance_does_not_bump_data_revision():
     assert guard_revision_after('POST', '/api/questions') == ('1', 1)   # 对照：证明这个测试能看出清缓存
 
 
+# ---------------------------------------------------------------- 第 4 步：翻一翻进周报
+
+
+def add_flip(c, qid, created_at, result='remember', student_id=1, deleted=0):
+    """插入一条翻牌记录；flip_date 取 created_at 的前 10 位（北京日期）。"""
+    c.execute('INSERT INTO flip_log(student_id,question_id,result,flip_date,created_at,deleted) VALUES(?,?,?,?,?,?)',
+              (student_id, qid, result, created_at[:10], created_at, deleted))
+
+
+def flip_facts(days, cards):
+    """示例 facts 再加上翻一翻的数字。"""
+    facts = sample_facts()
+    facts['flip'] = {'days': days, 'cards': cards}
+    return facts
+
+
+def test_weekly_facts_flip_counts():
+    """本期翻了几天、几张：按 created_at 落在 [上周日 20:00, 本周日 20:00)，天数按 flip_date 去重。"""
+    c = build_db()
+    add_flip(c, 1, '2026-11-15 19:59:59.000000')                    # 窗口开始之前：不算
+    add_flip(c, 2, '2026-11-15 21:00:00.000000')                    # 上周日 20:00 之后：算本期
+    add_flip(c, 3, '2026-11-17 19:00:00.000000', result='forget')
+    add_flip(c, 4, '2026-11-17 19:01:00.000000')
+    add_flip(c, 5, '2026-11-22 19:59:59.999999')
+    add_flip(c, 6, '2026-11-22 20:00:00.000000')                    # 本期结束那一刻：不算
+    add_flip(c, 7, '2026-11-18 19:00:00.000000', deleted=1)         # 删除的不算
+    add_flip(c, 8, '2026-11-18 19:00:00.000000', student_id=2)      # 别的学生不算
+    facts = facts_for(c)
+    assert facts['flip'] == {'days': 3, 'cards': 4}, facts['flip']
+    assert 'forget' not in json.dumps(facts['flip'])                 # 不存"忘了"的数
+
+
+def test_weekly_calendar_marks_flip_day():
+    """翻了卡片的那天在日历上和默写同一档（dictated 为真），录入那一格不受影响；42 天内更早的也点亮。"""
+    c = build_db()
+    add_flip(c, 1, '2026-11-18 19:00:00.000000')
+    add_flip(c, 2, '2026-10-20 19:00:00.000000')                    # 日历范围内、本期之前
+    add_flip(c, 3, '2026-10-01 19:00:00.000000')                    # 早于日历第一天：不显示
+    add_question(c, 9, 1, '2026-11-19 10:00:00.000000', [101])
+    facts = facts_for(c)
+    cells = {d['date']: d for d in facts['calendar']}
+    assert cells['2026-11-18'] == {'date': '2026-11-18', 'entered': False, 'dictated': True}
+    assert cells['2026-11-19'] == {'date': '2026-11-19', 'entered': True, 'dictated': False}
+    assert cells['2026-10-20']['dictated'] is True and '2026-10-01' not in cells
+    assert facts['dictation']['days'] == 0 and facts['dictation']['count'] == 0      # 默写的数字不变
+    assert brief_of(facts)['calendar_days_lit'] == 2
+    assert calendar_days('2026-11-22', set(), {'2026-11-20'})[-3]['dictated'] is True
+
+
+def test_weekly_flip_only_week_not_quiet():
+    """只翻了卡片、没有录入、默写、练习卷：不算安静的一周，兜底文字说翻了几天几张且能通过检查。"""
+    c = build_db()
+    add_flip(c, 1, '2026-11-17 19:00:00.000000')
+    add_flip(c, 2, '2026-11-18 19:00:00.000000')
+    add_flip(c, 3, '2026-11-18 19:05:00.000000')
+    facts = facts_for(c)
+    assert facts['quiet'] is False
+    assert facts['entries']['count'] == 0 and facts['dictation']['count'] == 0 and facts['practice']['papers'] == 0
+    brief = brief_of(facts)
+    assert brief['flip'] == {'days': 2, 'cards': 3}
+    text = fallback_text(brief, [])
+    assert text['summary'] == '这周你翻了 2 天错题卡片，一共 3 张。', text['summary']
+    assert check_text(text, brief, []) is None
+    empty = facts_for(build_db())
+    assert empty['quiet'] is True and empty['flip'] == {'days': 0, 'cards': 0}
+
+
+def test_weekly_brief_without_flip_still_works():
+    """旧的 facts 没有 flip：brief 按 0 处理，文字检查和兜底文字照常，兜底不提翻卡片。"""
+    facts = sample_facts()
+    assert 'flip' not in facts
+    brief = brief_of(facts)
+    assert brief['flip'] == {'days': 0, 'cards': 0}
+    assert check_text(good_text(), brief, []) is None
+    text = fallback_text(brief, [])
+    assert check_text(text, brief, []) is None and '翻' not in text['summary']
+    old_brief = dict(brief)
+    old_brief.pop('flip')                                            # 连 brief 里也没有（更旧的写法）
+    assert '翻' not in fallback_text(old_brief, [])['summary']
+    assert check_text(text, old_brief, []) is None
+
+
+def test_weekly_fallback_mentions_flip():
+    """翻了的时候兜底总结加一句"这周你翻了 N 天错题卡片，一共 M 张。"，两个数都在允许的数字里。"""
+    brief = brief_of(flip_facts(3, 17))
+    assert brief['flip'] == {'days': 3, 'cards': 17}
+    assert {'3', '17'} <= allowed_numbers(brief)
+    text = fallback_text(brief, [])
+    assert '这周你翻了 3 天错题卡片，一共 17 张。' in text['summary'], text['summary']
+    assert text['summary'].index('默写') < text['summary'].index('翻了')
+    assert check_text(text, brief, []) is None
+    said = dict(good_text(), summary='这周你翻了 3 天错题卡片，一共 17 张。')
+    assert check_text(said, brief, []) is None
+    assert check_text(said, brief_of(sample_facts()), []) == '出现了没给过的数字'       # 没翻时 17 不能写
+    brief_zero = brief_of(flip_facts(0, 0))
+    assert '翻' not in fallback_text(brief_zero, [])['summary']
+
+
+def test_weekly_prompt_has_flip_rule():
+    """提示词里有翻一翻的规则：可以夸坚持翻错题，只说几天几张，不评价忘了多少；数据里没有"忘了"的数。"""
+    prompt = PromptLibrary()._build_weekly_report_prompt(brief_of(flip_facts(3, 17)), [])
+    assert brief_in_prompt(prompt)['flip'] == {'days': 3, 'cards': 17}
+    for needle in ('flip', '坚持翻错题', '翻了几天、几张', '不评价忘了多少'):
+        assert needle in prompt, needle
+    assert 'forget' not in prompt
+    assert prompt.count('薄弱') == 1
+    old_prompt = PromptLibrary()._build_weekly_report_prompt(brief_of(sample_facts()), [])
+    assert brief_in_prompt(old_prompt)['flip'] == {'days': 0, 'cards': 0}
+
+
 TESTS = [
     test_migration_creates_weekly_report,
     test_week_end_boundaries,
@@ -948,6 +1060,12 @@ TESTS = [
     test_run_scheduled_never_raises_even_before_week_end,
     test_run_scheduled_logs_failed_text_attempt,
     test_advance_does_not_bump_data_revision,
+    test_weekly_facts_flip_counts,
+    test_weekly_calendar_marks_flip_day,
+    test_weekly_flip_only_week_not_quiet,
+    test_weekly_brief_without_flip_still_works,
+    test_weekly_fallback_mentions_flip,
+    test_weekly_prompt_has_flip_rule,
 ]
 
 
