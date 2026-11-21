@@ -165,7 +165,7 @@ def test_home_flip_progress_and_days():
     for qid in range(1, 6):
         starmap_test.add_question(c, qid, 1, '2026-11-01 10:00:00.000000', [101])
     weekly_test.add_flip(c, 1, '2026-11-15 19:00:00.000000')        # 上一期：不算
-    weekly_test.add_flip(c, 2, '2026-11-15 21:00:00.000000')        # 上周日 20:00 之后：算本期（和周报同一个窗口）
+    weekly_test.add_flip(c, 2, '2026-11-15 21:00:00.000000')        # 上周日 20:00 之后：那天是上周日，不算本周天数
     weekly_test.add_flip(c, 3, '2026-11-18 19:00:00.000000', result='forget')
     weekly_test.add_flip(c, 4, '2026-11-21 08:00:00.000000')        # 今天已经翻了 1 张
     c.commit()
@@ -175,8 +175,9 @@ def test_home_flip_progress_and_days():
     assert home['flip'] == progress, (home['flip'], progress)
     assert home['flip'] == {'total': 5, 'done': 1}      # 今天翻过的题 4 + 还没翻的 1、2、3（都到期了）、5
     facts = weekly_test.facts_of(db)
-    assert home['week']['flip_days'] == facts['flip']['days'] == 3
+    assert home['week']['flip_days'] == facts['flip']['days'] == 2
     assert [d['active'] for d in home['week']['days']] == [False, False, True, False, False, True, False]
+    assert home['week']['flip_days'] <= sum(d['active'] for d in home['week']['days'])   # 不会比打卡条亮的天数多
 
 
 def test_home_streak_counts_flip_days():
@@ -194,6 +195,7 @@ def test_home_streak_counts_flip_days():
     assert home['streak_days'] == 4                                     # 11-18 默写、11-19 翻、11-20、11-21 翻
     assert [d['active'] for d in home['week']['days']] == [False, False, True, True, True, True, False]
     assert home['week']['flip_days'] == 3 and home['week']['dictation_days'] == 2
+    assert home['week']['flip_days'] <= sum(d['active'] for d in home['week']['days'])
 
 
 def test_stats_words_returns_low_accuracy_and_frequency():

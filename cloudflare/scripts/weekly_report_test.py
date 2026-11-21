@@ -923,10 +923,10 @@ def flip_facts(days, cards):
 
 
 def test_weekly_facts_flip_counts():
-    """本期翻了几天、几张：按 created_at 落在 [上周日 20:00, 本周日 20:00)，天数按 flip_date 去重。"""
+    """本期翻了几张按 created_at 落在 [上周日 20:00, 本周日 20:00)；天数和默写一样只数周一到周日。"""
     c = build_db()
     add_flip(c, 1, '2026-11-15 19:59:59.000000')                    # 窗口开始之前：不算
-    add_flip(c, 2, '2026-11-15 21:00:00.000000')                    # 上周日 20:00 之后：算本期
+    add_flip(c, 2, '2026-11-15 21:00:00.000000')                    # 上周日 20:00 之后：算张数，不算天数
     add_flip(c, 3, '2026-11-17 19:00:00.000000', result='forget')
     add_flip(c, 4, '2026-11-17 19:01:00.000000')
     add_flip(c, 5, '2026-11-22 19:59:59.999999')
@@ -934,7 +934,7 @@ def test_weekly_facts_flip_counts():
     add_flip(c, 7, '2026-11-18 19:00:00.000000', deleted=1)         # 删除的不算
     add_flip(c, 8, '2026-11-18 19:00:00.000000', student_id=2)      # 别的学生不算
     facts = facts_for(c)
-    assert facts['flip'] == {'days': 3, 'cards': 4}, facts['flip']
+    assert facts['flip'] == {'days': 2, 'cards': 4}, facts['flip']
     assert 'forget' not in json.dumps(facts['flip'])                 # 不存"忘了"的数
 
 

@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 import starmap_test  # noqa: E402  复用输出、检查助手和造数据助手
 import targeted_test  # noqa: E402
-import weekly_report_test as weekly_test  # noqa: E402  复用建库（迁移到 0016）
+import weekly_report_test as weekly_test  # noqa: E402  复用建库（迁移到 0017）
 from flip_model import (DAILY_LIMIT, FORGOT_GAP_DAYS, REMEMBER_GAPS, days_between, due_rank,  # noqa: E402
                         history_state, pick_today)
 
@@ -355,7 +355,7 @@ def test_flip_does_not_change_mastery():
 
 def test_helpers_for_home_and_weekly():
     """load_flip_rows 按 created_at 落在 [start, end) 取数；flip_dates 按 flip_date 取日期；
-    flip_counts 只数 [start, end) 里的天数和张数；today_progress 和 /api/flip/today 一致。"""
+    flip_counts 只数 [start, end) 里的张数，天数再只留周一到周日的；today_progress 和 /api/flip/today 一致。"""
     import flip
     c = stable_fixture()
     add_log(c, 1, 'remember', '2026-11-15', '2026-11-15 19:59:59')               # 窗口开始之前
@@ -370,18 +370,21 @@ def test_helpers_for_home_and_weekly():
     c.commit()
     db = adapter(c)
     start, end = '2026-11-15 20:00:00', '2026-11-22 20:00:00'
+    week = {'2026-11-%d' % day for day in range(16, 23)}                        # 周一到周日
     rows = run(flip.load_flip_rows(db, 1, start, end))
     assert len(rows) == 4
     assert flip.flip_dates(rows) == {'2026-11-15', '2026-11-16', '2026-11-18'}
-    assert flip.flip_counts(rows, start, end) == {'days': 3, 'cards': 4}
-    assert flip.flip_counts(rows, '2026-11-16 00:00:00', '2026-11-17 00:00:00') == {'days': 1, 'cards': 2}
+    assert flip.flip_counts(rows, start, end, week) == {'days': 2, 'cards': 4}   # 上周日晚上那张算张数、不算天数
+    assert flip.flip_counts(rows, '2026-11-16 00:00:00', '2026-11-17 00:00:00', week) == {'days': 1, 'cards': 2}
     wide = run(flip.load_flip_rows(db, 1, '2026-10-01 00:00:00', '2026-12-01 00:00:00'))
-    assert flip.flip_counts(wide, start, end) == {'days': 3, 'cards': 4}         # 多取的行按窗口筛掉
+    assert flip.flip_counts(wide, start, end, week) == {'days': 2, 'cards': 4}         # 多取的行按窗口筛掉
     assert run(flip.load_flip_rows(db, 1, '2026-12-01 00:00:00', '2026-12-08 00:00:00')) == []
-    assert flip.flip_counts([], start, end) == {'days': 0, 'cards': 0}
+    assert flip.flip_counts([], start, end, week) == {'days': 0, 'cards': 0}
     post(c, 10, {'result': 'remember'})
     body = today_body(c)
-    assert run(flip.today_progress(db, 1, TODAY)) == {'total': body['total'], 'done': body['done']}         == {'total': 8, 'done': 1}
+    progress = run(flip.today_progress(db, 1, TODAY))
+    assert progress == {'total': body['total'], 'done': body['done']}
+    assert progress == {'total': 8, 'done': 1}
 
 
 class CountingDB(starmap_test.CountingDB):

@@ -141,10 +141,11 @@ def calendar_first_moment(win):
 async def flip_part(db, student_id, win, first_moment):
     """翻一翻：本期（[start, end)）翻了几天、几张 {'days', 'cards'}，另返回 [first_moment, end) 里翻过卡片的日期集合（一条 SQL）。
 
-    和默写一样按记录时间算窗口；天数按 flip_date 去重。首页和周报都用它，口径一致。
+    和默写一样：张数按记录时间落在窗口里算，天数按周一到周日的自然日算（同 dictation_part 的 days）。
+    首页和周报都用它，口径一致。
     """
     rows = await load_flip_rows(db, student_id, min(first_moment, win['start']), win['end'])
-    return flip_counts(rows, win['start'], win['end']), flip_dates(rows)
+    return flip_counts(rows, win['start'], win['end'], week_dates(win['monday'])), flip_dates(rows)
 
 
 async def practice_part(db, win):

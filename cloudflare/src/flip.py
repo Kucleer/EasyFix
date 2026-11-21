@@ -198,14 +198,16 @@ def flip_dates(rows) -> set:
     return {str(row['flip_date'])[:10] for row in rows}
 
 
-def flip_counts(rows, start, end) -> dict:
+def flip_counts(rows, start, end, week) -> dict:
     """rows 里 created_at 落在 [start, end) 的翻了几天、几张：{'days', 'cards'}。
 
-    天数 = 这些记录里不同的 flip_date 个数；张数 = 记录条数（同一题同一天本来就只有一条）。
+    张数 = 这些记录的条数（同一题同一天本来就只有一条）。
+    天数 = 这些记录里不同的 flip_date，再只留在 week（周一到周日的日期集合）里的，和默写天数的算法一样：
+    上周日 20:00 之后翻的算进本期张数，但那天是上周日，不算本期的天数。
     不数"我忘了"有几张：周报只说翻了多少，不评价忘了多少。
     """
     kept = [row for row in rows if start <= str(row['created_at']) < end]
-    return {'days': len(flip_dates(kept)), 'cards': len(kept)}
+    return {'days': len(flip_dates(kept) & week), 'cards': len(kept)}
 
 
 async def read_result(request):
