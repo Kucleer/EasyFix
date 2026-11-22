@@ -70,7 +70,7 @@
       <div class="card-header-green">题目内容</div>
       <div class="card-content">
         <el-form :model="form" label-width="80px" style="max-width: 800px">
-          <el-form-item label="题目">
+          <el-form-item label="题目" required>
             <MathEditor v-model="form.parsed_question" :rows="6" placeholder="请输入题目" />
           </el-form-item>
           <el-form-item label="答案">
@@ -259,6 +259,11 @@ const submitQuestion = async () => {
     ElMessage.warning('请选择学科')
     return
   }
+  // 只挂照片不写题目会存成一条"无文本"的空题，后端也会拒收
+  if (!form.parsed_question.trim()) {
+    ElMessage.warning('请先填写题目')
+    return
+  }
   if (form.knowledge_point_ids.length && !form.primary_knowledge_point_id) {
     ElMessage.warning('请为所选知识点指定主考点')
     return
@@ -304,7 +309,9 @@ const submitQuestion = async () => {
     uploadImagePaths.value = [...props.presetImages]
     uploadRef.value?.clearFiles()
   } catch (error) {
-    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+    // 后端给出的中文原因（如"题干不能为空"）优先显示
+    const detail = error?.response?.data?.detail
+    ElMessage.error('保存失败: ' + ((typeof detail === 'string' && detail) || error.message || '未知错误'))
   } finally {
     submitting.value = false
   }

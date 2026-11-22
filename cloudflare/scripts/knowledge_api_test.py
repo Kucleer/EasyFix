@@ -214,6 +214,28 @@ def test_question_http_flow():
     expect_status(client.delete('/api/knowledge-points/32'), 204)
 
 
+def test_question_requires_stem():
+    """题干和原题文字都空时，新建和修改都返回 422；只有原题文字的旧写法仍可保存。"""
+    client, _ = build_client()
+    # 只有照片、题干为空（或只有空白）不能新建
+    for blank in ('', '   ', None):
+        expect_status(client.post('/api/questions', json={
+            'subject_id': 2, 'parsed_question': blank, 'original_images': ['2026/11/a_image.jpg'],
+        }), 422)
+    expect_status(client.post('/api/questions', json={'subject_id': 2}), 422)
+    # 只有原题文字（旧数据的写法）可以新建
+    expect_status(client.post('/api/questions', json={
+        'subject_id': 2, 'original_text': 'Old text.',
+    }), 201)
+    created = expect_status(client.post('/api/questions', json={
+        'subject_id': 2, 'parsed_question': 'A dog.',
+    }), 201).json()
+    # 修改时把题干清空也不行；只改别的字段不受影响
+    expect_status(client.put('/api/questions/' + str(created['id']), json={'parsed_question': ' '}), 422)
+    updated = expect_status(client.put('/api/questions/' + str(created['id']), json={'difficulty': 4}), 200).json()
+    assert updated['parsed_question'] == 'A dog.'
+
+
 def test_practice_review_version_conflict():
     client, connection = build_client()
     connection.execute(
@@ -253,6 +275,7 @@ def main():
     check('树接口与路由顺序', test_tree_route_order)
     check('目录 HTTP CRUD', test_directory_crud_http)
     check('题目 HTTP 写入/筛选/旧文本', test_question_http_flow)
+    check('题干为空不能保存', test_question_requires_stem)
     check('批改版本冲突 409 且整批回滚', test_practice_review_version_conflict)
     failed = [item for item in RESULTS if not item[1]]
     print('\n合计 {} 项，通过 {} 项，失败 {} 项'.format(

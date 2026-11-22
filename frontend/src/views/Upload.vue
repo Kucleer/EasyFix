@@ -8,7 +8,8 @@
         v-if="health_state === 'down'"
         class="top-alert"
         type="warning"
-        title="识别暂时用不了，可以先手工录"
+        title="识别没开，现在传照片不会自动识别"
+        description="整页卷子请交给 Claude 录入；要自己打字录一道，点下面的“不识别，直接手工录一道”。"
         :closable="false"
         show-icon
       />
@@ -50,7 +51,7 @@
         drag
         :auto-upload="false"
         :show-file-list="false"
-        :disabled="uploading"
+        :disabled="uploading || health_state === 'down'"
         :on-change="handle_pick_file"
         accept="image/*"
       >
@@ -186,6 +187,9 @@ const GRADE_OPTIONS = [
 
 // 处理中（"推进一步"返回 busy）时，等多久再查一次
 const BUSY_WAIT_MS = 3000
+
+// 识别用不了时选了照片，给家长的一句话
+const SCAN_DOWN_TEXT = '识别没开，照片没有上传。整页卷子请交给 Claude 录入；要自己打字录一道，点"不识别，直接手工录一道"'
 
 const appConfigStore = useAppConfigStore()
 
@@ -337,7 +341,11 @@ const compress_if_needed = async (file) => {
   return result
 }
 
-/** 选了一张图：必要时压缩、上传；识别可用就新建一页开始识别，不可用就直接进手工表单。 */
+/** 选了一张图：识别可用才压缩、上传并新建一页开始识别。
+
+识别用不了时不上传、也不自动进手工表单：2026-11-22 自动退回表单后，
+照片挂在旁边、题目空着，家长以为点保存就会识别，同一页存成了 4 条空题。
+*/
 const handle_pick_file = async (upload_file) => {
   pick_upload_ref.value?.clearFiles()
   if (uploading.value) return
@@ -347,6 +355,12 @@ const handle_pick_file = async (upload_file) => {
   }
   uploading.value = true
   try {
+    // 进入页面时的可用性检查可能还没结束，等它出结果再决定传不传
+    await health_promise
+    if (health_state.value === 'down') {
+      ElMessage.warning(SCAN_DOWN_TEXT)
+      return
+    }
     const file = await compress_if_needed(upload_file.raw)
     if (needsCompression(file.size)) {
       ElMessage.error('图片太大，压缩后还是超过 10MB，请换一张')
@@ -354,12 +368,6 @@ const handle_pick_file = async (upload_file) => {
     }
     const { data: uploaded } = await uploadApi.uploadFile(file)
     remember_pick_choice()
-    // 进入页面时的可用性检查可能还没结束，等它出结果
-    await health_promise
-    if (health_state.value === 'down') {
-      enter_manual([uploaded.path], pick_form)
-      return
-    }
     let new_page
     try {
       const response = await scanApi.create({
@@ -370,9 +378,8 @@ const handle_pick_file = async (upload_file) => {
       })
       new_page = response.data
     } catch (error) {
-      // 照片已经传上去了，只是识别没开始：带着照片改为手工录
-      ElMessage.error('识别没开始：' + read_error_text(error))
-      enter_manual([uploaded.path], pick_form)
+      // 识别没开始：留在选图，不自动进手工表单（原因见函数说明）
+      ElMessage.error('识别没开始：' + read_error_text(error) + '。可以再选一次，或者交给 Claude 录入')
       return
     }
     start_scanning(new_page)

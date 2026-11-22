@@ -117,6 +117,21 @@ async def validate_common(db, payload, data, old):
     return subject
 
 
+def ensure_stem(data, old):
+    """保存后的题干和原题文字不能都为空，否则返回 422。
+
+    2026-11-22 识别没开时，手工表单只挂着照片、题干空着保存，同一页存成了 4 条空题。
+    修改时没带的字段沿用库里的旧值；只有原题文字的旧写法仍然可以保存。
+    """
+    def final_text(key):
+        """这个字段保存后的值：本次带了就用本次的，没带就用旧值。"""
+        value = data[key] if key in data else (old.get(key) if old else None)
+        return value.strip() if isinstance(value, str) else ''
+
+    if not final_text('parsed_question') and not final_text('original_text'):
+        raise HTTPException(422, '题干不能为空')
+
+
 async def save(db, payload, question_id=None, request=None):
     """校验后在单个 batch 内保存错题、标签与知识点，返回完整响应。"""
     if not isinstance(payload, dict):
@@ -126,6 +141,7 @@ async def save(db, payload, question_id=None, request=None):
     if question_id and not old:
         raise HTTPException(404, '错题不存在')
     subject = await validate_common(db, payload, data, old)
+    ensure_stem(data, old)
     subject_id = subject['id']
     if subject['name'] == '数学' and request is not None:
         from pdf import validate_math

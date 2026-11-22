@@ -89,6 +89,7 @@
 - [x] `POST/PUT/DELETE /api/knowledge-points`：改由 `cloudflare/src/knowledge.py` 实现；触发器兜底层级、学科、移动与删除引用约束，错误码 `KP_*` 映射 409/422。
 - [x] `GET /api/questions`：新增 `knowledge_parent_id`、`knowledge_point_id`、`unclassified`；旧 `knowledge_point` 改为精确 `name_key` 匹配，不再子串匹配。
 - [x] `POST/PUT /api/questions`：新增 `knowledge_point_ids`、`primary_knowledge_point_id`、`knowledge_revision`；响应增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`。
+- [x] `POST/PUT /api/questions`（2026-11-22）：保存后题干 `parsed_question` 和原题文字 `original_text` 都为空时返回 422"题干不能为空"；修改时没带的字段按库里旧值算。
 - [x] `GET /api/questions/filter-options/{subject_id}`：增加 `knowledge_point_options`、`knowledge_modules`，旧 `knowledge_points` 保留供过渡。
 - [x] `GET /api/practice-sets/{id}`：条目增加 `knowledge_points`、`knowledge_revision`、`legacy_knowledge_point`；阅读条目改用 `topic`。
 - [x] `POST /api/practice-sets/{id}/mark-reviewed`：支持 `question_knowledge` 并在同一批次写入分类；响应返回更新后的题目知识点。
