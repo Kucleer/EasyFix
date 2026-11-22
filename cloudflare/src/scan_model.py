@@ -100,6 +100,16 @@ def _knowledge_rules(catalog):
     )
 
 
+# 全大题共用的选项（选词填空的词框、短文填空的选项表等）：拆成每空一题后，
+# 每题题干都要带上整组选项，否则单看一题不知道从哪些词里选（整页整理和单题补全共用）
+SHARED_OPTIONS_RULE = (
+    '大题里有全大题共用的选项时（例如选词填空的词框"A.style B.problem C.passing …"、'
+    '短文填空的选项表），每个空单独列一项，每一项的 parsed_question 都要写成：'
+    '这个空所在的句子（空用 __ 表示），空一行，再把词框里的全部选项按原样抄一遍。'
+    '不能只在第一项里带选项，也不能省略选项。'
+)
+
+
 def _ocr_block(ocr_text, enhanced_text):
     """整页读图文字的提示词片段（有重扫文字时两份都给），整页整理和单题补全共用。"""
     parts = ['下面是整页读图得到的文字（OCR）：', '<<<OCR', ocr_text or '', 'OCR>>>']
@@ -130,6 +140,7 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。'
         'wrong_answer、solution、reason、answer、analysis 里的公式也一样，每个公式都要写在 \\(...\\) 里，'
         '不能直接写 \\frac{1}{2} 这样不带边界的公式。',
+        '  ' + SHARED_OPTIONS_RULE,
         '- wrong_answer：学生写的最终答案，读不出就留空字符串。',
         '- solution：你自己的演算，一两行，写出关键步骤和最终结果。每道题都要先写它，再下判断。',
         '- verdict：wrong（做错了）、right（做对了）或 unsure（拿不准）。',
@@ -180,7 +191,7 @@ def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalo
         '题干开头：%s' % (item.get('parsed_question') or '（没有）'),
         '',
         '只返回这一道题的 JSON（一个对象），字段：',
-        '- parsed_question：完整题干。',
+        '- parsed_question：完整题干。' + SHARED_OPTIONS_RULE,
         '- wrong_answer：学生写的答案，读不出就留空字符串，不许猜。',
         '- answer：正确答案。',
         '- analysis：解析。',

@@ -371,6 +371,17 @@ def test_build_fill_prompt():
     assert '整页文字PAGE' in both and '重扫文字XYZ' in both
 
 
+def test_prompts_keep_shared_options_in_each_stem():
+    """选词填空这类大题：词框里的选项是全大题共用的，拆成每空一题时，每题题干都要带上整个词框。"""
+    item = {**scan_model.blank_item(1), 'question_no': '三、2', 'parsed_question': 'like __ the ball'}
+    page = scan_model.build_page_prompt('英语', 6, 1, 'OCR', None, [])
+    fill = scan_model.build_fill_prompt('英语', 6, item, 'OCR', None, [])
+    for prompt in (page, fill):
+        assert scan_model.SHARED_OPTIONS_RULE in prompt
+    # 规则里给出示例格式：本空所在的句子，空一行，再原样抄全部选项
+    assert '词框' in scan_model.SHARED_OPTIONS_RULE and 'A.style' in scan_model.SHARED_OPTIONS_RULE
+
+
 # ---------------------------------------------------------------- 识别顺序 run_page（后端和回归脚本共用）
 
 
@@ -1698,6 +1709,7 @@ TESTS = [
     test_changes_library,
     test_build_page_prompt,
     test_build_fill_prompt,
+    test_prompts_keep_shared_options_in_each_stem,
     test_merge_fill,
     test_run_page_without_rescan,
     test_run_page_with_rescan,
