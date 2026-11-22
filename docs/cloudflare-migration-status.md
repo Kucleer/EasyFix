@@ -326,3 +326,12 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 代码 `ad416fd7`（分支 `fix/math-in-review-note` 快进合并进 `main`）。待核对卡片的"说明""判错依据"和错题详情的"判错依据"原来直接插值，`\(\pm 7\)` 这类公式显示成原文；改成和题干一样用 `MathText` 渲染。新增 `frontend/src/components/questions/mathFields.test.mjs` 钉住这三个字段。
 - 部署：Pages `f3e43ce8`（上一部署 `6c8e1750`），后端不变。核对：`/health` 200，新主脚本从正式域名取到。前端测试 146 项全过。
 - 未验证：登录后看待核对卡片的公式是否正常显示（交给用户）。
+
+## 变更记录：识别没开时不再自动进手工表单、空题干不能保存（2026-11-22 已上线）
+
+- 起因：识别主机连不上时，录入页选图后直接进手工表单、照片挂在旁边，表单只要求学科，家长对英语校本作业第 49 页点了 4 次保存，存成 4 条只有照片的空题（id 734–737，未处理，等用户决定删除后用录入技能重录）。
+- 代码 `31b17ee9`（直接提交在 `main`）。`Upload.vue`：识别不可用时选图区变灰，选了照片也不上传、不进手工表单，只提示交给 Claude 录入或点"不识别，直接手工录一道"；识别没能开始时也留在选图。`ManualQuestionForm.vue`：题目必填，保存失败显示后端原因。`questions.py` 的 `ensure_stem`：`POST/PUT /api/questions` 保存后题干和原题文字都为空时返回 422"题干不能为空"（修改时没带的字段按旧值算）。识别中家长自己点"改为手工录"仍带照片进表单。
+- 部署：Worker `4ecda6a3`（上一版本 `33cca91c`），Pages `f18a7288`（上一部署 `f3e43ce8`），先 Worker 后 Pages。本机前端缺 `d3-force`、`d3-selection`、`d3-zoom` 及其依赖，装在临时目录后拷进被忽略的 `frontend/node_modules`，没有改动被跟踪的文件。
+- 核对：`/health` 200、`/upload` 未登录 303；录入口令取到新的 `Upload` 脚本（含新提示文字）、`/api/questions` 200、`/api/scan/health` 仍为 `available: false`；录入小工具 `guide` 正常。没有用口令发写入请求验证 422（避免误写正式数据），由测试覆盖。
+- 发布前测试：后端 12 个脚本全过（`knowledge_api_test.py` 新增"题干为空不能保存"），前端 146 项全过。
+- 未验证（需登录）：录入页在识别不可用时的提示和变灰；手工表单空题目点保存的提示。识别主机仍不可用，需要用户检查家里那台机器。
