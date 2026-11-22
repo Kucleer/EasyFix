@@ -320,3 +320,9 @@ node cloudflare/tools/cli.cjs d1 execute easyfix --config cloudflare/wrangler.js
 - 核对：`/health` 200、首页和 `/flip` 跳登录 303；录入口令读 `/api/flip/today` 200（今天 8 张，约 4 秒）、`/api/home` 的 `flip` 为 `{total: 8, done: 0}`；录入小工具 `guide` 正常。没有用口令提交翻牌（会写入学生的真实记录）。
 - 发布前全部测试通过（后端 13 个脚本、前端 144 项）；三个任务各自审阅，全分支终审没有严重问题。
 - 未验证：手机上真机翻一组卡片（看答案、记得/忘了、翻完、刷新后接着翻）；周日晚上第一次带翻一翻数字的周报；`/api/home`、`/api/flip/today` 在历史数据变多以后的 CPU 用量（终审提醒：每次都读全部错题和全部翻牌记录，条数固定但量会增长）。
+
+## 变更记录：待核对和错题详情里的公式显示（2026-11-22 已上线）
+
+- 代码 `ad416fd7`（分支 `fix/math-in-review-note` 快进合并进 `main`）。待核对卡片的"说明""判错依据"和错题详情的"判错依据"原来直接插值，`\(\pm 7\)` 这类公式显示成原文；改成和题干一样用 `MathText` 渲染。新增 `frontend/src/components/questions/mathFields.test.mjs` 钉住这三个字段。
+- 部署：Pages `f3e43ce8`（上一部署 `6c8e1750`），后端不变。核对：`/health` 200，新主脚本从正式域名取到。前端测试 146 项全过。
+- 未验证：登录后看待核对卡片的公式是否正常显示（交给用户）。
