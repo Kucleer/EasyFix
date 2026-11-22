@@ -371,15 +371,57 @@ def test_build_fill_prompt():
     assert '整页文字PAGE' in both and '重扫文字XYZ' in both
 
 
-def test_prompts_keep_shared_options_in_each_stem():
-    """选词填空这类大题：词框里的选项是全大题共用的，拆成每空一题时，每题题干都要带上整个词框。"""
-    item = {**scan_model.blank_item(1), 'question_no': '三、2', 'parsed_question': 'like __ the ball'}
+def _english_prompts():
+    """拼一份英语的整页整理提示词和单题补全提示词，给下面几个规则测试共用。"""
+    item = {**scan_model.blank_item(1), 'question_no': '三', 'parsed_question': 'Football is a fun game'}
     page = scan_model.build_page_prompt('英语', 6, 1, 'OCR', None, [])
     fill = scan_model.build_fill_prompt('英语', 6, item, 'OCR', None, [])
-    for prompt in (page, fill):
+    return page, fill
+
+
+def test_prompts_keep_shared_options_in_each_stem():
+    """不是短文、只是几道独立句子共用一个词框时：每句一题，每题题干都带上整个词框。"""
+    for prompt in _english_prompts():
         assert scan_model.SHARED_OPTIONS_RULE in prompt
-    # 规则里给出示例格式：本空所在的句子，空一行，再原样抄全部选项
-    assert '词框' in scan_model.SHARED_OPTIONS_RULE and 'A.style' in scan_model.SHARED_OPTIONS_RULE
+    assert '词框' in scan_model.SHARED_OPTIONS_RULE and '独立' in scan_model.SHARED_OPTIONS_RULE
+
+
+def test_prompts_keep_passage_questions_whole():
+    """完形、选词填空、阅读理解这类围绕一篇短文的大题：整篇算一题，题干是整篇文章加全部选项，
+    学生答案和正确答案按空号列全部空，有一空做错就整篇判 wrong（用户 2026-11-22 定）。"""
+    for prompt in _english_prompts():
+        assert scan_model.PASSAGE_RULE in prompt
+    rule = scan_model.PASSAGE_RULE
+    for phrase in ['整篇', '不要拆', '全部选项', '1.E 2.A', '有一空做错', 'wrong', '错在第']:
+        assert phrase in rule, phrase
+
+
+def test_prompts_mark_underlined_part():
+    """对画线部分提问：读图文字里没有画线，要模型按题型和答案推出画线部分，用 \\underline 标出来。"""
+    for prompt in _english_prompts():
+        assert scan_model.UNDERLINE_RULE in prompt
+    assert '\\(\\underline{\\text{like a cat}}\\)' in scan_model.UNDERLINE_RULE
+    assert '对画线部分提问' in scan_model.UNDERLINE_RULE
+
+
+def test_right_stem_cut_never_splits_math():
+    """判对的题只留题干开头，截断处落在公式中间时退到公式前面，不留下没闭合的 \\(。"""
+    stem = 'I run to catch the Frisbee \\(\\underline{\\text{to score points for my team}}\\). (对画线部分提问)'
+    items = scan_model.clean_items({'questions': [
+        {'question_no': 'V、3', 'parsed_question': stem, 'solution': 's', 'verdict': 'right'}]}, set())
+    assert items[0]['parsed_question'] == 'I run to catch the Frisbee '
+    # 截断处不在公式里：照旧截到 40 个字
+    plain = 'x' * 60
+    assert scan_model.cut_stem(plain) == 'x' * scan_model.RIGHT_STEM_CHARS
+    # 整个公式都在 40 个字以内：保留
+    short = 'a \\(x\\) b' + 'y' * 50
+    assert scan_model.cut_stem(short) == short[:scan_model.RIGHT_STEM_CHARS]
+
+
+def test_wrap_bare_math_keeps_underline_span():
+    """带边界的画线写法原样保留，不会被再包一层。"""
+    text = 'He climbed the wall \\(\\underline{\\text{like a cat}}\\). (对画线部分提问)'
+    assert scan_model.wrap_bare_math(text) == text
 
 
 # ---------------------------------------------------------------- 识别顺序 run_page（后端和回归脚本共用）
@@ -1710,6 +1752,10 @@ TESTS = [
     test_build_page_prompt,
     test_build_fill_prompt,
     test_prompts_keep_shared_options_in_each_stem,
+    test_prompts_keep_passage_questions_whole,
+    test_prompts_mark_underlined_part,
+    test_wrap_bare_math_keeps_underline_span,
+    test_right_stem_cut_never_splits_math,
     test_merge_fill,
     test_run_page_without_rescan,
     test_run_page_with_rescan,
