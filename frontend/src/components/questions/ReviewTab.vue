@@ -33,14 +33,15 @@
                 <el-tag v-for="r in reasonLabels(q.review_reasons)" :key="r" type="warning" size="small">{{ r }}</el-tag>
               </span>
             </div>
-            <p v-if="q.review_note" class="rv-note">说明：{{ q.review_note }}</p>
+            <!-- 说明和判错依据里常带公式（如 \(\pm 7\)），和题干一样用 MathText 显示 -->
+            <p v-if="q.review_note" class="rv-note">说明：<MathText :text="q.review_note" /></p>
 
             <div class="rv-field"><span class="rv-label">题干</span><MathText :text="q.parsed_question || '（空）'" /></div>
             <div class="rv-answers">
               <div class="rv-field"><span class="rv-label">学生的答案</span><MathText :text="q.wrong_answer || '（没有记录）'" /></div>
               <div class="rv-field"><span class="rv-label">正确答案</span><MathText :text="q.answer || '（没有记录）'" /></div>
             </div>
-            <div v-if="q.wrong_evidence" class="rv-field"><span class="rv-label">判错依据</span><span>{{ q.wrong_evidence }}</span></div>
+            <div v-if="q.wrong_evidence" class="rv-field"><span class="rv-label">判错依据</span><MathText :text="q.wrong_evidence" /></div>
             <div class="rv-field">
               <span class="rv-label">考点</span>
               <span v-if="q.knowledge_points?.length" class="rv-kp">

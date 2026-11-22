@@ -27,7 +27,7 @@
             <div><dt>所属卷子</dt><dd><router-link v-if="question.paper" class="qdd-link" :to="'/papers/' + question.paper.id">{{ question.paper.name }}</router-link><span v-else>无</span></dd></div>
             <div><dt>题号</dt><dd>{{ question.question_no || '未填' }}</dd></div>
             <div class="is-wide"><dt>学生的答案</dt><dd class="qdd-text"><MathText :text="question.wrong_answer || '暂无'" /></dd></div>
-            <div class="is-wide"><dt>判错依据</dt><dd>{{ question.wrong_evidence || '暂无' }}</dd></div>
+            <div class="is-wide"><dt>判错依据</dt><dd class="qdd-text"><MathText :text="question.wrong_evidence || '暂无'" /></dd></div>
           </dl>
         </section>
 
