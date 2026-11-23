@@ -771,6 +771,8 @@ def scheduled_setup():
     """准备定时入口用的库：weekly 和 auth 都直接用传入的 db，模型换成假的。返回 (连接, db, 还原函数)。"""
     import auth
     c, db, request, fake = advance_setup()
+    # 定时任务要从账号表里挑学生，需要多家庭账号的迁移 0018
+    c.executescript((ROOT / 'migrations' / '0018_accounts.sql').read_text(encoding='utf-8'))
     original = auth.Database
     auth.Database = lambda binding: binding
 
@@ -791,6 +793,30 @@ def test_run_scheduled_advances_and_logs_one_line():
         restore()
     assert line.startswith('weekly ') and '2026-' in line and 'facts_ready' in line and '\n' not in line, line
     assert c.execute('SELECT status FROM weekly_report').fetchone()[0] == 'facts_ready'
+
+
+def test_scheduled_moves_to_next_student():
+    """本期 1 号学生已做完，就推进下一个学生；都做完时日志写 idle；停用账号的学生跳过。"""
+    import weekly
+    c, db, restore = scheduled_setup()
+    c.execute("INSERT INTO app_user(id,name,username,session_version,deleted) VALUES(2,'李家','li',1,0)")
+    c.execute("INSERT INTO student(id,user_id,name,deleted) VALUES(5,2,'小李',0)")
+    c.execute("INSERT INTO app_user(id,name,username,session_version,disabled,deleted) VALUES(3,'停用','gone',1,1,0)")
+    c.execute("INSERT INTO student(id,user_id,name,deleted) VALUES(6,3,'不推进',0)")
+    try:
+        week_end = weekly.stamp(weekly.week_end_before(weekly.analytics.now()))
+        c.execute("INSERT INTO weekly_report(student_id,week_end,status,created_at,updated_at) "
+                  "VALUES(1,?,'done',?,?)", (week_end, week_end, week_end))
+        line = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))
+        assert 'facts_ready' in line, line
+        rows = dict(c.execute('SELECT student_id,status FROM weekly_report WHERE deleted=0').fetchall())
+        assert rows == {1: 'done', 5: 'facts_ready'}, rows
+        c.execute("UPDATE weekly_report SET status='done' WHERE student_id=5")
+        line = run(weekly.run_scheduled(starmap_test.FakeEnv(db)))
+        assert line == 'weekly %s idle' % week_end, line
+        assert c.execute('SELECT COUNT(*) FROM weekly_report WHERE student_id=6').fetchone()[0] == 0
+    finally:
+        restore()
 
 
 def test_run_scheduled_skips_in_maintenance():
@@ -1062,6 +1088,7 @@ TESTS = [
     test_advance_targets_last_ended_week,
     test_router_paths,
     test_run_scheduled_advances_and_logs_one_line,
+    test_scheduled_moves_to_next_student,
     test_run_scheduled_skips_in_maintenance,
     test_run_scheduled_never_raises,
     test_run_scheduled_never_raises_even_before_week_end,

@@ -36,7 +36,7 @@ class Default(asgi.entrypoint(app)):
     """后端入口：HTTP 请求原样继承 asgi.entrypoint(app) 生成的 fetch，只多一个定时入口。"""
 
     async def scheduled(self, controller, env, ctx):
-        """Cron 触发（wrangler.jsonc 的 triggers.crons）：把最近一期周报推进一步，打印一行日志。"""
+        """Cron 触发（wrangler.jsonc 的 triggers.crons）：挑一个这期周报还没做完的学生推进一步，打印一行日志（北京时间周日 20:00–23:50 每 10 分钟一次）。"""
         # 用 self.env：和 HTTP 请求拿到的是同一个包装过的 env（D1 绑定由运行时转换参数）
         await run_scheduled(self.env)
 

@@ -454,8 +454,25 @@ async def advance_step(request, moment: datetime):
 # ---------------------------------------------------------------- 定时任务
 
 
-# 定时任务默认身份：1 号家庭的 1 号学生（任务 10 改为逐个学生推进）
+# 定时任务读维护开关时用的身份（不读学生数据，只是让请求替身完整）
 ADMIN_IDENTITY = {'user_id': 1, 'username': 'admin', 'is_admin': True, 'version': 1, 'student_id': 1}
+
+
+async def pick_scheduled_student(db, week_end):
+    """定时任务这次要推进的学生：账号没删除、没停用，学生没删除，这一期周报还没做完的，按学生编号取第一个。
+
+    返回这个学生的身份字典（同 identity.load_identity），没有要推进的返回 None。
+    每次触发只推进一个学生的一步，开销和单学生时一样。
+    """
+    row = await db.first(
+        'SELECT u.id AS user_id, u.username, u.is_admin, u.session_version AS version, s.id AS student_id '
+        'FROM student s JOIN app_user u ON u.id=s.user_id AND u.deleted=0 AND u.disabled=0 '
+        'WHERE s.deleted=0 AND NOT EXISTS(SELECT 1 FROM weekly_report r WHERE r.student_id=s.id '
+        "AND r.week_end=? AND r.deleted=0 AND r.status='done') ORDER BY s.id LIMIT 1", (week_end,))
+    if row is None:
+        return None
+    return {'user_id': int(row['user_id']), 'username': row['username'], 'is_admin': bool(row['is_admin']),
+            'version': int(row['version']), 'student_id': int(row['student_id'])}
 
 
 class ScheduledRequest:
@@ -481,10 +498,14 @@ async def run_scheduled(env) -> str:
         if await auth.maintenance_enabled(request):
             outcome = 'maintenance'
         else:
-            result, failed_attempts = await advance_step(request, moment)
-            outcome = 'busy' if result['busy'] else result['status']
-            if failed_attempts is not None:
-                outcome += ' text_failed %d/%d' % (failed_attempts, TEXT_MAX_ATTEMPTS)
+            identity = await pick_scheduled_student(Database(env.DB), week_end)
+            if identity is None:
+                outcome = 'idle'      # 所有学生这一期都做完了
+            else:
+                result, failed_attempts = await advance_step(ScheduledRequest(env, identity), moment)
+                outcome = 'busy' if result['busy'] else result['status']
+                if failed_attempts is not None:
+                    outcome += ' text_failed %d/%d' % (failed_attempts, TEXT_MAX_ATTEMPTS)
     except Exception as error:
         outcome = 'failed ' + type(error).__name__
     line = 'weekly %s %s' % (week_end, outcome)
