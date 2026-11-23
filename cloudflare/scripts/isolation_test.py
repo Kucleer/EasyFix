@@ -48,7 +48,7 @@ def build():
 def mount_extra_routers(app):
     """本机测试环境没挂的模块（单词、阅读、激励、复习等）在这里补上。"""
     import importlib
-    for name in ('words', 'word_focus', 'readings', 'motivation', 'review', 'media'):
+    for name in ('words', 'word_focus', 'readings', 'motivation', 'review', 'media', 'accounts'):
         try:
             module = importlib.import_module(name)
             if hasattr(module, 'Database'):   # 和本机测试环境一样：数据库对象由中间件放进 env，原样使用
@@ -278,7 +278,69 @@ def test_foreign_image_path_rejected():
     assert call(client, OTHER, 'PUT', '/api/practice-sets/7005/review-images', {'images': [MINE]}).status_code == 200
 
 
+# ---------------------------------------------------------------- 任务 12：管理员接口
+
+
+def test_admin_creates_family_and_students():
+    """建家庭：用户、学生、年级配置都建好，列表里看得到；可以再加学生、改学生。"""
+    c, client = build()
+    created = call(client, ADMIN, 'POST', '/api/admin/users',
+                   {'username': 'wang_3', 'name': '王家', 'student_name': '小王', 'grade': 4, 'semester': 1})
+    assert created.status_code == 201, created.text
+    ids = created.json()
+    row = c.execute('SELECT username,name,is_admin,disabled,session_version,password_hash FROM app_user WHERE id=?',
+                    (ids['user_id'],)).fetchone()
+    assert tuple(row) == ('wang_3', '王家', 0, 0, 1, None)
+    assert c.execute('SELECT user_id,name FROM student WHERE id=?', (ids['student_id'],)).fetchone()[1] == '小王'
+    config = c.execute("SELECT value FROM runtime_config WHERE name=?", ('app:%d' % ids['student_id'],)).fetchone()[0]
+    assert json.loads(config) == {'default_grade': 4, 'default_semester': 1}
+    more = call(client, ADMIN, 'POST', '/api/admin/users/%d/students' % ids['user_id'],
+                {'name': '王二', 'grade': 2, 'semester': 2})
+    assert more.status_code == 201, more.text
+    edited = call(client, ADMIN, 'PUT', '/api/admin/students/%d' % more.json()['id'], {'name': '王小二', 'grade': 3})
+    assert edited.status_code == 200, edited.text
+    users = {u['username']: u for u in call(client, ADMIN, 'GET', '/api/admin/users').json()}
+    wang = users['wang_3']
+    assert [(s['name'], s['grade'], s['semester']) for s in wang['students']] == [('小王', 4, 1), ('王小二', 3, 2)]
+    assert wang['disabled'] is False and 'li' in users and 'admin' in users   # 管理员自己的家庭也在列表里
+
+
+def test_admin_user_validation():
+    """登录名格式不对 422；重名 409；停用自己 422；删除最后一个学生 409。"""
+    c, client = build()
+    bad = call(client, ADMIN, 'POST', '/api/admin/users', {'username': 'Bad Name', 'name': '坏', 'student_name': 'x'})
+    assert bad.status_code == 422
+    first = call(client, ADMIN, 'POST', '/api/admin/users', {'username': 'zhao', 'name': '赵家', 'student_name': '小赵'})
+    assert first.status_code == 201, first.text
+    dup = call(client, ADMIN, 'POST', '/api/admin/users', {'username': 'zhao', 'name': '重名', 'student_name': 'x'})
+    assert dup.status_code == 409 and dup.json() == {'detail': '登录名已被占用'}
+    assert call(client, ADMIN, 'PUT', '/api/admin/users/1', {'disabled': True}).status_code == 422
+    last = call(client, ADMIN, 'DELETE', '/api/admin/students/5')
+    assert last.status_code == 409 and last.json() == {'detail': '至少要保留一个学生'}
+    assert call(client, ADMIN, 'PUT', '/api/admin/users/99', {'name': 'x'}).status_code == 404
+
+
+def test_admin_disable_ends_sessions():
+    """停用家庭：会话版本加 1，这个家庭的身份查询查不出来；再启用后可以重新登录（版本再加 1）。"""
+    from identity import load_identity
+    import starmap_test
+    c, client = build()
+    assert call(client, ADMIN, 'PUT', '/api/admin/users/2', {'disabled': True}).status_code == 200
+    row = c.execute('SELECT disabled,session_version FROM app_user WHERE id=2').fetchone()
+    assert tuple(row) == (1, 2)
+    db = starmap_test.adapter(c)
+    assert starmap_test.run(load_identity(db, {'user_id': 2, 'student_id': 5, 'version': 2})) is None
+    assert call(client, ADMIN, 'PUT', '/api/admin/users/2', {'disabled': False, 'name': '李家改'}).status_code == 200
+    assert tuple(c.execute('SELECT disabled,session_version,name FROM app_user WHERE id=2').fetchone()) == (0, 3, '李家改')
+    deleted = call(client, ADMIN, 'POST', '/api/admin/users/2/students', {'name': '李三'}).json()
+    assert call(client, ADMIN, 'DELETE', '/api/admin/students/%d' % deleted['id']).status_code == 204
+    assert c.execute('SELECT deleted FROM student WHERE id=?', (deleted['id'],)).fetchone()[0] == 1
+
+
 TESTS = [
+    test_admin_creates_family_and_students,
+    test_admin_user_validation,
+    test_admin_disable_ends_sessions,
     test_foreign_image_path_rejected,
     test_words_practices_readings_by_id_404,
     test_lists_isolated,
