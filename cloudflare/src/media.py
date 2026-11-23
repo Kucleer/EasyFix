@@ -7,6 +7,7 @@ from fastapi import APIRouter,HTTPException,Request,Query
 from fastapi.responses import Response
 from database import Database
 from audio_index import AUDIO_INDEX
+from identity import current_identity, upload_prefix
 
 router=APIRouter()
 
@@ -17,7 +18,7 @@ async def audio(word_id:int,request:Request):
     from js import fetch,Uint8Array,Object,AbortSignal
     from pyodide.ffi import to_js
     db=Database(request.scope['env'].DB)
-    word=await db.first('SELECT english FROM word WHERE id=? AND deleted=0',(word_id,))
+    word=await db.first('SELECT english FROM word WHERE id=? AND student_id=? AND deleted=0',(word_id,current_identity(request)['student_id']))
     if not word:raise HTTPException(404,'单词不存在')
     english=word['english'];bucket=request.scope['env'].IMAGES
     key='audio/words/'+hashlib.sha256(english.lower().encode()).hexdigest()+'.mp3'
@@ -50,18 +51,18 @@ async def audio(word_id:int,request:Request):
 PRINT_WORD_COLUMNS='id,english,chinese,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,grade'
 
 
-async def select_print_words(db,count,grade,word_ids):
+async def select_print_words(db,student_id,count,grade,word_ids):
     """选取要打印的单词：给定 word_ids 时按传入顺序打印这些未删除的词（忽略 count/grade），否则随机抽样。"""
     if word_ids is not None:
         # 逗号分隔的整数，最多 100 个；非法片段跳过
         ids=[int(part) for part in word_ids.split(',') if part.strip().isdigit()]
         if len(ids)>100:raise HTTPException(422,'每次最多打印100个单词')
         if not ids:return []
-        rows=await db.all('SELECT '+PRINT_WORD_COLUMNS+' FROM word WHERE deleted=0 AND id IN ('+','.join('?' for _ in ids)+')',ids)
+        rows=await db.all('SELECT '+PRINT_WORD_COLUMNS+' FROM word WHERE deleted=0 AND student_id=? AND id IN ('+','.join('?' for _ in ids)+')',[student_id,*ids])
         by_id={row['id']:row for row in rows}
         # 保持传入顺序，跳过已删除或不存在的 id
         return [by_id[i] for i in ids if i in by_id]
-    return await db.all('SELECT '+PRINT_WORD_COLUMNS+' FROM word WHERE deleted=0'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[*([grade] if grade else []),count])
+    return await db.all('SELECT '+PRINT_WORD_COLUMNS+' FROM word WHERE deleted=0 AND student_id=?'+(' AND grade=?' if grade else '')+' ORDER BY RANDOM() LIMIT ?',[student_id,*([grade] if grade else []),count])
 
 
 @router.post('/api/words/print-pdf')
@@ -70,10 +71,11 @@ async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|
     from phrase_focus import build_cells,default_spec,print_text,split_tokens
     from word_focus import load_focus_context
     db=Database(request.scope['env'].DB)
-    words=await select_print_words(db,count,grade,word_ids)
+    owner=current_identity(request)
+    words=await select_print_words(db,owner['student_id'],count,grade,word_ids)
     if not words:raise HTTPException(400,'没有可打印的单词')
     # 一次批量载入全部已标注词组的重点，不按词查询
-    context=await load_focus_context(db,words)
+    context=await load_focus_context(db,owner['student_id'],words)
     questions=[]
     for word in words:
         item=context.get(word['id'])
@@ -86,7 +88,8 @@ async def print_words(request:Request,count:int=Query(25,ge=1,le=100),grade:int|
         questions.append({'question_text':print_text(word,tokens)})
     from pdf import call
     result=await call(request,'/pdf',{'title':'单词默写','questions':questions})
-    key='practice_sets/word_'+uuid4().hex+'.pdf'
+    # 新 PDF 放在本家庭的前缀下，网关按前缀判断归属
+    key=upload_prefix(owner['user_id'])+'practice_sets/word_'+uuid4().hex+'.pdf'
     from js import Object
     from pyodide.ffi import to_js
     await request.scope['env'].IMAGES.put(key,await result.js_object.arrayBuffer(),to_js({'httpMetadata':{'contentType':'application/pdf'}},dict_converter=Object.fromEntries))

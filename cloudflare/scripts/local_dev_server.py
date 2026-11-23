@@ -501,7 +501,8 @@ def make_local_generate_practice(uploads_dir):
         pdf = importlib.import_module('pdf')
         practices = importlib.import_module('practices')
         db = request.scope['env'].DB
-        practice = await practices.get(db, practice_set_id)
+        practice = await practices.get(db, practice_set_id,
+                                       student_id=request.scope['easyfix']['student_id'])
         if not practice['questions']:
             raise HTTPException(400, '练习集没有题目')
         await pdf.ensure_printable(db, practice)   # 相似题没准备完的考点卷不能打印，和线上一致

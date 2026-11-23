@@ -81,11 +81,11 @@ async def load_subjects(db):
         'AND k.level=2) AS has_leaves FROM subject s WHERE s.deleted=0 ORDER BY s.id')
 
 
-async def entries_part(db, win, week_end, names):
+async def entries_part(db, win, week_end, names, student_id):
     """录入：本周、上周的条数，连续有录入的周数，本周分学科条数；另返回有录入的日期集合（一条 SQL）。"""
     starts = week_starts(week_end, STREAK_LOOKBACK)
     rows = await db.all('SELECT q.created_at, q.subject_id FROM question q WHERE ' + counted('q') +
-                        ' AND q.created_at>=? AND q.created_at<?', (starts[0], win['end']))
+                        ' AND q.student_id=? AND q.created_at>=? AND q.created_at<?', (student_id, starts[0], win['end']))
     counts = [0] * len(starts)      # 每个窗口的条数，从早到晚
     by_subject = {}
     dates = set()
@@ -106,12 +106,15 @@ async def entries_part(db, win, week_end, names):
     return entries, dates
 
 
-async def dictation_part(db, win, week_end):
+async def dictation_part(db, win, week_end, student_id):
     """单词默写（只算 review_type=1）：本周、上周、近 6 周趋势、本周默写天数；另返回有默写的日期集合（一条 SQL）。"""
     starts = week_starts(week_end, TREND_WEEKS)
     first_day = calendar_first_moment(win)    # 日历第一天 00:00
-    rows = await db.all('SELECT reviewed_at, is_correct FROM word_review_log WHERE deleted=0 AND review_type=1 '
-                        'AND reviewed_at>=? AND reviewed_at<?', (min(first_day, starts[0]), win['end']))
+    # 默写记录自己没有学生列，连上单词按学生过滤
+    rows = await db.all('SELECT l.reviewed_at, l.is_correct FROM word_review_log l '
+                        'JOIN word w ON w.id=l.word_id AND w.student_id=? '
+                        'WHERE l.deleted=0 AND l.review_type=1 AND l.reviewed_at>=? AND l.reviewed_at<?',
+                        (student_id, min(first_day, starts[0]), win['end']))
     totals = [0] * len(starts)
     rights = [0] * len(starts)
     dates = set()
@@ -148,13 +151,13 @@ async def flip_part(db, student_id, win, first_moment):
     return flip_counts(rows, win['start'], win['end'], week_dates(win['monday'])), flip_dates(rows)
 
 
-async def practice_part(db, win):
+async def practice_part(db, win, student_id):
     """错题练习卷：本周、上周批改的份数和每题结果（一条 SQL）。"""
     rows = await db.all(
         'SELECT ps.id AS set_id, ps.last_reviewed_at AS at, pq.is_correct FROM practice_set ps '
         'LEFT JOIN practice_set_question pq ON pq.practice_set_id=ps.id AND pq.deleted=0 AND pq.is_correct IS NOT NULL '
-        "WHERE ps.deleted=0 AND ps.reviewed=1 AND ps.source_type='question' "
-        'AND ps.last_reviewed_at>=? AND ps.last_reviewed_at<?', (win['prev_start'], win['end']))
+        "WHERE ps.deleted=0 AND ps.student_id=? AND ps.reviewed=1 AND ps.source_type='question' "
+        'AND ps.last_reviewed_at>=? AND ps.last_reviewed_at<?', (student_id, win['prev_start'], win['end']))
     weeks = {'this': {'sets': set(), 'questions': 0, 'correct': 0},
              'prev': {'sets': set(), 'questions': 0, 'correct': 0}}
     for row in rows:
@@ -177,8 +180,9 @@ async def graduated_count(db, win, student_id):
         'LEFT JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 AND qk.is_primary=1 '
         'JOIN practice_set_question o ON o.question_id=q.id AND o.deleted=0 '
         'AND o.is_correct IS NOT NULL AND o.skip_reason IS NULL '
-        'JOIN practice_set ps ON ps.id=o.practice_set_id AND ps.deleted=0 '
-        'WHERE ' + counted('q') + ' AND q.created_at<? AND ps.last_reviewed_at<?', (win['end'], win['end']))
+        'JOIN practice_set ps ON ps.id=o.practice_set_id AND ps.deleted=0 AND ps.student_id=q.student_id '
+        'WHERE ' + counted('q') + ' AND q.student_id=? AND q.created_at<? AND ps.last_reviewed_at<?',
+        (student_id, win['end'], win['end']))
     # "直接设为掌握"：{考点: [时间, ...]}，一道题看它主考点上的调整
     adjust_rows = await db.all(
         "SELECT knowledge_point_id AS point_id, created_at FROM mastery_adjustment WHERE deleted=0 AND student_id=? "
@@ -275,10 +279,10 @@ async def build_facts(db, request, week_end: datetime) -> dict:
     number = await report_number(db, student_id, win['end'])
     subjects = await load_subjects(db)
     names = {row['id']: row['name'] for row in subjects}
-    entries, entered_dates = await entries_part(db, win, week_end, names)
-    dictation, dictated_dates = await dictation_part(db, win, week_end)
+    entries, entered_dates = await entries_part(db, win, week_end, names, student_id)
+    dictation, dictated_dates = await dictation_part(db, win, week_end, student_id)
     flip, flipped_dates = await flip_part(db, student_id, win, calendar_first_moment(win))
-    practice = await practice_part(db, win)
+    practice = await practice_part(db, win, student_id)
     practice['graduated'] = await graduated_count(db, win, student_id)
     # 教材进度和默认年级用当前配置，不追溯
     config = await starmap.load_config(request)
@@ -314,7 +318,7 @@ def stamp(moment):
 
 async def ensure_report(db, student_id, week_end, now_text):
     """读这一期的记录；还没有就建一条再读（唯一索引保证同一期只有一条，并发建时另一条什么都不做）。"""
-    sql = ('SELECT id,status,step_started_at,facts,attempts FROM weekly_report '
+    sql = ('SELECT id,student_id,status,step_started_at,facts,attempts FROM weekly_report '
            'WHERE student_id=? AND week_end=? AND deleted=0')
     row = await db.first(sql, (student_id, week_end))
     if row is None:
@@ -328,8 +332,9 @@ async def claim_step(db, row, moment):
     """用一条条件更新认领这一步：状态还是读到时的样子、且没有别人正在做（或已卡住）才算认领成功。"""
     found = await db.first(
         'UPDATE weekly_report SET step_started_at=?,updated_at=? '
-        'WHERE id=? AND deleted=0 AND status=? AND (step_started_at IS NULL OR step_started_at<?) RETURNING id',
-        (stamp(moment), stamp(moment), row['id'], row['status'], stamp(moment - timedelta(seconds=STALE_SECONDS))))
+        'WHERE id=? AND student_id=? AND deleted=0 AND status=? AND (step_started_at IS NULL OR step_started_at<?) RETURNING id',
+        (stamp(moment), stamp(moment), row['id'], row['student_id'], row['status'],
+         stamp(moment - timedelta(seconds=STALE_SECONDS))))
     return found is not None
 
 
@@ -342,8 +347,8 @@ async def finish_step(db, row, claimed_at, fields):
     data = dict(fields, step_started_at=None, updated_at=claimed_at)
     columns = ','.join(key + '=?' for key in data)
     found = await db.first(
-        'UPDATE weekly_report SET ' + columns + ' WHERE id=? AND deleted=0 AND status=? AND step_started_at=? '
-        'RETURNING id', [*data.values(), row['id'], row['status'], claimed_at])
+        'UPDATE weekly_report SET ' + columns + ' WHERE id=? AND student_id=? AND deleted=0 AND status=? AND step_started_at=? '
+        'RETURNING id', [*data.values(), row['id'], row['student_id'], row['status'], claimed_at])
     return found is not None
 
 

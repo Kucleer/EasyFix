@@ -40,8 +40,8 @@ async def load_points(db, subject_id):
                         'WHERE deleted=0 AND subject_id=? AND level IN (1,2) ORDER BY sort_order,id', (subject_id,))
 
 
-async def load_events(db, subject_id, student_id=1, min_grade=None):
-    """取出这一科全部事件，按二级考点分组：{考点编号: [事件, ...]}（三条 SQL）。
+async def load_events(db, subject_id, student_id, min_grade=None):
+    """取出这个学生这一科全部事件，按二级考点分组：{考点编号: [事件, ...]}（三条 SQL）。
 
     错题和练习事件带上错题编号 qid 和 gate（这道题能不能进卷子：题干不为空、年级不低于
     min_grade）；gate 为假的题照常加减掌握度，但不算"待重做"、不挡变绿。
@@ -61,8 +61,8 @@ async def load_events(db, subject_id, student_id=1, min_grade=None):
         + WRONG_AT_SQL + ' AS at '
         'FROM question q JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 '
-        'LEFT JOIN paper p ON p.id=q.paper_id AND p.deleted=0 '
-        'WHERE ' + counted('q') + ' AND q.subject_id=?', (*grade_params, subject_id))
+        'LEFT JOIN paper p ON p.id=q.paper_id AND p.deleted=0 AND p.student_id=q.student_id '
+        'WHERE ' + counted('q') + ' AND q.student_id=? AND q.subject_id=?', (*grade_params, student_id, subject_id))
     for row in rows:
         add(row['point_id'], {'kind': 'wrong', 'at': row['at'], 'seq': SEQ['question'], 'adjust': None,
                               'source': 'question', 'qid': row['qid'], 'entered': row['entered'],
@@ -71,11 +71,11 @@ async def load_events(db, subject_id, student_id=1, min_grade=None):
     rows = await db.all(
         'SELECT qk.knowledge_point_id AS point_id, pq.is_correct AS correct, ps.last_reviewed_at AS at, '
         'q.id AS qid, pq.display_order AS display_order, ' + gate_sql + ' '
-        'FROM practice_set_question pq JOIN practice_set ps ON ps.id=pq.practice_set_id AND ps.deleted=0 '
-        'JOIN question q ON q.id=pq.question_id AND ' + counted('q') + ' AND q.subject_id=? '
+        'FROM practice_set_question pq JOIN practice_set ps ON ps.id=pq.practice_set_id AND ps.deleted=0 AND ps.student_id=? '
+        'JOIN question q ON q.id=pq.question_id AND ' + counted('q') + ' AND q.student_id=? AND q.subject_id=? '
         'JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 '
-        'WHERE pq.deleted=0 AND pq.is_correct IS NOT NULL', (*grade_params, subject_id))
+        'WHERE pq.deleted=0 AND pq.is_correct IS NOT NULL', (*grade_params, student_id, student_id, subject_id))
     for row in rows:
         add(row['point_id'], {'kind': 'right' if row['correct'] else 'wrong', 'at': row['at'],
                               'seq': SEQ['practice'], 'adjust': None, 'source': 'practice', 'qid': row['qid'],
@@ -199,11 +199,11 @@ async def compute(db, request, subject_id, default_grade=NOT_LOADED):
     return subject, nodes, links, mastered, config
 
 
-async def load_vocab(db):
-    """词汇星团：单词本里"复习过且正确率超过 80%"的条目数和总数。"""
+async def load_vocab(db, student_id):
+    """词汇星团：这个学生单词本里"复习过且正确率超过 80%"的条目数和总数。"""
     row = await db.first('SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN review_count>0 AND '
                          'correct_count*100.0/review_count>80 THEN 1 ELSE 0 END),0) AS mastered '
-                         'FROM word WHERE deleted=0')
+                         'FROM word WHERE deleted=0 AND student_id=?', (student_id,))
     return {'mastered': row['mastered'], 'total': row['total'], **vocab_progress(row['mastered'], row['total'])}
 
 
@@ -212,7 +212,7 @@ async def starmap_view(request: Request, subject_id: int):
     """一科的知识星空：全部考点的掌握度、连线、词汇星团（英语）和要播放的点亮考点。"""
     db = Database(request.scope['env'].DB)
     subject, nodes, links, mastered, config = await compute(db, request, subject_id)
-    vocab = await load_vocab(db) if subject['name'] == '英语' else None
+    vocab = await load_vocab(db, current_student_id(request)) if subject['name'] == '英语' else None
     seen_map = config.get('seen') or {}
     seen = seen_map.get(str(subject_id))
     to_play, seen_after = lighting(mastered, set(seen) if seen is not None else None)
@@ -277,18 +277,20 @@ async def add_adjustment(request: Request):
                      'VALUES(?,?,?,?,0)', (student_id, target, kind, stamp)) for target in targets])
     placeholders = ','.join('?' * len(targets))
     return await db.all('SELECT id, knowledge_point_id, kind, created_at FROM mastery_adjustment WHERE deleted=0 AND '
-                        'created_at=? AND kind=? AND knowledge_point_id IN (' + placeholders + ') ORDER BY id',
-                        (stamp, kind, *targets))
+                        'student_id=? AND created_at=? AND kind=? AND knowledge_point_id IN (' + placeholders + ') ORDER BY id',
+                        (student_id, stamp, kind, *targets))
 
 
 @router.delete('/adjustments/{adjustment_id}', status_code=204)
 async def remove_adjustment(adjustment_id: int, request: Request):
     """撤销一次手动调整（软删除）。"""
     db = Database(request.scope['env'].DB)
-    row = await db.first('SELECT id FROM mastery_adjustment WHERE id=? AND deleted=0', (adjustment_id,))
+    student_id = current_student_id(request)
+    row = await db.first('SELECT id FROM mastery_adjustment WHERE id=? AND student_id=? AND deleted=0',
+                         (adjustment_id, student_id))
     if not row:
         raise HTTPException(404, '调整记录不存在')
-    await db.run('UPDATE mastery_adjustment SET deleted=1 WHERE id=?', (adjustment_id,))
+    await db.run('UPDATE mastery_adjustment SET deleted=1 WHERE id=? AND student_id=?', (adjustment_id, student_id))
     return Response(status_code=204)
 
 

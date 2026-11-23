@@ -9,6 +9,7 @@ from database import Database
 from phrase_focus import ERROR_WINDOW, apply_annotation, focus_indices, spec_active
 from prompts import PromptLibrary
 from settings import generate_json, load
+from question_scope import current_student_id
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ router = APIRouter()
 MAX_ANNOTATE_WORDS = 20
 
 
-async def load_focus_context(db, rows):
+async def load_focus_context(db, student_id, rows):
     """为已标注生效的词组计算重点下标，返回 {word_id: {'spec': 标注, 'focus': 重点下标列表}}。
 
     一次调用恰好两次查询（批量，不按词查询）：
@@ -41,9 +42,9 @@ async def load_focus_context(db, rows):
     })
     mastered_rows = await db.all(
         "SELECT DISTINCT lower(english) AS lemma FROM word "
-        "WHERE entry_type='word' AND deleted=0 AND learning_phase='牢记' "
+        "WHERE entry_type='word' AND deleted=0 AND student_id=? AND learning_phase='牢记' "
         "AND lower(english) IN (SELECT value FROM json_each(?))",
-        (json.dumps(lemmas, ensure_ascii=False),),
+        (student_id, json.dumps(lemmas, ensure_ascii=False)),
     )
     mastered = {row['lemma'] for row in mastered_rows}
 
@@ -54,12 +55,12 @@ async def load_focus_context(db, rows):
         "SELECT word_id,token_results FROM ("
         "SELECT l.word_id,l.token_results,"
         "ROW_NUMBER() OVER(PARTITION BY l.word_id ORDER BY l.reviewed_at DESC,l.id DESC) AS rn "
-        "FROM word_review_log l JOIN word w ON w.id=l.word_id "
+        "FROM word_review_log l JOIN word w ON w.id=l.word_id AND w.student_id=? "
         "WHERE l.deleted=0 AND l.review_type=1 AND l.token_results IS NOT NULL "
         "AND w.id IN (SELECT value FROM json_each(?)) "
         "AND (w.focus_updated_at IS NULL OR l.reviewed_at>=w.focus_updated_at)"
         ") WHERE rn<=? ORDER BY word_id,rn",
-        (json.dumps(sorted(specs)), ERROR_WINDOW),
+        (student_id, json.dumps(sorted(specs)), ERROR_WINDOW),
     )
     recent = {}
     for row in log_rows:
@@ -98,7 +99,7 @@ def collect_candidate_lemmas(llm_output):
     return sorted(lemmas)
 
 
-async def annotate_words(db, word_ids, generate, default_grade):
+async def annotate_words(db, student_id, word_ids, generate, default_grade):
     """用模型为一批词组生成草稿标注，返回 {annotated, skipped, failures, missing_lemmas}。
 
     固定的数据库调用：取词 1 次；有待标注词组时再取已有单词 1 次、批量写入 1 次。
@@ -106,8 +107,8 @@ async def annotate_words(db, word_ids, generate, default_grade):
     """
     rows = await db.all(
         "SELECT id,english,chinese,grade,semester,entry_type,focus_status FROM word "
-        "WHERE deleted=0 AND id IN (SELECT value FROM json_each(?))",
-        (json.dumps(list(word_ids)),),
+        "WHERE deleted=0 AND student_id=? AND id IN (SELECT value FROM json_each(?))",
+        (student_id, json.dumps(list(word_ids))),
     )
     found = {row['id']: row for row in rows}
 
@@ -142,9 +143,9 @@ async def annotate_words(db, word_ids, generate, default_grade):
     if candidates:
         known_rows = await db.all(
             "SELECT DISTINCT lower(english) AS lemma FROM word "
-            "WHERE entry_type='word' AND deleted=0 "
+            "WHERE entry_type='word' AND deleted=0 AND student_id=? "
             "AND lower(english) IN (SELECT value FROM json_each(?))",
-            (json.dumps(candidates, ensure_ascii=False),),
+            (student_id, json.dumps(candidates, ensure_ascii=False)),
         )
         known_words = {row['lemma'] for row in known_rows}
 
@@ -156,8 +157,8 @@ async def annotate_words(db, word_ids, generate, default_grade):
         statements = [
             (
                 "UPDATE word SET focus_spec=?,focus_status='draft',focus_updated_at=? "
-                "WHERE id=? AND deleted=0 AND focus_status<>'confirmed'",
-                (json.dumps(update['focus_spec'], ensure_ascii=False), stamp, update['id']),
+                "WHERE id=? AND student_id=? AND deleted=0 AND focus_status<>'confirmed'",
+                (json.dumps(update['focus_spec'], ensure_ascii=False), stamp, update['id'], student_id),
             )
             for update in result['updates']
         ]
@@ -190,6 +191,7 @@ async def annotate_route(request: Request):
     app_config = await load(request, 'app')
     return await annotate_words(
         db,
+        current_student_id(request),
         word_ids,
         lambda prompt: generate_json(request, prompt),
         app_config.get('default_grade'),

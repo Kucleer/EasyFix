@@ -165,6 +165,11 @@ def build_database(check_same_thread=True):
     """旧表结构加 0010 迁移，后续任务的数据库测试都从这里开始。"""
     connection = build_legacy_database(check_same_thread)
     apply_migration(connection)
+    # 业务代码现在按学生读写（迁移 0011 加的列）；旧结构只补上用得到的 student_id 列，默认 1 号学生
+    for table in ('word', 'tag', 'word_review', 'word_review_session', 'practice_set'):
+        columns = {row[1] for row in connection.execute('PRAGMA table_info(%s)' % table)}
+        if columns and 'student_id' not in columns:
+            connection.execute('ALTER TABLE %s ADD COLUMN student_id INTEGER NOT NULL DEFAULT 1' % table)
     return connection
 
 
@@ -403,28 +408,28 @@ def build_listing_database():
 def test_save_entry_type_and_focus():
     """保存词条：类型默认值、标注校验、英文改动使标注失效。"""
     db = adapter(build_database())
-    created = run(save(db, {'english': 'be  proud of', 'chinese': '为…自豪', 'grade': 6}))
+    created = run(save(db, {'english': 'be  proud of', 'chinese': '为…自豪', 'grade': 6}, student_id=1))
     assert (created['entry_type'], created['focus_status'], created['dictation_level']) == ('phrase', 'none', 1)
-    single = run(save(db, {'english': 'proud', 'chinese': '自豪的'}))
+    single = run(save(db, {'english': 'proud', 'chinese': '自豪的'}, student_id=1))
     assert (single['entry_type'], single['dictation_level']) == ('word', 3)
     # 带标注保存 → confirmed，并写 focus_updated_at
-    saved = run(save(db, {'focus_spec': {'tokens': PROUD_OF_TOKENS}}, created['id']))
+    saved = run(save(db, {'focus_spec': {'tokens': PROUD_OF_TOKENS}}, created['id'], 1))
     assert saved['focus_status'] == 'confirmed' and saved['focus_spec']['source_english'] == 'be proud of'
     assert saved['focus_updated_at']
     # 普通编辑不改变标注状态
     run(db.run("UPDATE word SET focus_status='draft' WHERE id=?", (created['id'],)))
-    assert run(save(db, {'chinese': '以…为荣'}, created['id']))['focus_status'] == 'draft'
+    assert run(save(db, {'chinese': '以…为荣'}, created['id'], 1))['focus_status'] == 'draft'
     # 英文改动 → 标注失效但保留
-    changed = run(save(db, {'english': 'be proud in'}, created['id']))
+    changed = run(save(db, {'english': 'be proud in'}, created['id'], 1))
     assert changed['focus_status'] == 'none' and changed['focus_spec'] is not None
     # 只是空白不同不算改动
-    run(save(db, {'focus_spec': {'tokens': [{'text': 'be', 'role': 'plain'}, {'text': 'proud', 'role': 'plain'}, {'text': 'in', 'role': 'collocation'}]}}, created['id']))
-    assert run(save(db, {'english': ' be  proud in '}, created['id']))['focus_status'] == 'confirmed'
+    run(save(db, {'focus_spec': {'tokens': [{'text': 'be', 'role': 'plain'}, {'text': 'proud', 'role': 'plain'}, {'text': 'in', 'role': 'collocation'}]}}, created['id'], 1))
+    assert run(save(db, {'english': ' be  proud in '}, created['id'], 1))['focus_status'] == 'confirmed'
     # 非法标注 → 422，原记录不变
-    expect_http(422, lambda: run(save(db, {'focus_spec': {'tokens': PROUD_OF_TOKENS}}, created['id'])))
+    expect_http(422, lambda: run(save(db, {'focus_spec': {'tokens': PROUD_OF_TOKENS}}, created['id'], 1)))
     # 手动指定类型
-    assert run(save(db, {'entry_type': 'word'}, created['id']))['entry_type'] == 'word'
-    expect_http(422, lambda: run(save(db, {'entry_type': 'sentence'}, created['id'])))
+    assert run(save(db, {'entry_type': 'word'}, created['id'], 1))['entry_type'] == 'word'
+    expect_http(422, lambda: run(save(db, {'entry_type': 'sentence'}, created['id'], 1)))
 
 
 def test_batch_import_with_focus():
@@ -434,7 +439,7 @@ def test_batch_import_with_focus():
         {'english': 'be good at', 'chinese': '擅长', 'focus_spec': {'tokens': GOOD_AT_TOKENS}},
         {'english': 'take part in', 'chinese': '参加', 'focus_spec': {'tokens': GOOD_AT_TOKENS}},  # 与英文不符
         {'english': 'apple', 'chinese': '苹果'},
-    ]}))
+    ]}, 1))
     assert result['success_count'] == 3
     assert 'focus_error' in result['results'][1] and 'focus_error' not in result['results'][0]
     rows = {r['english']: r for r in run(db.all('SELECT * FROM word WHERE deleted=0'))}
@@ -446,14 +451,14 @@ def test_batch_import_with_focus():
 def test_listing_filters_and_stats():
     """列表按类型和标注状态筛选，统计按类型汇总。"""
     db = build_listing_database()
-    assert {r['english'] for r in run(list_words(db, {'entry_type': 'phrase'}, 0, 50))['items']} == PHRASES
-    assert {r['english'] for r in run(list_words(db, {'focus_status': 'confirmed'}, 0, 50))['items']} == CONFIRMED
-    stats = run(word_stats(db))
+    assert {r['english'] for r in run(list_words(db, {'entry_type': 'phrase'}, 0, 50, 1))['items']} == PHRASES
+    assert {r['english'] for r in run(list_words(db, {'focus_status': 'confirmed'}, 0, 50, 1))['items']} == CONFIRMED
+    stats = run(word_stats(db, 1))
     assert stats['by_type']['word']['total'] == WORD_TOTAL and stats['by_type']['phrase']['total'] == PHRASE_TOTAL
     assert stats['by_type']['phrase']['accuracy'] == 50.0  # 夹具：词组合计 correct 3 / review 6
     assert stats['by_type']['word']['accuracy'] == round(2 / 3 * 100, 1)
     # 列表返回新增字段，focus_spec 为解析后的对象或 None
-    item = run(list_words(db, {'entry_type': 'phrase'}, 0, 50))['items'][0]
+    item = run(list_words(db, {'entry_type': 'phrase'}, 0, 50, 1))['items'][0]
     assert {'entry_type', 'focus_status', 'focus_spec', 'dictation_level'} <= set(item)
     assert item['focus_spec'] is None
     # 原有统计字段保持不变
@@ -637,7 +642,7 @@ def baseline_start_queries():
     """同一份数据在没有任何已标注词组时，start_session 的数据库调用次数。"""
     db = seeded()
     run(db.run("UPDATE word SET focus_status='none'"))
-    return counted_queries(db, lambda: start_session(db, 10, None, None, None, None))
+    return counted_queries(db, lambda: start_session(db, 1, 10, None, None, None, None))
 
 
 BASELINE_START_QUERIES = baseline_start_queries()
@@ -653,7 +658,7 @@ def one_correct_payload(session, ids, level):
 def test_start_returns_tokens():
     """抽题：已标注词组带格子，单词与未标注词组不带；只多两次查询。"""
     db = seeded()
-    data = run(start_session(db, 10, None, None, None, None))
+    data = run(start_session(db, 1, 10, None, None, None, None))
     by = {q['english']: q for q in data['questions']}
     assert 'tokens' not in by['apple'] and by['apple']['dictation_level'] == 3
     # 未标注词组在自动模式下先走提示档：每个词给首字母
@@ -663,13 +668,13 @@ def test_start_returns_tokens():
     assert [t['blank'] for t in by['be proud of']['tokens']] == [False, True, True]  # proud 未牢记
     assert by['apple']['entry_type'] == 'word' and by['be good at']['entry_type'] == 'phrase'
     run(db.run("UPDATE word SET learning_phase='牢记' WHERE english='proud'"))
-    data = run(start_session(db, 10, None, None, 'phrase', None))
+    data = run(start_session(db, 1, 10, None, None, 'phrase', None))
     by = {q['english']: q for q in data['questions']}
     assert set(by) == {'be good at', 'be proud of', 'take part in'}
     assert [t['blank'] for t in by['be proud of']['tokens']] == [False, False, True]
-    data = run(start_session(db, 10, None, None, 'phrase', 3))
+    data = run(start_session(db, 1, 10, None, None, 'phrase', 3))
     assert all(t['blank'] for t in {q['english']: q for q in data['questions']}['be good at']['tokens'])
-    assert counted_queries(db, lambda: start_session(db, 10, None, None, None, None)) <= BASELINE_START_QUERIES + 2
+    assert counted_queries(db, lambda: start_session(db, 1, 10, None, None, None, None)) <= BASELINE_START_QUERIES + 2
 
 
 def test_start_without_annotation_adds_no_queries():
@@ -677,8 +682,8 @@ def test_start_without_annotation_adds_no_queries():
     db = seeded()
     run(db.run("UPDATE word SET focus_status='none'"))
     assert BASELINE_START_QUERIES == 3
-    assert counted_queries(db, lambda: start_session(db, 10, None, None, None, None)) == 3
-    data = run(start_session(db, 10, None, None, None, None))
+    assert counted_queries(db, lambda: start_session(db, 1, 10, None, None, None, None)) == 3
+    data = run(start_session(db, 1, 10, None, None, None, None))
     # 单词不带格子；未标注词组的提示格子不需要额外查询
     assert all('tokens' not in q for q in data['questions'] if q['entry_type'] == 'word')
     assert {q['entry_type'] for q in data['questions']} == {'word', 'phrase'}
@@ -688,7 +693,7 @@ def test_submit_levels_and_logs():
     """提交：已标注词组升降档并记录逐词结果，其余词条的档位列与日志列不变。"""
     db = seeded()
     session, ids = begin(db)
-    out, first = run(submit_session(db, {'session_id': session, 'duration': 30, 'results': [
+    out, first = run(submit_session(db, 1, {'session_id': session, 'duration': 30, 'results': [
         {'word_id': ids['be good at'], 'is_correct': True, 'user_answer': 'be good at', 'review_type': 1,
          'dictation_level': 1, 'token_results': [{'i': 2, 'ok': True}]},
         {'word_id': ids['be proud of'], 'is_correct': False, 'user_answer': 'be pruod of', 'review_type': 1,
@@ -714,8 +719,8 @@ def test_submit_idempotent_keeps_level():
     db = seeded()
     session, ids = begin(db, only='be good at')  # 场次只登记提交的那一个词
     payload = one_correct_payload(session, ids, level=1)
-    run(submit_session(db, payload))
-    out, first = run(submit_session(db, payload))
+    run(submit_session(db, 1, payload))
+    out, first = run(submit_session(db, 1, payload))
     assert not first and by_english(db)['be good at']['dictation_level'] == 2
     assert run(db.first('SELECT COUNT(*) AS n FROM word_review_log WHERE word_id=?', (ids['be good at'],)))['n'] == 1
 
@@ -724,7 +729,7 @@ def test_submit_from_old_frontend():
     """旧前端不带新字段：日志记档位 3、无逐词结果，档位照常升一档。"""
     db = seeded()
     session, ids = begin(db, only='be good at')
-    out, _ = run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+    out, _ = run(submit_session(db, 1, {'session_id': session, 'duration': 5, 'results': [
         {'word_id': ids['be good at'], 'is_correct': True, 'user_answer': 'be good at', 'review_type': 1}]}))
     assert out['correct'] == 1
     log = latest_log(db, ids['be good at'])
@@ -736,7 +741,7 @@ def test_manual_level_not_written_back():
     """手动选档不写回词条，但日志记录实际档位。"""
     db = seeded()
     session, ids = begin(db, only='be good at')
-    run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+    run(submit_session(db, 1, {'session_id': session, 'duration': 5, 'results': [
         {'word_id': ids['be good at'], 'is_correct': True, 'user_answer': 'be good at', 'review_type': 1,
          'dictation_level': 3, 'dictation_auto': False,
          'token_results': [{'i': 0, 'ok': True}, {'i': 1, 'ok': True}, {'i': 2, 'ok': True}]}]}))
@@ -759,7 +764,7 @@ def grant_case(english, review_type, level, phase='在途', annotated=True, ok=T
     if annotated and review_type == 1:
         result['dictation_level'] = level
         result['token_results'] = [{'i': 2, 'ok': ok}]
-    out, first = run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [result]}))
+    out, first = run(submit_session(db, 1, {'session_id': session, 'duration': 5, 'results': [result]}))
     assert first and out['total'] == 1
     return by_english(db)[english]
 
@@ -791,7 +796,7 @@ def test_listening_accepted_and_grant_rules():
     # 听力日志记录题型 3
     db = seeded()
     session, ids = begin(db, only='apple')
-    run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+    run(submit_session(db, 1, {'session_id': session, 'duration': 5, 'results': [
         {'word_id': ids['apple'], 'is_correct': True, 'user_answer': '', 'review_type': 3}]}))
     assert latest_log(db, ids['apple'])['review_type'] == 3
 
@@ -818,13 +823,13 @@ def test_submit_validation():
     ]
     for extra in bad_extras:
         payload = {'session_id': session, 'duration': 5, 'results': [{**base, **extra}]}
-        expect_http(422, lambda payload=payload: run(submit_session(db, payload)))
+        expect_http(422, lambda payload=payload: run(submit_session(db, 1, payload)))
     assert run(db.first('SELECT COUNT(*) AS n FROM word_review_log'))['n'] == 0
     assert run(db.first("SELECT COUNT(*) AS n FROM request_record WHERE name LIKE 'word-submit:%'"))['n'] == 0
     # 合法的边界值可以通过
     good = {'session_id': session, 'duration': 5, 'results': [
         {**base, 'dictation_level': 2, 'dictation_auto': True, 'token_results': []}]}
-    assert run(submit_session(db, good))[1] is True
+    assert run(submit_session(db, 1, good))[1] is True
 
 
 def test_error_driven_uses_only_current_annotation():
@@ -837,7 +842,7 @@ def test_error_driven_uses_only_current_annotation():
 
     def blanks():
         """重新抽题，返回「be good at」各格子是否空出。"""
-        data = run(start_session(db, 10, None, None, None, None))
+        data = run(start_session(db, 1, 10, None, None, None, None))
         by = {q['english']: q for q in data['questions']}
         return [t['blank'] for t in by['be good at']['tokens']]
 
@@ -869,12 +874,12 @@ def test_error_driven_uses_only_current_annotation():
     assert blanks() == [False, False, True]
     # 直接检查载入结果：每个已标注词组一项，单词与未标注词组没有
     rows = run(db.all('SELECT * FROM word WHERE deleted=0'))
-    context = run(load_focus_context(db, rows))
+    context = run(load_focus_context(db, 1, rows))
     assert set(context) == {good_at, ids['be proud of']}
     assert context[good_at]['focus'] == [2]
     assert context[good_at]['spec']['source_english'] == 'be good at'
-    assert counted_queries(db, lambda: load_focus_context(db, rows)) == 2
-    assert counted_queries(db, lambda: load_focus_context(db, [r for r in rows if r['english'] == 'apple'])) == 0
+    assert counted_queries(db, lambda: load_focus_context(db, 1, rows)) == 2
+    assert counted_queries(db, lambda: load_focus_context(db, 1, [r for r in rows if r['english'] == 'apple'])) == 0
 
 
 # ---------------------------------------------------------------- 任务 6
@@ -944,7 +949,7 @@ def test_annotate_words_respects_confirmed():
     before_rows = by_english(db)
     before = before_rows['be good at']
     before_counts = {name: row['review_count'] for name, row in before_rows.items()}
-    result = run(annotate_words(db, [ids['be good at'], ids['be proud of'], ids['take part in'], ids['apple']], fake, 6))
+    result = run(annotate_words(db, 1, [ids['be good at'], ids['be proud of'], ids['take part in'], ids['apple']], fake, 6))
     assert len(calls) == 1 and 'be good at' not in calls[0] and 'apple' not in calls[0]
     assert result['annotated'] == 2 and {s['id'] for s in result['skipped']} == {ids['be good at'], ids['apple']}
     assert result['failures'] == []
@@ -974,7 +979,7 @@ def test_annotate_words_reports_failures_and_missing():
         return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS},
                           {'id': ids['take part in'], 'tokens': GOOD_AT_TOKENS}]}
 
-    result = run(annotate_words(db, [ids['be proud of'], ids['take part in'], 9999], fake, None))
+    result = run(annotate_words(db, 1, [ids['be proud of'], ids['take part in'], 9999], fake, None))
     assert result['annotated'] == 1
     assert [f['id'] for f in result['failures']] == [ids['take part in']]
     assert {s['id'] for s in result['skipped']} == {9999}
@@ -993,7 +998,7 @@ def test_annotate_never_overwrites_concurrent_confirm():
         await db.run("UPDATE word SET focus_status='confirmed' WHERE english='be proud of'")
         return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS}]}
 
-    run(annotate_words(db, [ids['be proud of']], fake, 6))
+    run(annotate_words(db, 1, [ids['be proud of']], fake, 6))
     row = by_english(db)['be proud of']
     assert row['focus_status'] == 'confirmed' and row['focus_spec'] == old_spec
 
@@ -1009,7 +1014,7 @@ def test_annotate_query_budget():
         return {'items': [{'id': ids['be proud of'], 'tokens': PROUD_OF_TOKENS},
                           {'id': ids['take part in'], 'tokens': TAKE_PART_IN_TOKENS}]}
 
-    total = counted_queries(db, lambda: annotate_words(db, [ids['be proud of'], ids['take part in']], fake, 6))
+    total = counted_queries(db, lambda: annotate_words(db, 1, [ids['be proud of'], ids['take part in']], fake, 6))
     assert total == 3 and len(calls) == 1
 
 
@@ -1023,11 +1028,11 @@ def test_annotate_all_skipped_makes_no_llm_call():
         calls.append(prompt)
         return {'items': []}
 
-    result = run(annotate_words(db, [ids['be good at'], ids['apple']], fake, 6))
+    result = run(annotate_words(db, 1, [ids['be good at'], ids['apple']], fake, 6))
     assert calls == []
     assert result['annotated'] == 0 and result['failures'] == [] and result['missing_lemmas'] == []
     assert {s['id'] for s in result['skipped']} == {ids['be good at'], ids['apple']}
-    assert counted_queries(db, lambda: annotate_words(db, [ids['be good at'], ids['apple']], fake, 6)) == 1
+    assert counted_queries(db, lambda: annotate_words(db, 1, [ids['be good at'], ids['apple']], fake, 6)) == 1
     assert by_english(db)['be good at']['focus_status'] == 'confirmed'
 
 
@@ -1121,7 +1126,7 @@ def test_hint_level_on_unannotated_phrase():
     insert_word(db, 'jump for joy', '欢呼雀跃')
     insert_word(db, 'help sb. with sth.', '帮助某人做某事')
     insert_word(db, 'apple', '苹果')
-    by = {q['english']: q for q in run(start_session(db, 10, None, None, None, 2))['questions']}
+    by = {q['english']: q for q in run(start_session(db, 1, 10, None, None, None, 2))['questions']}
     joy = by['jump for joy']
     assert joy['dictation_level'] == 2
     assert [(t['text'], t['blank'], t['hint']) for t in joy['tokens']] == [
@@ -1131,7 +1136,7 @@ def test_hint_level_on_unannotated_phrase():
     assert 'tokens' not in by['apple'] and by['apple']['dictation_level'] == 3      # 单词不受影响
     # 手动选重点或完整时，未标注词组按原样完整默写
     for level in (1, 3):
-        by = {q['english']: q for q in run(start_session(db, 10, None, None, None, level))['questions']}
+        by = {q['english']: q for q in run(start_session(db, 1, 10, None, None, None, level))['questions']}
         assert 'tokens' not in by['jump for joy'] and by['jump for joy']['dictation_level'] == 3
 
 
@@ -1144,7 +1149,7 @@ def test_hint_level_submit_on_unannotated_phrase():
     add_log(db, word_id, True, reviewed_at='2026-01-02 00:00:00')
     session, ids = begin(db)
     results = [{'i': 0, 'ok': True}, {'i': 1, 'ok': True}, {'i': 2, 'ok': True}]
-    run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+    run(submit_session(db, 1, {'session_id': session, 'duration': 5, 'results': [
         {'word_id': word_id, 'is_correct': True, 'user_answer': 'jump for joy', 'review_type': 1,
          'dictation_level': 2, 'dictation_auto': False, 'token_results': results}]}))
     row = by_english(db)['jump for joy']
@@ -1158,7 +1163,7 @@ def test_hint_level_submit_on_unannotated_phrase():
     add_log(db, word_id, True, reviewed_at='2026-01-01 00:00:00')
     add_log(db, word_id, True, reviewed_at='2026-01-02 00:00:00')
     session, ids = begin(db)
-    run(submit_session(db, {'session_id': session, 'duration': 5, 'results': [
+    run(submit_session(db, 1, {'session_id': session, 'duration': 5, 'results': [
         {'word_id': word_id, 'is_correct': True, 'user_answer': 'jump for joy', 'review_type': 1}]}))
     assert by_english(db)['jump for joy']['learning_phase'] == '牢记'
     assert latest_log(db, word_id)['dictation_level'] is None
@@ -1170,22 +1175,22 @@ def test_mixed_draw_ratio():
     for index in range(30):
         insert_word(db, 'word%d' % index)
         insert_word(db, 'phrase number %d' % index)
-    questions = run(start_session(db, 20, None, None, None, None))['questions']
+    questions = run(start_session(db, 1, 20, None, None, None, None))['questions']
     kinds = [q['entry_type'] for q in questions]
     assert kinds.count('word') == 12 and kinds.count('phrase') == 8
     assert len({q['word_id'] for q in questions}) == 20
-    assert [q['entry_type'] for q in run(start_session(db, 20, None, None, 'phrase', None))['questions']].count('phrase') == 20
-    assert [q['entry_type'] for q in run(start_session(db, 20, None, None, 'word', None))['questions']].count('word') == 20
+    assert [q['entry_type'] for q in run(start_session(db, 1, 20, None, None, 'phrase', None))['questions']].count('phrase') == 20
+    assert [q['entry_type'] for q in run(start_session(db, 1, 20, None, None, 'word', None))['questions']].count('word') == 20
     # 指定词条时全部按所选词条出题
     chosen = [row['id'] for row in run(db.all("SELECT id FROM word WHERE entry_type='word' ORDER BY id LIMIT 10"))]
-    picked = run(start_session(db, 10, None, ','.join(str(i) for i in chosen), None, None))['questions']
+    picked = run(start_session(db, 1, 10, None, ','.join(str(i) for i in chosen), None, None))['questions']
     assert sorted(q['word_id'] for q in picked) == chosen
     # 词组不够时由单词补足
     db = adapter(build_database())
     for index in range(30):
         insert_word(db, 'word%d' % index)
     insert_word(db, 'only phrase')
-    kinds = [q['entry_type'] for q in run(start_session(db, 20, None, None, None, None))['questions']]
+    kinds = [q['entry_type'] for q in run(start_session(db, 1, 20, None, None, None, None))['questions']]
     assert kinds.count('phrase') == 1 and kinds.count('word') == 19
 
 
@@ -1201,12 +1206,12 @@ def test_auto_ladder_for_unannotated_phrase():
         session, _ = begin(db, only='jump for joy')
         item = {'word_id': word_id, 'is_correct': ok, 'user_answer': 'x', 'review_type': review_type,
                 'dictation_level': level, 'dictation_auto': True}
-        run(submit_session(db, {'session_id': session, 'duration': 3, 'results': [item]}))
+        run(submit_session(db, 1, {'session_id': session, 'duration': 3, 'results': [item]}))
         return by_english(db)['jump for joy']
 
     def drawn(db):
         """自动模式抽题，返回该词组的题目。"""
-        questions = run(start_session(db, 10, None, None, None, None))['questions']
+        questions = run(start_session(db, 1, 10, None, None, None, None))['questions']
         return {q['english']: q for q in questions}['jump for joy']
 
     db = adapter(build_database())
@@ -1240,12 +1245,12 @@ def test_word_practice_items_fields():
             token_results=[{'i': 1, 'ok': False}, {'i': 2, 'ok': True}])
     # 本场次提交：proud 再错一次（带逐词结果、档位），apple 答对
     session, ids = begin(db)
-    run(submit_session(db, {'session_id': session, 'duration': 10, 'results': [
+    run(submit_session(db, 1, {'session_id': session, 'duration': 10, 'results': [
         {'word_id': proud, 'is_correct': False, 'user_answer': 'be prud of', 'review_type': 1,
          'dictation_level': 1, 'token_results': [{'i': 1, 'ok': False}, {'i': 2, 'ok': True}]},
         {'word_id': apple, 'is_correct': True, 'user_answer': 'apple', 'review_type': 1}]}))
     practice_id = run(db.first("SELECT id FROM practice_set WHERE source_type='word' ORDER BY id DESC"))['id']
-    items = run(practices.word_practice_items(db, practice_id))
+    items = run(practices.word_practice_items(db, practice_id, 1))
     by = {item['question_text']: item for item in items}
     # proud：历史 1 次 + 本场次 1 次 = 累计 2 次错
     assert by['be proud of']['error_count'] == 2
@@ -1268,12 +1273,12 @@ def test_select_print_words_by_ids():
     cherry = insert_word(db, 'cherry', '樱桃')
     run(db.run('UPDATE word SET deleted=1 WHERE id=?', (banana,)))
     # 按传入顺序返回，已删除的 banana 与不存在的 9999 都跳过
-    picked = run(media.select_print_words(db, 25, None, '%d,%d,%d,9999' % (cherry, banana, apple)))
+    picked = run(media.select_print_words(db, 1, 25, None, '%d,%d,%d,9999' % (cherry, banana, apple)))
     assert [row['english'] for row in picked] == ['cherry', 'apple']
     # 超过 100 个 → 422
-    expect_http(422, lambda: run(media.select_print_words(db, 25, None, ','.join(str(i) for i in range(1, 102)))))
+    expect_http(422, lambda: run(media.select_print_words(db, 1, 25, None, ','.join(str(i) for i in range(1, 102)))))
     # 不传 word_ids 时随机抽样（仅未删除）
-    rows = run(media.select_print_words(db, 25, None, None))
+    rows = run(media.select_print_words(db, 1, 25, None, None))
     assert {row['english'] for row in rows} == {'apple', 'cherry'}
 
 

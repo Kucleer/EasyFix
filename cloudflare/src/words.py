@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query, Request
 from database import Database
 from phrase_focus import entry_type_of, normalize_english, validate_focus_spec
+from question_scope import current_student_id
 
 router = APIRouter(prefix='/api/words')
 
@@ -39,17 +40,17 @@ async def decorate(db, row):
     """补充标签和正确率字段。"""
     row['accuracy'], row['accuracy_level'] = level(row)
     row['focus_spec'] = parse_focus_spec(row.get('focus_spec'))
-    row['tags'] = await db.all('SELECT t.* FROM tag t JOIN word_tag wt ON wt.tag_id=t.id WHERE wt.word_id=? AND wt.deleted=0 AND t.deleted=0', (row['id'],))
+    row['tags'] = await db.all('SELECT t.* FROM tag t JOIN word_tag wt ON wt.tag_id=t.id WHERE wt.word_id=? AND wt.deleted=0 AND t.deleted=0 AND t.student_id=?', (row['id'], row['student_id']))
     return row
 
 
-async def decorate_many(db,rows):
+async def decorate_many(db,rows,student_id):
     """合并标签读取，避免每个单词产生一次数据库调用。"""
     tags={}
     for offset in range(0,len(rows),90):
         ids=[row['id'] for row in rows[offset:offset+90]]
         if not ids:continue
-        for tag in await db.all('SELECT t.*,wt.word_id FROM tag t JOIN word_tag wt ON wt.tag_id=t.id WHERE t.deleted=0 AND wt.deleted=0 AND wt.word_id IN ('+','.join('?' for _ in ids)+')',ids):
+        for tag in await db.all('SELECT t.*,wt.word_id FROM tag t JOIN word_tag wt ON wt.tag_id=t.id WHERE t.deleted=0 AND t.student_id=? AND wt.deleted=0 AND wt.word_id IN ('+','.join('?' for _ in ids)+')',[student_id,*ids]):
             tags.setdefault(tag.pop('word_id'),[]).append(tag)
     for row in rows:
         row['accuracy'],row['accuracy_level']=level(row)
@@ -61,11 +62,12 @@ async def decorate_many(db,rows):
 @router.get('')
 async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=1000)):
     """按学段、标签、关键词和正确率筛选单词。"""
-    return await list_words(Database(request.scope['env'].DB), request.query_params, skip, limit)
+    return await list_words(Database(request.scope['env'].DB), request.query_params, skip, limit,
+                            current_student_id(request))
 
 
-async def list_words(db, params, skip, limit):
-    """列表查询的数据库实现，params 为带 get 方法的查询参数。"""
+async def list_words(db, params, skip, limit, student_id):
+    """列表查询的数据库实现（只列这个学生的），params 为带 get 方法的查询参数。"""
     filters, values = ['w.deleted=0'], []
     # 词条类型与标注状态筛选，非法取值与其他筛选一致地忽略
     if params.get('entry_type') in ENTRY_TYPES:
@@ -93,15 +95,15 @@ async def list_words(db, params, skip, limit):
     order={'accuracy':accuracy,'review_count':'COALESCE(w.review_count,0)'}.get(params.get('sort_by'),'w.created_at')
     direction='DESC' if params.get('sort_order','desc')=='desc' else 'ASC'
     where=' AND '.join(filters)
-    total=await db.first('SELECT COUNT(*) AS total FROM word w WHERE '+where,values)
-    rows=await db.all('SELECT w.* FROM word w WHERE '+where+' ORDER BY '+order+' '+direction+',w.id '+direction+' LIMIT ? OFFSET ?',[*values,limit,skip])
-    return {'total':total['total'],'items':await decorate_many(db,rows)}
+    total=await db.first('SELECT COUNT(*) AS total FROM word w WHERE w.student_id=? AND '+where,[student_id,*values])
+    rows=await db.all('SELECT w.* FROM word w WHERE w.student_id=? AND '+where+' ORDER BY '+order+' '+direction+',w.id '+direction+' LIMIT ? OFFSET ?',[student_id,*values,limit,skip])
+    return {'total':total['total'],'items':await decorate_many(db,rows,student_id)}
 
 
 @router.get('/stats/summary')
 async def stats(request: Request):
     """统计单词、练习场次、复习日志及到期情况。"""
-    return await word_stats(Database(request.scope['env'].DB))
+    return await word_stats(Database(request.scope['env'].DB), current_student_id(request))
 
 
 def type_summary(rows, entry_type):
@@ -113,11 +115,15 @@ def type_summary(rows, entry_type):
     return {'total': len(selected), 'accuracy': accuracy}
 
 
-async def word_stats(db):
-    """统计的数据库实现。"""
-    rows = await db.all('SELECT * FROM word WHERE deleted=0')
-    logs = await db.first('SELECT COUNT(*) AS total,SUM(is_correct) AS correct,SUM(date(reviewed_at)=date(?,"+8 hours")) AS today FROM word_review_log WHERE deleted=0', (datetime.utcnow().isoformat(' '),))
-    sessions = await db.first('SELECT COUNT(*) AS total FROM word_review_session s LEFT JOIN practice_set p ON p.id=s.practice_set_id WHERE s.deleted=0 AND (s.practice_set_id IS NULL OR p.deleted=0)')
+async def word_stats(db, student_id):
+    """这个学生单词统计的数据库实现。"""
+    rows = await db.all('SELECT * FROM word WHERE deleted=0 AND student_id=?', (student_id,))
+    # 复习日志自己没有学生列，连上单词按学生过滤
+    logs = await db.first('SELECT COUNT(*) AS total,SUM(l.is_correct) AS correct,SUM(date(l.reviewed_at)=date(?,"+8 hours")) AS today '
+                          'FROM word_review_log l JOIN word w ON w.id=l.word_id AND w.student_id=? WHERE l.deleted=0',
+                          (datetime.utcnow().isoformat(' '), student_id))
+    sessions = await db.first('SELECT COUNT(*) AS total FROM word_review_session s LEFT JOIN practice_set p ON p.id=s.practice_set_id AND p.student_id=s.student_id WHERE s.deleted=0 AND s.student_id=? AND (s.practice_set_id IS NULL OR p.deleted=0)',
+                              (student_id,))
     now = datetime.utcnow() + timedelta(hours=8)
     mastered = sum((row['review_count'] or 0) >= 5 and level(row)[0] >= 90 for row in rows)
     new = sum(not row['review_count'] for row in rows)
@@ -137,9 +143,11 @@ async def word_stats(db):
 async def curve(word_id: int, request: Request):
     """读取真实复习日志和记忆阶段。"""
     db = Database(request.scope['env'].DB)
-    row = await db.first('SELECT * FROM word WHERE id=? AND deleted=0', (word_id,))
+    student_id = current_student_id(request)
+    row = await db.first('SELECT * FROM word WHERE id=? AND student_id=? AND deleted=0', (word_id, student_id))
     if not row:
         raise HTTPException(404, '单词不存在')
+    # scope-ok: 单词已按 student_id 确认属于当前学生，日志跟着单词走
     history = await db.all('SELECT reviewed_at,is_correct,user_answer FROM word_review_log WHERE word_id=? AND deleted=0 ORDER BY reviewed_at DESC', (word_id,))
     for log in history:
         log['is_correct'] = bool(log['is_correct'])
@@ -150,17 +158,17 @@ async def curve(word_id: int, request: Request):
 async def detail(word_id: int, request: Request):
     """读取单词详情。"""
     db = Database(request.scope['env'].DB)
-    row = await db.first('SELECT * FROM word WHERE id=? AND deleted=0', (word_id,))
+    row = await db.first('SELECT * FROM word WHERE id=? AND student_id=? AND deleted=0', (word_id, current_student_id(request)))
     if not row:
         raise HTTPException(404, '单词不存在')
     return await decorate(db, row)
 
 
-async def save(db, payload, word_id=None):
-    """校验并保存单词及标签，所有移除均使用软删除。"""
+async def save(db, payload, word_id=None, student_id=None):
+    """校验并保存这个学生的单词及标签，所有移除均使用软删除；别人的单词按不存在处理（404）。"""
     fields = {'english', 'chinese', 'phonetic', 'grade', 'semester'}
     data = {key: value for key, value in payload.items() if key in fields}
-    old = await db.first('SELECT * FROM word WHERE id=? AND deleted=0', (word_id,)) if word_id else None
+    old = await db.first('SELECT * FROM word WHERE id=? AND student_id=? AND deleted=0', (word_id, student_id)) if word_id else None
     if word_id and not old:
         raise HTTPException(404, '单词不存在')
     for key in ('english', 'chinese'):
@@ -174,7 +182,7 @@ async def save(db, payload, word_id=None):
         if not isinstance(tags, list) or any(type(tag) is not int for tag in tags):
             raise HTTPException(422, '标签参数无效')
         for tag in set(tags):
-            if not await db.first('SELECT id FROM tag WHERE id=? AND deleted=0', (tag,)):
+            if not await db.first('SELECT id FROM tag WHERE id=? AND student_id=? AND deleted=0', (tag, student_id)):
                 raise HTTPException(400, '标签不存在')
     requested_type = payload.get('entry_type')
     if requested_type is not None and requested_type not in ENTRY_TYPES:
@@ -197,13 +205,15 @@ async def save(db, payload, word_id=None):
     if requested_type is not None:
         data['entry_type'] = requested_type
     if old:
-        row = await db.first('UPDATE word SET ' + ','.join(key + '=?' for key in data) + ' WHERE id=? AND deleted=0 RETURNING *', [*data.values(), word_id])
+        row = await db.first('UPDATE word SET ' + ','.join(key + '=?' for key in data) + ' WHERE id=? AND student_id=? AND deleted=0 RETURNING *', [*data.values(), word_id, student_id])
     else:
         # 新建时类型默认按英文判断，档位由类型决定
         data.setdefault('entry_type', entry_type_of(english))
         data.setdefault('focus_status', 'none')
         data['dictation_level'] = default_dictation_level(data['entry_type'])
-        data.update(deleted=0, created_at=now, review_count=0, correct_count=0, ease_factor=250, interval=1, learning_phase='新学')
+        data.update(deleted=0, created_at=now, review_count=0, correct_count=0, ease_factor=250, interval=1, learning_phase='新学',
+                    student_id=student_id)
+        # scope-ok: student_id 已放进 data 一起写入
         row = await db.first('INSERT INTO word(' + ','.join(data) + ') VALUES (' + ','.join('?' for _ in data) + ') RETURNING *', list(data.values()))
     if tags is not None:
         statements = [('UPDATE word_tag SET deleted=1 WHERE word_id=?', (row['id'],))]
@@ -215,13 +225,13 @@ async def save(db, payload, word_id=None):
 @router.post('', status_code=201)
 async def create(request: Request):
     """创建文本单词。"""
-    return await save(Database(request.scope['env'].DB), await request.json())
+    return await save(Database(request.scope['env'].DB), await request.json(), student_id=current_student_id(request))
 
 
 @router.post('/batch')
 async def batch(request: Request):
     """用一次事务批量写入 TXT、CSV 单词，避免每词多次调用 D1。"""
-    return await import_words(Database(request.scope['env'].DB), await request.json())
+    return await import_words(Database(request.scope['env'].DB), await request.json(), current_student_id(request))
 
 
 def check_import_item(word, payload, valid_tags):
@@ -248,12 +258,12 @@ def check_import_item(word, payload, valid_tags):
     return data, tags, valid
 
 
-async def import_words(db, payload):
-    """批量导入的数据库实现；标注不合法的条目照常导入，并在结果里带 focus_error。"""
+async def import_words(db, payload, student_id):
+    """批量导入到这个学生名下；标注不合法的条目照常导入，并在结果里带 focus_error。"""
     words = payload.get('words', [])
     if not isinstance(words, list) or len(words) > 1000:
         raise HTTPException(422, '每批最多1000词')
-    valid_tags = {row['id'] for row in await db.all('SELECT id FROM tag WHERE deleted=0')}
+    valid_tags = {row['id'] for row in await db.all('SELECT id FROM tag WHERE deleted=0 AND student_id=?', (student_id,))}
     records, results = [], []
     for word in words:
         data, tags, valid = check_import_item(word, payload, valid_tags)
@@ -290,16 +300,17 @@ async def import_words(db, payload):
     insert_sql = (
         "INSERT INTO word(id,english,chinese,phonetic,grade,semester,review_count,correct_count,"
         "ease_factor,interval,learning_phase,deleted,created_at,updated_at,"
-        "entry_type,focus_spec,focus_status,focus_updated_at,dictation_level) "
+        "entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,student_id) "
         "SELECT json_extract(value,'$.id'),json_extract(value,'$.english'),json_extract(value,'$.chinese'),"
         "json_extract(value,'$.phonetic'),json_extract(value,'$.grade'),json_extract(value,'$.semester'),"
         "0,0,250,1,'新学',0,?,?,"
         "json_extract(value,'$.entry_type'),json_extract(value,'$.focus_spec'),"
         "json_extract(value,'$.focus_status'),json_extract(value,'$.focus_updated_at'),"
-        "json_extract(value,'$.dictation_level') FROM json_each(?)"
+        "json_extract(value,'$.dictation_level'),? FROM json_each(?)"
     )
     for attempt in range(2):
         # 用写入保护行保证并发时 id 区间没有被别人占用，冲突则整批重试一次
+        # scope-ok: 新编号在全表里取最大值加一（编号全站唯一）
         maximum = (await db.first('SELECT COALESCE(MAX(id),0) AS id FROM word'))['id']
         links = []
         for index, record in enumerate(records):
@@ -308,8 +319,9 @@ async def import_words(db, payload):
             links.extend({'word': record['id'], 'tag': tag} for tag in record['tags'])
         packed = json.dumps(records, ensure_ascii=False)
         statements = [
+            # scope-ok: 编号守卫同上
             ('UPDATE write_guard SET revision=CASE WHEN (SELECT COALESCE(MAX(id),0) FROM word)=? THEN revision+1 ELSE NULL END WHERE id=1', (maximum,)),
-            (insert_sql, (stamp, stamp, packed)),
+            (insert_sql, (stamp, stamp, student_id, packed)),
         ]
         if links:
             statements.append((
@@ -328,13 +340,14 @@ async def import_words(db, payload):
 @router.put('/{word_id}')
 async def update(word_id: int, request: Request):
     """更新单词。"""
-    return await save(Database(request.scope['env'].DB), await request.json(), word_id)
+    return await save(Database(request.scope['env'].DB), await request.json(), word_id, current_student_id(request))
 
 
 @router.delete('/{word_id}', status_code=204)
 async def delete(word_id: int, request: Request):
     """软删除单词。"""
-    if not await Database(request.scope['env'].DB).first('UPDATE word SET deleted=1 WHERE id=? AND deleted=0 RETURNING id', (word_id,)):
+    if not await Database(request.scope['env'].DB).first('UPDATE word SET deleted=1 WHERE id=? AND student_id=? AND deleted=0 RETURNING id',
+                                                         (word_id, current_student_id(request))):
         raise HTTPException(404, '单词不存在')
     from fastapi.responses import Response
     return Response(status_code=204)

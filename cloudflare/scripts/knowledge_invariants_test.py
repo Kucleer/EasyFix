@@ -111,7 +111,9 @@ class SQLiteDB:
         try:
             for sql, parameters in statements:
                 cursor = self.connection.execute(sql, self.bind(parameters))
-                results.append({'last_row_id': cursor.lastrowid})
+                # 和 D1 一样带上 meta（激励模块读 meta.last_row_id），保留旧键 last_row_id 给已有调用方
+                results.append({'last_row_id': cursor.lastrowid,
+                                'meta': {'last_row_id': cursor.lastrowid, 'changes': cursor.rowcount}})
             self.connection.execute('RELEASE knowledge_batch')
             return results
         except Exception:

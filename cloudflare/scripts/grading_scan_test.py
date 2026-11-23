@@ -322,7 +322,7 @@ def test_detail_reports_shown_form():
               "generated_at) VALUES(5,2,'相似题','9','解析',0,'2026-11-01')")
     c.execute("UPDATE practice_set_question SET form='similar',similar_question_id=5 WHERE question_id=2")
     c.commit()
-    detail = starmap_test.run(practices.get(db, 10))
+    detail = starmap_test.run(practices.get(db, 10, student_id=1))
     assert [q['shown_form'] for q in detail['questions']] == ['original', 'similar']
     assert detail['questions'][1]['answer'] == '9'
 

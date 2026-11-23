@@ -50,7 +50,10 @@ def mount_extra_routers(app):
     import importlib
     for name in ('words', 'word_focus', 'readings', 'motivation', 'review', 'media'):
         try:
-            app.include_router(importlib.import_module(name).router)
+            module = importlib.import_module(name)
+            if hasattr(module, 'Database'):   # 和本机测试环境一样：数据库对象由中间件放进 env，原样使用
+                module.Database = lambda binding: binding
+            app.include_router(module.router)
         except Exception as error:   # 个别模块依赖云端运行时，挂不上就跳过（相应测试会失败提示）
             print('跳过模块 %s：%s' % (name, error))
 
@@ -147,7 +150,106 @@ def test_papers_and_review_isolated():
     assert c.execute('SELECT deleted,review_status FROM question WHERE id=9001').fetchone()[0] == 0
 
 
+# ---------------------------------------------------------------- 任务 8：单词、练习、阅读、激励、翻一翻
+
+
+def add_word(c, wid, student_id, english='apple'):
+    """直接写一个单词。"""
+    c.execute("INSERT INTO word(id,english,chinese,deleted,created_at,updated_at,student_id) "
+              "VALUES(?,?,'苹果',0,'2026-11-20 10:00:00','2026-11-20 10:00:00',?)", (wid, english, student_id))
+    c.commit()
+
+
+def add_practice(c, pid, student_id, question_id=None):
+    """直接写一份练习集（英语），可带一道题。"""
+    c.execute("INSERT INTO practice_set(id,name,subject_id,deleted,created_at,student_id,review_count) "
+              "VALUES(?,'练习',2,0,'2026-11-20 10:00:00',?,0)", (pid, student_id))
+    if question_id is not None:
+        c.execute('INSERT INTO practice_set_question(practice_set_id,question_id,display_order,deleted) '
+                  'VALUES(?,?,1,0)', (pid, question_id))
+    c.commit()
+
+
+def add_reading(c, rid, student_id):
+    """直接写一篇阅读短文。"""
+    c.execute("INSERT INTO reading_passage(id,title,content,topic,grade,difficulty,deleted,created_at,student_id) "
+              "VALUES(?,'短文','text','school',6,3,0,'2026-11-20 10:00:00',?)", (rid, student_id))
+    c.commit()
+
+
+def test_words_practices_readings_by_id_404():
+    """学生 5 按编号读、改、删学生 1 的单词、练习集、阅读都是 404，数据不变。"""
+    c, client = build()
+    add_question(c, 9001, 1)
+    add_word(c, 8001, 1)
+    add_practice(c, 7001, 1, 9001)
+    add_reading(c, 6001, 1)
+    for method, path, body in (('GET', '/api/words/8001', None), ('PUT', '/api/words/8001', {'chinese': '改'}),
+                               ('DELETE', '/api/words/8001', None),
+                               ('GET', '/api/practice-sets/7001', None),
+                               ('PUT', '/api/practice-sets/7001', {'name': '改'}),
+                               ('DELETE', '/api/practice-sets/7001', None),
+                               ('POST', '/api/practice-sets/7001/mark-reviewed', {'results': []}),
+                               ('GET', '/api/readings/6001', None), ('DELETE', '/api/readings/6001', None)):
+        response = call(client, OTHER, method, path, body)
+        assert response.status_code == 404, (method, path, response.status_code, response.text[:200])
+    assert c.execute('SELECT chinese,deleted FROM word WHERE id=8001').fetchone()[0] == '苹果'
+    assert c.execute('SELECT name,deleted FROM practice_set WHERE id=7001').fetchone()[1] == 0
+    assert c.execute('SELECT deleted FROM reading_passage WHERE id=6001').fetchone()[0] == 0
+
+
+def test_lists_isolated():
+    """单词、练习集、阅读列表只列自己的。"""
+    c, client = build()
+    add_word(c, 8001, 1)
+    add_word(c, 8002, 5, 'pear')
+    add_practice(c, 7001, 1)
+    add_reading(c, 6001, 1)
+    words = call(client, OTHER, 'GET', '/api/words?limit=100').json()
+    assert [w['english'] for w in words['items']] == ['pear'], words
+    practices = call(client, OTHER, 'GET', '/api/practice-sets').json()
+    assert practices['total'] == 0, practices
+    readings = call(client, OTHER, 'GET', '/api/readings').json()
+    assert readings['total'] == 0, readings
+
+
+def test_motivation_isolated_per_student():
+    """同一家庭两个学生：星星余额、流水、奖品各算各的；别人的奖品兑换不了。"""
+    c, client = build()
+    c.execute("INSERT INTO student(id,user_id,name,sort_order,deleted) VALUES(2,1,'二宝',1,0)")
+    c.commit()
+    second = '1:2'
+    assert call(client, ADMIN, 'POST', '/api/stars/adjust', {'delta': 5, 'reason': '奖励'}).status_code == 200
+    assert call(client, ADMIN, 'GET', '/api/stars/balance').json() == {'balance': 5}
+    assert call(client, second, 'GET', '/api/stars/balance').json() == {'balance': 0}
+    assert call(client, second, 'GET', '/api/stars/records').json()['total'] == 0
+    reward = call(client, ADMIN, 'POST', '/api/rewards', {'name': '冰淇淋', 'cost_stars': 3}).json()
+    assert call(client, second, 'GET', '/api/rewards').json() == []
+    assert call(client, OTHER, 'GET', '/api/rewards').json() == []
+    assert call(client, second, 'POST', '/api/rewards/%d/redeem' % reward['id']).status_code == 404
+    assert call(client, ADMIN, 'POST', '/api/rewards/%d/redeem' % reward['id']).status_code == 200
+    assert call(client, ADMIN, 'GET', '/api/stars/balance').json() == {'balance': 2}
+    assert call(client, second, 'POST', '/api/stars/adjust', {'delta': 1, 'reason': '奖励'}).status_code == 200
+    assert call(client, second, 'GET', '/api/stars/balance').json() == {'balance': 1}
+    rows = c.execute('SELECT student_id,COUNT(*) FROM star_balance WHERE deleted=0 GROUP BY student_id').fetchall()
+    assert {r[0]: r[1] for r in rows} == {1: 1, 2: 1}
+
+
+def test_flip_pool_isolated():
+    """学生 5 的翻一翻里没有学生 1 的题。"""
+    c, client = build()
+    add_question(c, 9001, 1)
+    add_question(c, 9002, 5)
+    cards = call(client, OTHER, 'GET', '/api/flip/today').json()
+    ids = {card['question_id'] if 'question_id' in card else card.get('id') for card in cards.get('cards', [])}
+    assert 9001 not in ids, cards
+
+
 TESTS = [
+    test_words_practices_readings_by_id_404,
+    test_lists_isolated,
+    test_motivation_isolated_per_student,
+    test_flip_pool_isolated,
     test_question_by_id_is_404_for_other_student,
     test_papers_and_review_isolated,
     test_question_list_isolated,

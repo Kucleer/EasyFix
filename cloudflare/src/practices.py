@@ -5,6 +5,8 @@ import random
 from fastapi import APIRouter,HTTPException,Query,Request
 from database import Database
 from analytics import now
+from identity import current_identity
+from question_scope import current_student_id
 from knowledge import (ensure_guard_rows,guard_statement,link_statements,
                        question_links,resolve_many,structure_statement)
 from knowledge_model import map_error, projection_name
@@ -25,23 +27,25 @@ async def batch_or_http(db, statements):
         raise
 
 
-async def word_stats(db,practice_id):
+async def word_stats(db,practice_id,student_id):
     """聚合单词练习的原始场次信息。"""
-    row=await db.first('SELECT SUM(total_count) AS total_count,SUM(correct_count) AS correct_count,SUM(duration) AS duration,MAX(reviewed_at) AS reviewed_at FROM word_review_session WHERE deleted=0 AND practice_set_id=?',(practice_id,))
+    row=await db.first('SELECT SUM(total_count) AS total_count,SUM(correct_count) AS correct_count,SUM(duration) AS duration,MAX(reviewed_at) AS reviewed_at FROM word_review_session WHERE deleted=0 AND practice_set_id=? AND student_id=?',(practice_id,student_id))
     if not row or not row['total_count']: return None
     row['accuracy']=round((row['correct_count'] or 0)/row['total_count']*100,1)
+    # scope-ok: 单词编号和复习时间都来自这个学生自己的复习场次（已按 student_id 取出）
     log=await db.first('SELECT review_type FROM word_review_log WHERE reviewed_at=? AND deleted=0 ORDER BY id DESC LIMIT 1',(row['reviewed_at'],))
     row['review_type']=log['review_type'] if log else 1
     return row
 
 
-async def word_practice_items(db,practice_id):
+async def word_practice_items(db,practice_id,student_id):
     """返回单词练习的逐词明细：含逐词结果、默写档位，以及截至本场次的累计错误次数。"""
-    logs=await db.all('SELECT l.*,w.english,w.chinese,w.phonetic FROM word_review_session s JOIN word_review_log l ON l.reviewed_at=s.reviewed_at AND l.deleted=0 JOIN word w ON w.id=l.word_id AND w.deleted=0 WHERE s.deleted=0 AND s.practice_set_id=? ORDER BY l.id',(practice_id,))
+    logs=await db.all('SELECT l.*,w.english,w.chinese,w.phonetic FROM word_review_session s JOIN word_review_log l ON l.reviewed_at=s.reviewed_at AND l.deleted=0 JOIN word w ON w.id=l.word_id AND w.deleted=0 AND w.student_id=s.student_id WHERE s.deleted=0 AND s.practice_set_id=? AND s.student_id=? ORDER BY l.id',(practice_id,student_id))
     # 一次批量查询每条日志对应单词截至该日志（含）的累计错误次数，避免逐词查询（Workers 免费版限制）
     pairs=[{'log_id':item['id'],'word_id':item['word_id']} for item in logs]
     error_counts={}
     if pairs:
+        # scope-ok: 单词编号和复习时间都来自这个学生自己的复习场次（已按 student_id 取出）
         rows=await db.all('SELECT json_extract(j.value,\'$.log_id\') AS log_id,'
                           '(SELECT COUNT(*) FROM word_review_log l WHERE l.deleted=0 AND l.is_correct=0 '
                           'AND l.word_id=json_extract(j.value,\'$.word_id\') '
@@ -62,25 +66,25 @@ async def word_practice_items(db,practice_id):
     return items
 
 
-async def get(db,practice_id,details=True):
-    """返回练习集详情，阅读、单词与错题来源分别处理。"""
-    row=await db.first('SELECT p.*,s.name AS subject_name FROM practice_set p LEFT JOIN subject s ON s.id=p.subject_id AND s.deleted=0 WHERE p.id=? AND p.deleted=0',(practice_id,))
+async def get(db,practice_id,details=True,*,student_id):
+    """返回这个学生的练习集详情，阅读、单词与错题来源分别处理；别的学生的按不存在处理（404）。"""
+    row=await db.first('SELECT p.*,s.name AS subject_name FROM practice_set p LEFT JOIN subject s ON s.id=p.subject_id AND s.deleted=0 WHERE p.id=? AND p.student_id=? AND p.deleted=0',(practice_id,student_id))
     if not row: raise HTTPException(404,'练习集不存在')
     row['reviewed']=bool(row['reviewed'])
     row['review_images']=json.loads(row['review_images']) if row['review_images'] else None
     row['questions']=[]
-    row['word_review_stats']=await word_stats(db,practice_id) if row['source_type']=='word' else None
+    row['word_review_stats']=await word_stats(db,practice_id,student_id) if row['source_type']=='word' else None
     if not details:return row
     if row['source_type']=='reading' and row['passage_id']:
-        passage=await db.first('SELECT * FROM reading_passage WHERE id=? AND deleted=0',(row['passage_id'],))
+        passage=await db.first('SELECT * FROM reading_passage WHERE id=? AND student_id=? AND deleted=0',(row['passage_id'],student_id))
         if passage:
             row['passage']=passage
             for item in await db.all('SELECT * FROM reading_question WHERE passage_id=? AND deleted=0 ORDER BY question_number',(row['passage_id'],)):
                 row['questions'].append({'id':item['id'],'question_id':item['id'],'display_order':item['question_number']-1,'question_text':item['question_text'],'answer':item['correct_answer'],'original_question_text':item['question_text'],'original_answer':item['correct_answer'],'difficulty':passage['difficulty'],'topic':passage['topic'],'knowledge_point':None,'knowledge_points':[],'legacy_knowledge_point':None,'is_correct':None,'is_reading_question':True,'tags':[],**{key:item[key] for key in ('option_a','option_b','option_c','option_d','explanation')}})
     elif row['source_type']=='word':
-        row['questions']=await word_practice_items(db,practice_id)
+        row['questions']=await word_practice_items(db,practice_id,student_id)
     else:
-        rows=await db.all('SELECT pq.*,q.subject_id,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.legacy_knowledge_point,q.knowledge_revision,q.error_type,q.review_count,q.original_image,q.analysis,s.similar_text,s.similar_answer,s.explanation FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(practice_id,))
+        rows=await db.all('SELECT pq.*,q.subject_id,q.parsed_question,q.original_text,q.answer,q.difficulty,q.knowledge_point,q.legacy_knowledge_point,q.knowledge_revision,q.error_type,q.review_count,q.original_image,q.analysis,s.similar_text,s.similar_answer,s.explanation FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 AND q.student_id=? LEFT JOIN similar_question s ON s.id=pq.similar_question_id AND s.deleted=0 WHERE pq.deleted=0 AND pq.practice_set_id=? ORDER BY pq.display_order',(student_id,practice_id))
         link_map=await question_links(db,[item['question_id'] for item in rows])
         for number,item in enumerate(rows,1):
             original=item['parsed_question'] or item['original_text'] or ''
@@ -110,15 +114,17 @@ async def get(db,practice_id,details=True):
 async def listing(request:Request,skip:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=1000),subject_id:int|None=None,reviewed:bool|None=None,source_type:str|None=None,start_date:str|None=None,end_date:str|None=None):
     """按来源、学科和日期分页读取练习。"""
     db=Database(request.scope['env'].DB)
+    student_id=current_student_id(request)
     conditions,values=['p.deleted=0'],[]
     for key,value in [('subject_id',subject_id),('reviewed',reviewed),('source_type',source_type)]:
         if value is not None:conditions.append('p.'+key+'=?');values.append(value)
     if start_date:conditions.append('p.created_at>=?');values.append(start_date)
     if end_date:conditions.append('p.created_at<=?');values.append(end_date+' 23:59:59')
     where=' AND '.join(conditions)
-    total=await db.first('SELECT COUNT(*) AS total FROM practice_set p WHERE '+where,values)
-    rows=await db.all('SELECT p.*,s.name AS subject_name FROM practice_set p LEFT JOIN subject s ON s.id=p.subject_id AND s.deleted=0 WHERE '+where+' ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?',[*values,limit,skip])
-    sessions=await db.all('SELECT practice_set_id,SUM(total_count) AS total_count,SUM(correct_count) AS correct_count,SUM(duration) AS duration,MAX(reviewed_at) AS reviewed_at FROM word_review_session WHERE deleted=0 AND practice_set_id IN (SELECT id FROM practice_set WHERE deleted=0) GROUP BY practice_set_id')
+    # 学生条件写在最前面，只数、只列当前学生的练习
+    total=await db.first('SELECT COUNT(*) AS total FROM practice_set p WHERE p.student_id=? AND '+where,[student_id,*values])
+    rows=await db.all('SELECT p.*,s.name AS subject_name FROM practice_set p LEFT JOIN subject s ON s.id=p.subject_id AND s.deleted=0 WHERE p.student_id=? AND '+where+' ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?',[student_id,*values,limit,skip])
+    sessions=await db.all('SELECT practice_set_id,SUM(total_count) AS total_count,SUM(correct_count) AS correct_count,SUM(duration) AS duration,MAX(reviewed_at) AS reviewed_at FROM word_review_session WHERE deleted=0 AND student_id=? AND practice_set_id IN (SELECT id FROM practice_set WHERE deleted=0 AND student_id=?) GROUP BY practice_set_id',(student_id,student_id))
     session_map={item['practice_set_id']:item for item in sessions}
     for row in rows:
         row['reviewed']=bool(row['reviewed']);row['questions']=[]
@@ -132,10 +138,11 @@ async def listing(request:Request,skip:int=Query(0,ge=0),limit:int=Query(20,ge=1
 async def create_set(request,payload):
     """验证题目后创建练习和关联。"""
     db=Database(request.scope['env'].DB)
+    student_id=current_student_id(request)
     ids=payload.get('question_ids',[])
     if not isinstance(ids,list) or not 1<=len(ids)<=90 or any(type(item) is not int for item in ids) or len(set(ids))!=len(ids):
         raise HTTPException(422,'请选择1至90道不同的题目')
-    rows=await db.all('SELECT * FROM question WHERE deleted=0 AND id IN ('+','.join('?' for _ in ids)+')',ids)
+    rows=await db.all('SELECT * FROM question WHERE deleted=0 AND student_id=? AND id IN ('+','.join('?' for _ in ids)+')',[student_id,*ids])
     if len(rows)!=len(ids):raise HTTPException(400,'部分题目不存在或已删除')
     if len({row['subject_id'] for row in rows})!=1:raise HTTPException(400,'请选择同一学科的题目')
     if any(row['review_status']!='approved' for row in rows):raise HTTPException(400,'所选题目里有待核对的题，请先处理')
@@ -143,9 +150,9 @@ async def create_set(request,payload):
     if payload.get('question_type','original')!='original':raise HTTPException(422,'手工练习集只能用原题，相似题请用出练习卷')
     stamp=now().isoformat(' ')
     name=payload.get('name') or '练习集_'+now().strftime('%Y%m%d%H%M%S')
-    row=await db.first('INSERT INTO practice_set(name,subject_id,source_type,question_type,total_questions,reviewed,review_count,deleted,created_at) VALUES(?,?,\'question\',?,?,0,0,0,?) RETURNING *',(name,rows[0]['subject_id'],payload.get('question_type','original'),len(ids),stamp))
+    row=await db.first('INSERT INTO practice_set(student_id,name,subject_id,source_type,question_type,total_questions,reviewed,review_count,deleted,created_at) VALUES(?,?,?,\'question\',?,?,0,0,0,?) RETURNING *',(student_id,name,rows[0]['subject_id'],payload.get('question_type','original'),len(ids),stamp))
     await batch_or_http(db, [('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) VALUES(?,?,?,?)',(row['id'],question_id,None,index)) for index,question_id in enumerate(ids)])
-    return await get(db,row['id'])
+    return await get(db,row['id'],student_id=student_id)
 
 
 @router.post('',status_code=201)
@@ -158,37 +165,38 @@ async def create(request:Request):
 async def generate_reading(request:Request):
     """创建关联现有短文的阅读练习。"""
     payload=await request.json();db=Database(request.scope['env'].DB)
-    passage=await db.first('SELECT * FROM reading_passage WHERE id=? AND deleted=0',(payload.get('passage_id'),))
+    student_id=current_student_id(request)
+    passage=await db.first('SELECT * FROM reading_passage WHERE id=? AND student_id=? AND deleted=0',(payload.get('passage_id'),student_id))
     if not passage:raise HTTPException(404,'短文不存在')
     subject=await db.first('SELECT id FROM subject WHERE name=\'英语\' AND deleted=0')
     if not subject:raise HTTPException(400,'缺少英语学科')
     count=await db.first('SELECT COUNT(*) AS count FROM reading_question WHERE passage_id=? AND deleted=0',(passage['id'],))
-    row=await db.first('INSERT INTO practice_set(name,subject_id,source_type,question_type,passage_id,total_questions,reviewed,review_count,deleted,created_at) VALUES(?,?,\'reading\',\'original\',?,?,0,0,0,?) RETURNING id',(payload.get('name') or passage['title'],subject['id'],passage['id'],count['count'],now().isoformat(' ')))
-    return await get(db,row['id'])
+    row=await db.first('INSERT INTO practice_set(student_id,name,subject_id,source_type,question_type,passage_id,total_questions,reviewed,review_count,deleted,created_at) VALUES(?,?,?,\'reading\',\'original\',?,?,0,0,0,?) RETURNING id',(student_id,payload.get('name') or passage['title'],subject['id'],passage['id'],count['count'],now().isoformat(' ')))
+    return await get(db,row['id'],student_id=student_id)
 
 
 @router.get('/{practice_set_id}')
 async def detail(practice_set_id:int,request:Request):
     """读取练习集详情。"""
-    return await get(Database(request.scope['env'].DB),practice_set_id)
+    return await get(Database(request.scope['env'].DB),practice_set_id,student_id=current_student_id(request))
 
 
 @router.put('/{practice_set_id}')
 async def update(practice_set_id:int,request:Request):
     """更新名称与备注。"""
-    db=Database(request.scope['env'].DB);await get(db,practice_set_id,False)
+    db=Database(request.scope['env'].DB);student_id=current_student_id(request);await get(db,practice_set_id,False,student_id=student_id)
     payload=await request.json();data={key:value for key,value in payload.items() if key in ('name','notes') and value is not None}
-    if data:await db.run('UPDATE practice_set SET '+','.join(key+'=?' for key in data)+' WHERE id=? AND deleted=0',[*data.values(),practice_set_id])
+    if data:await db.run('UPDATE practice_set SET '+','.join(key+'=?' for key in data)+' WHERE id=? AND student_id=? AND deleted=0',[*data.values(),practice_set_id,student_id])
     return {'message':'更新成功'}
 
 
 @router.put('/{practice_set_id}/review-images')
 async def images(practice_set_id:int,request:Request):
     """更新批改原图关联。"""
-    db=Database(request.scope['env'].DB);await get(db,practice_set_id,False)
+    db=Database(request.scope['env'].DB);student_id=current_student_id(request);await get(db,practice_set_id,False,student_id=student_id)
     payload=await request.json();images=payload.get('images')
     if images is not None and not isinstance(images,list):raise HTTPException(422,'图片列表无效')
-    await db.run('UPDATE practice_set SET review_images=? WHERE id=? AND deleted=0',(json.dumps(images,ensure_ascii=False),practice_set_id))
+    await db.run('UPDATE practice_set SET review_images=? WHERE id=? AND student_id=? AND deleted=0',(json.dumps(images,ensure_ascii=False),practice_set_id,student_id))
     return {'message':'更新成功','review_images':images}
 
 
@@ -221,14 +229,14 @@ async def knowledge_review_statements(db,practice,payload,stamp):
         if type(expected) is not int:raise HTTPException(422,'knowledge_revision 参数无效')
         statements.append(guard_statement(
             'EXISTS(SELECT 1 FROM write_guard WHERE id=1 AND deleted=0) AND '
-            'COALESCE((SELECT knowledge_revision FROM question WHERE id=? AND deleted=0),-1)=?',
-            (question_id,expected)))
+            'COALESCE((SELECT knowledge_revision FROM question WHERE id=? AND student_id=? AND deleted=0),-1)=?',
+            (question_id,practice['student_id'],expected)))
         changed.append((question_id,result))
     if changed:await ensure_guard_rows(db)
     for question_id,result in changed:
         statements+=link_statements(question_id,result['ids'],result['primary'],'manual',stamp)
         name=result['points'][result['primary']]['name'] if result['primary'] else None
-        statements.append(('UPDATE question SET knowledge_revision=knowledge_revision+1,knowledge_point=?,updated_at=? WHERE id=? AND deleted=0',(name,stamp,question_id)))
+        statements.append(('UPDATE question SET knowledge_revision=knowledge_revision+1,knowledge_point=?,updated_at=? WHERE id=? AND student_id=? AND deleted=0',(name,stamp,question_id,practice['student_id'])))
     if changed:statements.append(structure_statement([item[0] for item in changed]))
     return statements,[item[0] for item in changed]
 
@@ -237,22 +245,22 @@ SKIP_REASONS=('not_done','bad_question')   # 跳过原因：没做、题目有�
 STALE_TEXT='这份卷子刚被批改过，请刷新后再改'
 
 
-async def changed_knowledge(db,changed_ids):
+async def changed_knowledge(db,changed_ids,student_id):
     """批改时改过知识点的题：返回它们最新的版本号和知识点，供前端刷新。"""
     question_knowledge=[]
     if changed_ids:
         link_map=await question_links(db,changed_ids)
-        revisions={row['id']:row['knowledge_revision'] for row in await db.all('SELECT id,knowledge_revision FROM question WHERE id IN ('+','.join('?' for _ in changed_ids)+')',changed_ids)}
+        revisions={row['id']:row['knowledge_revision'] for row in await db.all('SELECT id,knowledge_revision FROM question WHERE student_id=? AND id IN ('+','.join('?' for _ in changed_ids)+')',[student_id,*changed_ids])}
         for question_id in changed_ids:
             links=link_map.get(question_id,[])
             question_knowledge.append({'question_id':question_id,'knowledge_revision':revisions.get(question_id,0),'knowledge_points':links,'knowledge_point':projection_name(links)})
     return question_knowledge
 
 
-async def reward_review(db):
-    """触发"复习练习集"的激励；行为没配置时忽略。"""
+async def reward_review(db,owner):
+    """触发"复习练习集"的激励（记在 owner 这个学生名下）；行为没配置时忽略。"""
     from motivation import trigger
-    try:await trigger(db,'review_practice_set','复习练习集')
+    try:await trigger(db,owner,'review_practice_set','复习练习集')
     except HTTPException:pass
 
 
@@ -321,7 +329,7 @@ def count_deltas(entries,first):
     return deltas
 
 
-async def load_history(db,practice_id):
+async def load_history(db,practice_id,student_id):
     """取这份卷子里每道错题的录入时间、主考点，以及它在其它卷子里的有效结果（一条 SQL）。
 
     没有其它结果的题也返回一行（结果列为空）；所在卷子已删除的结果 set_id 为空，由调用方丢掉。
@@ -334,8 +342,8 @@ async def load_history(db,practice_id):
         'LEFT JOIN practice_set_question o ON o.question_id=q.id AND o.deleted=0 AND o.practice_set_id<>? '
         'AND o.is_correct IS NOT NULL AND o.skip_reason IS NULL '
         'LEFT JOIN practice_set ps ON ps.id=o.practice_set_id AND ps.deleted=0 '
-        'WHERE q.deleted=0 AND q.id IN (SELECT question_id FROM practice_set_question WHERE practice_set_id=? AND deleted=0)',
-        (practice_id,practice_id))
+        'WHERE q.deleted=0 AND q.student_id=? AND q.id IN (SELECT question_id FROM practice_set_question WHERE practice_set_id=? AND deleted=0)',
+        (practice_id,student_id,practice_id))
 
 
 def graduated_numbers(history,entries,before_at,after_at,waive_map):
@@ -417,11 +425,11 @@ async def review_questions(db,request,practice,payload,results):
     # 批改前：默认年级只读一次；掌握度和各题的历史结果各取一次
     default_grade=await starmap.load_default_grade(request)
     before_nodes=await leaf_nodes(db,request,practice['subject_id'],default_grade)
-    history=await load_history(db,practice_id)
+    history=await load_history(db,practice_id,practice['student_id'])
     await ensure_guard_rows(db)
 
     # 第一条是事务内断言：版本号还是读到的那个，否则整批回滚（两人同时提交时后到的失败，计数不会重复）
-    statements=[guard_statement('COALESCE((SELECT grading_revision FROM practice_set WHERE id=? AND deleted=0),-1)=?',(practice_id,current))]
+    statements=[guard_statement('COALESCE((SELECT grading_revision FROM practice_set WHERE id=? AND student_id=? AND deleted=0),-1)=?',(practice_id,practice['student_id'],current))]
     statements+=knowledge_statements
     deltas=count_deltas(entries,first)
     if deltas:
@@ -432,8 +440,8 @@ async def review_questions(db,request,practice,payload,results):
             'correct_count=MAX(0,COALESCE(correct_count,0)+'+pick % 'correct'+'),'
             'error_count=MAX(0,COALESCE(error_count,0)+'+pick % 'error'+'),'
             'last_reviewed_at=CASE WHEN '+pick % 'touch'+'>0 THEN ? ELSE last_reviewed_at END '
-            'WHERE deleted=0 AND id IN(SELECT json_extract(value,\'$.question_id\') FROM json_each(?))',
-            (packed,packed,packed,packed,stamp,packed)))
+            'WHERE deleted=0 AND student_id=? AND id IN(SELECT json_extract(value,\'$.question_id\') FROM json_each(?))',
+            (packed,packed,packed,packed,stamp,practice['student_id'],packed)))
     if entries:
         rows=json.dumps([{'id':entry['id'],'correct':None if entry['new'] is None else int(entry['new']),'skip':entry['skip']} for entry in entries])
         statements.append((
@@ -442,10 +450,10 @@ async def review_questions(db,request,practice,payload,results):
             'skip_reason=(SELECT json_extract(value,\'$.skip\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=practice_set_question.id) '
             'WHERE deleted=0 AND id IN(SELECT json_extract(value,\'$.id\') FROM json_each(?))',(rows,rows,rows)))
     if first:
-        statements.append(('UPDATE practice_set SET reviewed=1,review_count=COALESCE(review_count,0)+1,last_reviewed_at=?,accuracy=?,review_images=COALESCE(?,review_images),grading_revision=COALESCE(grading_revision,0)+1 WHERE id=? AND deleted=0',(stamp,accuracy,images,practice_id)))
+        statements.append(('UPDATE practice_set SET reviewed=1,review_count=COALESCE(review_count,0)+1,last_reviewed_at=?,accuracy=?,review_images=COALESCE(?,review_images),grading_revision=COALESCE(grading_revision,0)+1 WHERE id=? AND student_id=? AND deleted=0',(stamp,accuracy,images,practice_id,practice['student_id'])))
     else:
         # 之后的修改不动批改次数和批改时间，这次练习在时间线上的位置不变
-        statements.append(('UPDATE practice_set SET accuracy=?,review_images=COALESCE(?,review_images),grading_revision=COALESCE(grading_revision,0)+1 WHERE id=? AND deleted=0',(accuracy,images,practice_id)))
+        statements.append(('UPDATE practice_set SET accuracy=?,review_images=COALESCE(?,review_images),grading_revision=COALESCE(grading_revision,0)+1 WHERE id=? AND student_id=? AND deleted=0',(accuracy,images,practice_id,practice['student_id'])))
     try:
         await batch_or_http(db,statements)
     except HTTPException as error:
@@ -460,8 +468,8 @@ async def review_questions(db,request,practice,payload,results):
     after_at=stamp if first else practice['last_reviewed_at']
     graduated=graduated_numbers(history,entries,practice['last_reviewed_at'],after_at,waive_map)
     points,newly_mastered=point_changes(before_nodes,after_nodes)
-    question_knowledge=await changed_knowledge(db,changed_ids)
-    if first:await reward_review(db)       # 激励只在第一次批改时发
+    question_knowledge=await changed_knowledge(db,changed_ids,practice['student_id'])
+    if first:await reward_review(db,current_identity(request))       # 激励只在第一次批改时发
     return {'message':'已标记为复习','review_count':(practice['review_count'] or 0)+(1 if first else 0),
             'accuracy':accuracy,'question_knowledge':question_knowledge,'grading_revision':current+1,
             'points':points,'newly_mastered':newly_mastered,'graduated':graduated}
@@ -470,7 +478,7 @@ async def review_questions(db,request,practice,payload,results):
 @router.post('/{practice_set_id}/mark-reviewed')
 async def reviewed(practice_set_id:int,request:Request):
     """保存一份练习的批改：错题练习按差值计数（review_questions），阅读、单词练习照旧（review_other）。"""
-    db=Database(request.scope['env'].DB);practice=await get(db,practice_set_id)
+    db=Database(request.scope['env'].DB);practice=await get(db,practice_set_id,student_id=current_student_id(request))
     payload=await request.json() if 'application/json' in request.headers.get('content-type','') else dict(await request.form())
     results=payload.get('question_results') or []
     if isinstance(results,str):
@@ -478,12 +486,12 @@ async def reviewed(practice_set_id:int,request:Request):
         except ValueError:raise HTTPException(422,'批改数据无效')
     if not isinstance(results,list):raise HTTPException(422,'批改数据无效')
     if practice['source_type'] in ('reading','word'):
-        return await review_other(db,practice,payload,results)
+        return await review_other(db,practice,payload,results,current_identity(request))
     # 其余都是错题练习（和 get 的判断一致）
     return await review_questions(db,request,practice,payload,results)
 
 
-async def review_other(db,practice,payload,results):
+async def review_other(db,practice,payload,results,owner):
     """阅读、单词练习的批改：保持原来的做法（每提交一次批改次数加一）。"""
     practice_set_id=practice['id']
     mapping={item.get('question_id'):item.get('is_correct') for item in results}
@@ -500,35 +508,36 @@ async def review_other(db,practice,payload,results):
     accuracy=round(correct/total*100,1) if total else None
     images=payload.get('images')
     if isinstance(images,list):images=json.dumps(images,ensure_ascii=False)
-    statements.append(('UPDATE practice_set SET reviewed=1,review_count=COALESCE(review_count,0)+1,last_reviewed_at=?,accuracy=?,review_images=COALESCE(?,review_images) WHERE id=? AND deleted=0',(stamp,accuracy,images,practice_set_id)))
+    statements.append(('UPDATE practice_set SET reviewed=1,review_count=COALESCE(review_count,0)+1,last_reviewed_at=?,accuracy=?,review_images=COALESCE(?,review_images) WHERE id=? AND student_id=? AND deleted=0',(stamp,accuracy,images,practice_set_id,practice['student_id'])))
     await batch_or_http(db, statements)
-    question_knowledge=await changed_knowledge(db,changed_ids)
-    await reward_review(db)
+    question_knowledge=await changed_knowledge(db,changed_ids,practice['student_id'])
+    await reward_review(db,owner)
     return {'message':'已标记为复习','review_count':(practice['review_count'] or 0)+1,'accuracy':accuracy,'question_knowledge':question_knowledge}
 
 
-async def remove(db,practice_id):
-    """软删除练习；按场次明细原子回滚单词复习计数。"""
-    practice=await get(db,practice_id,False)
-    statements=[('UPDATE write_guard SET revision=CASE WHEN EXISTS(SELECT 1 FROM practice_set WHERE id=? AND deleted=0) THEN revision+1 ELSE NULL END WHERE id=1',(practice_id,))]
+async def remove(db,practice_id,student_id):
+    """软删除这个学生的练习；按场次明细原子回滚单词复习计数。"""
+    practice=await get(db,practice_id,False,student_id=student_id)
+    statements=[('UPDATE write_guard SET revision=CASE WHEN EXISTS(SELECT 1 FROM practice_set WHERE id=? AND student_id=? AND deleted=0) THEN revision+1 ELSE NULL END WHERE id=1',(practice_id,student_id))]
     if practice['source_type']=='word':
         plan=[]
-        for session in await db.all('SELECT * FROM word_review_session WHERE deleted=0 AND practice_set_id=?',(practice_id,)):
+        for session in await db.all('SELECT * FROM word_review_session WHERE deleted=0 AND practice_set_id=? AND student_id=?',(practice_id,student_id)):
             for item in json.loads(session['word_results'] or '[]'):
                 plan.append({'word_id':item.get('word_id'),'correct':int(bool(item.get('is_correct'))),'stamp':session['reviewed_at']})
         if plan:
             packed=json.dumps(plan)
-            statements.append(('UPDATE word SET review_count=MAX(0,COALESCE(review_count,0)-(SELECT COUNT(*) FROM json_each(?) WHERE json_extract(value,\'$.word_id\')=word.id)),correct_count=MAX(0,COALESCE(correct_count,0)-(SELECT SUM(json_extract(value,\'$.correct\')) FROM json_each(?) WHERE json_extract(value,\'$.word_id\')=word.id)) WHERE deleted=0 AND id IN(SELECT json_extract(value,\'$.word_id\') FROM json_each(?))',(packed,packed,packed)))
+            statements.append(('UPDATE word SET review_count=MAX(0,COALESCE(review_count,0)-(SELECT COUNT(*) FROM json_each(?) WHERE json_extract(value,\'$.word_id\')=word.id)),correct_count=MAX(0,COALESCE(correct_count,0)-(SELECT SUM(json_extract(value,\'$.correct\')) FROM json_each(?) WHERE json_extract(value,\'$.word_id\')=word.id)) WHERE deleted=0 AND student_id=? AND id IN(SELECT json_extract(value,\'$.word_id\') FROM json_each(?))',(packed,packed,student_id,packed)))
+            # scope-ok: 单词编号和复习时间都来自这个学生自己的复习场次（已按 student_id 取出）
             statements.append(('UPDATE word_review_log SET deleted=1 WHERE id IN(SELECT (SELECT l.id FROM word_review_log l WHERE l.word_id=json_extract(j.value,\'$.word_id\') AND l.is_correct=json_extract(j.value,\'$.correct\') AND l.deleted=0 AND l.reviewed_at>=datetime(json_extract(j.value,\'$.stamp\'),\'-2 minutes\') AND l.reviewed_at<=datetime(json_extract(j.value,\'$.stamp\'),\'+3 hours\') ORDER BY l.reviewed_at DESC,l.id DESC LIMIT 1) FROM json_each(?) j)',(packed,)))
-        statements.append(('UPDATE word_review_session SET deleted=1 WHERE practice_set_id=? AND deleted=0',(practice_id,)))
-    statements.append(('UPDATE practice_set SET deleted=1 WHERE id=? AND deleted=0',(practice_id,)))
+        statements.append(('UPDATE word_review_session SET deleted=1 WHERE practice_set_id=? AND student_id=? AND deleted=0',(practice_id,student_id)))
+    statements.append(('UPDATE practice_set SET deleted=1 WHERE id=? AND student_id=? AND deleted=0',(practice_id,student_id)))
     await batch_or_http(db, statements)
 
 
 @router.delete('/{practice_set_id}',status_code=204)
 async def delete(practice_set_id:int,request:Request):
     """软删除单套练习。"""
-    await remove(Database(request.scope['env'].DB),practice_set_id)
+    await remove(Database(request.scope['env'].DB),practice_set_id,current_student_id(request))
     from fastapi.responses import Response
     return Response(status_code=204)
 
@@ -539,8 +548,9 @@ async def batch_delete(request:Request):
     db=Database(request.scope['env'].DB);payload=await request.json();ids=payload.get('ids',[])
     if not isinstance(ids,list) or not ids:raise HTTPException(422,'请选择练习集')
     deleted=0
+    student_id=current_student_id(request)
     for item in dict.fromkeys(ids):
-        try:await remove(db,item);deleted+=1
+        try:await remove(db,item,student_id);deleted+=1
         except HTTPException as error:
             if error.status_code!=404:raise
     return {'success':True,'deleted_count':deleted,'total':len(ids)}
@@ -557,7 +567,8 @@ async def pdf(practice_set_id:int,request:Request):
 async def batch_pdf(request:Request):
     """返回已生成 PDF 的下载地址。"""
     payload=await request.json();db=Database(request.scope['env'].DB);results=[]
+    student_id=current_student_id(request)
     for item in payload.get('ids',[]):
-        row=await db.first('SELECT id,name,pdf_path FROM practice_set WHERE id=? AND deleted=0',(item,))
+        row=await db.first('SELECT id,name,pdf_path FROM practice_set WHERE id=? AND student_id=? AND deleted=0',(item,student_id))
         results.append({'id':item,'name':row['name'] if row else None,'pdf_url':'/uploads/'+row['pdf_path'] if row and row['pdf_path'] else None,'error':None if row and row['pdf_path'] else 'PDF未生成或练习集不存在'})
     return {'results':results}

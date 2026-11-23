@@ -7,6 +7,7 @@ content 带 schema_version=2 的是两级知识点改造后生成的报告。
 import json
 from fastapi import APIRouter, HTTPException, Query, Request
 from database import Database
+from question_scope import current_student_id
 
 router = APIRouter(prefix='/api/learning-reports')
 
@@ -22,12 +23,14 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
             filters.append('r.' + key + '=?')
             values.append(value)
     where = ' AND '.join(filters)
-    count = await db.first('SELECT COUNT(*) AS total FROM learning_report r WHERE ' + where, values)
+    student_id = current_student_id(request)
+    count = await db.first('SELECT COUNT(*) AS total FROM learning_report r WHERE r.student_id=? AND ' + where,
+                           [student_id, *values])
     rows = await db.all(
         'SELECT r.id,r.title,r.subject_id,s.name AS subject_name,r.grade,r.time_range_days,'
         'r.total_questions,r.total_words,r.overall_accuracy,r.created_at '
-        'FROM learning_report r LEFT JOIN subject s ON s.id=r.subject_id AND s.deleted=0 WHERE '
-        + where + ' ORDER BY r.created_at DESC,r.id DESC LIMIT ? OFFSET ?', [*values, limit, skip])
+        'FROM learning_report r LEFT JOIN subject s ON s.id=r.subject_id AND s.deleted=0 WHERE r.student_id=? AND '
+        + where + ' ORDER BY r.created_at DESC,r.id DESC LIMIT ? OFFSET ?', [student_id, *values, limit, skip])
     return {'total': count['total'], 'items': rows}
 
 
@@ -36,8 +39,8 @@ async def detail(report_id: int, request: Request):
     """读取已保存报告内容；旧报告带 legacy 标记。"""
     row = await Database(request.scope['env'].DB).first(
         'SELECT r.*,s.name AS subject_name FROM learning_report r '
-        'LEFT JOIN subject s ON s.id=r.subject_id AND s.deleted=0 WHERE r.id=? AND r.deleted=0',
-        (report_id,))
+        'LEFT JOIN subject s ON s.id=r.subject_id AND s.deleted=0 WHERE r.id=? AND r.student_id=? AND r.deleted=0',
+        (report_id, current_student_id(request)))
     if not row:
         raise HTTPException(404, '报告不存在')
     row['content'] = json.loads(row['content']) if row['content'] else {}
@@ -50,6 +53,7 @@ async def detail(report_id: int, request: Request):
 async def delete(report_id: int, request: Request):
     """软删除报告。"""
     if not await Database(request.scope['env'].DB).first(
-            'UPDATE learning_report SET deleted=1 WHERE id=? AND deleted=0 RETURNING id', (report_id,)):
+            'UPDATE learning_report SET deleted=1 WHERE id=? AND student_id=? AND deleted=0 RETURNING id',
+            (report_id, current_student_id(request))):
         raise HTTPException(404, '报告不存在')
     return {'message': '删除成功'}

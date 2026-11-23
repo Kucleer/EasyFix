@@ -116,8 +116,8 @@ async def ensure_printable(db,practice):
     if practice.get('kind')!='targeted':return
     # 和出卷页 prepare 数"还没准备"的条件相同：错题已删除的行不在卷面上，不算
     row=await db.first("SELECT COUNT(*) AS count FROM practice_set_question pq JOIN question q ON q.id=pq.question_id "
-                       "AND q.deleted=0 WHERE pq.practice_set_id=? AND pq.deleted=0 AND pq.form='similar' "
-                       "AND pq.similar_question_id IS NULL",(practice['id'],))
+                       "AND q.deleted=0 AND q.student_id=? WHERE pq.practice_set_id=? AND pq.deleted=0 AND pq.form='similar' "
+                       "AND pq.similar_question_id IS NULL",(practice['student_id'],practice['id']))
     if row and row['count']:
         raise HTTPException(409,'还有 %d 道相似题没准备好，请先在出卷页准备完'%row['count'])
 
@@ -125,8 +125,10 @@ async def ensure_printable(db,practice):
 async def generate_practice(practice_set_id,request):
     """读取真实练习内容，渲染成功后才更新 PDF 路径。"""
     from practices import get
+    from identity import current_identity, upload_prefix
+    owner=current_identity(request)
     db=Database(request.scope['env'].DB)
-    practice=await get(db,practice_set_id)
+    practice=await get(db,practice_set_id,student_id=owner['student_id'])
     if not practice['questions']:raise HTTPException(400,'练习集没有题目')
     await ensure_printable(db,practice)
     import hashlib
@@ -137,10 +139,11 @@ async def generate_practice(practice_set_id,request):
     if cached and cached['value']==fingerprint and practice.get('pdf_path'):
         return {'pdf_url':'/uploads/'+practice['pdf_path']}
     response=await call(request,'/pdf',payload)
-    key='practice_sets/'+uuid4().hex+'.pdf'
+    # 新 PDF 放在本家庭的前缀下，网关按前缀判断归属
+    key=upload_prefix(owner['user_id'])+'practice_sets/'+uuid4().hex+'.pdf'
     from js import Object
     from pyodide.ffi import to_js
     await request.scope['env'].IMAGES.put(key,await response.js_object.arrayBuffer(),to_js({'httpMetadata':{'contentType':'application/pdf'}},dict_converter=Object.fromEntries))
-    await db.run('UPDATE practice_set SET pdf_path=? WHERE id=? AND deleted=0',(key,practice_set_id))
+    await db.run('UPDATE practice_set SET pdf_path=? WHERE id=? AND student_id=? AND deleted=0',(key,practice_set_id,owner['student_id']))
     await db.run('INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES(?,?,0,CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET value=excluded.value,deleted=0,updated_at=excluded.updated_at',(cache_name,fingerprint))
     return {'pdf_url':'/uploads/'+key}

@@ -23,27 +23,28 @@ router = APIRouter()
 STREAK_LOOKBACK_DAYS = 60    # 连续天数最多往前看多少天
 
 
-async def review_part(db):
-    """待核对的错题数，以及有待核对题的最新一份卷子（两条 SQL）。"""
-    count = await db.first("SELECT COUNT(*) AS n FROM question WHERE deleted=0 AND review_status='pending'")
+async def review_part(db, student_id):
+    """这个学生待核对的错题数，以及有待核对题的最新一份卷子（两条 SQL）。"""
+    count = await db.first("SELECT COUNT(*) AS n FROM question WHERE deleted=0 AND student_id=? AND review_status='pending'",
+                           (student_id,))
     paper = await db.first(
-        'SELECT p.id, p.name FROM paper p WHERE p.deleted=0 AND EXISTS('
-        "SELECT 1 FROM question q WHERE q.paper_id=p.id AND q.deleted=0 AND q.review_status='pending') "
-        'ORDER BY p.paper_date DESC, p.id DESC LIMIT 1')
+        'SELECT p.id, p.name FROM paper p WHERE p.deleted=0 AND p.student_id=? AND EXISTS('
+        "SELECT 1 FROM question q WHERE q.paper_id=p.id AND q.student_id=p.student_id AND q.deleted=0 "
+        "AND q.review_status='pending') ORDER BY p.paper_date DESC, p.id DESC LIMIT 1", (student_id,))
     return {'count': count['n'], 'latest_paper': {'id': paper['id'], 'name': paper['name']} if paper else None}
 
 
-async def last_targeted_at(db):
-    """最近一份考点卷的创建时间；没有返回 None。"""
-    row = await db.first("SELECT created_at FROM practice_set WHERE deleted=0 AND kind='targeted' "
-                         'ORDER BY created_at DESC, id DESC LIMIT 1')
+async def last_targeted_at(db, student_id):
+    """这个学生最近一份考点卷的创建时间；没有返回 None。"""
+    row = await db.first("SELECT created_at FROM practice_set WHERE deleted=0 AND student_id=? AND kind='targeted' "
+                         'ORDER BY created_at DESC, id DESC LIMIT 1', (student_id,))
     return row['created_at'] if row else None
 
 
-async def due_word_count(db, moment):
-    """到期要复习的单词数：next_review_at 不为空且不晚于 moment（一条 COUNT SQL，口径同 words.word_stats）。"""
-    row = await db.first("SELECT COUNT(*) AS n FROM word WHERE deleted=0 AND next_review_at IS NOT NULL "
-                         "AND next_review_at<>'' AND next_review_at<=?", (moment.isoformat(' '),))
+async def due_word_count(db, moment, student_id):
+    """这个学生到期要复习的单词数：next_review_at 不为空且不晚于 moment（一条 COUNT SQL，口径同 words.word_stats）。"""
+    row = await db.first("SELECT COUNT(*) AS n FROM word WHERE deleted=0 AND student_id=? AND next_review_at IS NOT NULL "
+                         "AND next_review_at<>'' AND next_review_at<=?", (student_id, moment.isoformat(' ')))
     return row['n']
 
 
@@ -52,11 +53,12 @@ def streak_first_moment(moment):
     return (moment - timedelta(days=STREAK_LOOKBACK_DAYS - 1)).strftime(DATE_FORMAT) + ' 00:00:00'
 
 
-async def recent_dictation_dates(db, moment):
-    """最近 60 天有单词默写的日期集合（一条 SQL，只算 review_type=1）。"""
+async def recent_dictation_dates(db, moment, student_id):
+    """这个学生最近 60 天有单词默写的日期集合（一条 SQL，只算 review_type=1；连上单词按学生过滤）。"""
     first_day = streak_first_moment(moment)
-    rows = await db.all('SELECT DISTINCT substr(reviewed_at,1,10) AS day FROM word_review_log '
-                        'WHERE deleted=0 AND review_type=1 AND reviewed_at>=?', (first_day,))
+    rows = await db.all('SELECT DISTINCT substr(l.reviewed_at,1,10) AS day FROM word_review_log l '
+                        'JOIN word w ON w.id=l.word_id AND w.student_id=? '
+                        'WHERE l.deleted=0 AND l.review_type=1 AND l.reviewed_at>=?', (student_id, first_day))
     return {row['day'] for row in rows}
 
 
@@ -67,11 +69,11 @@ async def build_home(db, request, moment: datetime) -> dict:
     student_id = current_student_id(request)
     subjects = await weekly.load_subjects(db)
     names = {row['id']: row['name'] for row in subjects}
-    entries, _entered = await weekly.entries_part(db, win, week_end, names)
-    dictation, dictated_dates = await weekly.dictation_part(db, win, week_end)
+    entries, _entered = await weekly.entries_part(db, win, week_end, names, student_id)
+    dictation, dictated_dates = await weekly.dictation_part(db, win, week_end, student_id)
     # 翻一翻：本周数字和周报同一个函数；日期往前多取到连续天数要看的最早一天，供打卡条和连续天数用
     flip_week, flipped_dates = await weekly.flip_part(db, student_id, win, streak_first_moment(moment))
-    practice = await weekly.practice_part(db, win)
+    practice = await weekly.practice_part(db, win, student_id)
     # 配置和默认年级各取一次，每个有考点的学科再算一遍星星（和 build_facts 一样）
     config = await starmap.load_config(request)
     default_grade = await starmap.load_default_grade(request)
@@ -81,12 +83,12 @@ async def build_home(db, request, moment: datetime) -> dict:
             parts.append(await weekly.subject_part(db, subject, student_id, win, config, default_grade))
     improved = [item for part in parts for item in part['improved']]
     dropped = [item for part in parts for item in part['dropped']]
-    streak_dates = await recent_dictation_dates(db, moment) | flipped_dates
+    streak_dates = await recent_dictation_dates(db, moment, student_id) | flipped_dates
     return {
-        'review': await review_part(db),
-        'grading': await targeted.pending_grading(db),
-        'targeted': {'last_created_at': await last_targeted_at(db)},
-        'words': {'due': await due_word_count(db, moment)},
+        'review': await review_part(db, student_id),
+        'grading': await targeted.pending_grading(db, student_id),
+        'targeted': {'last_created_at': await last_targeted_at(db, student_id)},
+        'words': {'due': await due_word_count(db, moment, student_id)},
         'flip': await flip.today_progress(db, student_id, moment.strftime(DATE_FORMAT)),
         'streak_days': streak_days(streak_dates, moment.strftime(DATE_FORMAT)),
         'week': {'monday': win['monday'], 'sunday': win['sunday'],

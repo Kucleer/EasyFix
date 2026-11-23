@@ -19,7 +19,7 @@ from intake_model import is_plain_int
 from knowledge import question_links
 from practices import batch_or_http, get as get_practice
 from prompts import PromptLibrary
-from question_scope import counted, grade_ready, stem_ready
+from question_scope import counted, current_student_id, grade_ready, stem_ready
 from targeted_model import (MODES, OPEN_PAPER_DAYS, SIZE_MAX, SIZE_MIN, SPOT_DEFAULT, cut_stem, has_figure,
                             plan_paper)
 
@@ -96,12 +96,12 @@ def int_in_range(payload, key, default, low, high, label):
 # ---------------------------------------------------------------- 状态
 
 
-async def pending_grading(db):
-    """待批改的错题练习卷（不限日期，两条 SQL）：{count, oldest: {id, name, created_at} | None}。"""
+async def pending_grading(db, student_id):
+    """这个学生待批改的错题练习卷（不限日期，两条 SQL）：{count, oldest: {id, name, created_at} | None}。"""
     where = "deleted=0 AND source_type='question' AND COALESCE(reviewed,0)=0"
-    count = await db.first('SELECT COUNT(*) AS total FROM practice_set WHERE ' + where)
-    oldest = await db.first('SELECT id, name, created_at FROM practice_set WHERE ' + where +
-                            ' ORDER BY created_at ASC, id ASC LIMIT 1')
+    count = await db.first('SELECT COUNT(*) AS total FROM practice_set WHERE student_id=? AND ' + where, (student_id,))
+    oldest = await db.first('SELECT id, name, created_at FROM practice_set WHERE student_id=? AND ' + where +
+                            ' ORDER BY created_at ASC, id ASC LIMIT 1', (student_id,))
     return {'count': count['total'],
             'oldest': {'id': oldest['id'], 'name': oldest['name'], 'created_at': oldest['created_at']}
             if oldest else None}
@@ -111,13 +111,14 @@ async def pending_grading(db):
 async def status(request: Request):
     """待批改卷子数（错题练习集，不限日期），以及每科最近一份考点卷的出卷日期和状态。"""
     db = Database(request.scope['env'].DB)
-    pending = await pending_grading(db)
-    # 每科取最新的一份考点卷（子查询按出卷时间、编号倒序取第一份）
+    student_id = current_student_id(request)
+    pending = await pending_grading(db, student_id)
+    # 每科取这个学生最新的一份考点卷（子查询按出卷时间、编号倒序取第一份）
     rows = await db.all(
         'SELECT s.id AS subject_id, s.name AS subject_name, p.id, p.name, p.created_at, p.pdf_path, '
         'p.reviewed, p.accuracy FROM subject s LEFT JOIN practice_set p ON p.id=('
-        "SELECT x.id FROM practice_set x WHERE x.subject_id=s.id AND x.kind='targeted' AND x.deleted=0 "
-        'ORDER BY x.created_at DESC, x.id DESC LIMIT 1) WHERE s.deleted=0 ORDER BY s.id')
+        "SELECT x.id FROM practice_set x WHERE x.subject_id=s.id AND x.student_id=? AND x.kind='targeted' AND x.deleted=0 "
+        'ORDER BY x.created_at DESC, x.id DESC LIMIT 1) WHERE s.deleted=0 ORDER BY s.id', (student_id,))
     subjects = [{'subject_id': row['subject_id'], 'subject_name': row['subject_name'],
                  'last_paper': paper_summary(row) if row['id'] is not None else None} for row in rows]
     return {'pending_count': pending['count'], 'subjects': subjects}
@@ -126,7 +127,7 @@ async def status(request: Request):
 # ---------------------------------------------------------------- 选题预览
 
 
-async def load_candidates(db, subject_id, min_grade):
+async def load_candidates(db, subject_id, min_grade, student_id):
     """取这一科能进卷子的题（一条 SQL）：主考点、题干、录入时间、错题日期、复核原因。
 
     min_grade 为 None 时不按年级筛（"包含低年级"打开，或没设置默认年级）。
@@ -137,19 +138,19 @@ async def load_candidates(db, subject_id, min_grade):
         'qk.knowledge_point_id AS point_id, ' + starmap.WRONG_AT_SQL + ' AS wrong_at '
         'FROM question q JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 AND qk.is_primary=1 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 AND k.level=2 '
-        'LEFT JOIN paper p ON p.id=q.paper_id AND p.deleted=0 '
-        'WHERE ' + counted('q') + ' AND q.subject_id=? AND ' + stem_ready('q') + ' AND ' + grade_sql + ' '
-        'ORDER BY q.id', (subject_id, *grade_params))
+        'LEFT JOIN paper p ON p.id=q.paper_id AND p.deleted=0 AND p.student_id=q.student_id '
+        'WHERE ' + counted('q') + ' AND q.student_id=? AND q.subject_id=? AND ' + stem_ready('q') + ' AND ' + grade_sql + ' '
+        'ORDER BY q.id', (student_id, subject_id, *grade_params))
 
 
-async def load_practice_rows(db, subject_id):
-    """取这一科错题练习集里的题目行（一条 SQL）：结果、题号顺序和所在卷子的信息。"""
+async def load_practice_rows(db, subject_id, student_id):
+    """取这个学生这一科错题练习集里的题目行（一条 SQL）：结果、题号顺序和所在卷子的信息。"""
     return await db.all(
         'SELECT pq.question_id, pq.is_correct, pq.skip_reason, pq.display_order, ps.id AS set_id, ps.name, '
         'ps.kind, ps.created_at, ps.reviewed, ps.last_reviewed_at, ps.pdf_path, ps.accuracy '
-        'FROM practice_set_question pq JOIN practice_set ps ON ps.id=pq.practice_set_id AND ps.deleted=0 '
-        'JOIN question q ON q.id=pq.question_id AND q.subject_id=? '
-        'WHERE pq.deleted=0', (subject_id,))
+        'FROM practice_set_question pq JOIN practice_set ps ON ps.id=pq.practice_set_id AND ps.deleted=0 AND ps.student_id=? '
+        'JOIN question q ON q.id=pq.question_id AND q.subject_id=? AND q.student_id=? '
+        'WHERE pq.deleted=0', (student_id, subject_id, student_id))
 
 
 def summarize_practice(rows):
@@ -200,8 +201,9 @@ async def plan(request: Request):
     # 默认年级只读一次，同时交给掌握度计算；掌握度永远按开关关着的口径算（设计 5.1）
     default_grade = await starmap.load_default_grade(request)
     _, nodes, _, _, _ = await starmap.compute(db, request, subject_id, default_grade)
-    candidates = await load_candidates(db, subject_id, None if include_lower else default_grade)
-    results, blocked, last_paper, open_count = summarize_practice(await load_practice_rows(db, subject_id))
+    student_id = current_student_id(request)
+    candidates = await load_candidates(db, subject_id, None if include_lower else default_grade, student_id)
+    results, blocked, last_paper, open_count = summarize_practice(await load_practice_rows(db, subject_id, student_id))
 
     modules = {node['id']: node['name'] for node in nodes if node['level'] == 1}
     point_info = {node['id']: node for node in nodes if node['level'] == 2}
@@ -270,6 +272,7 @@ async def create(request: Request):
         raise HTTPException(422, '卷子名称必须是文字')
     items = check_items(payload.get('items'))
     db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
     subject = await starmap.load_subject(db, subject_id)
     ids = json.dumps([item['question_id'] for item in items])
 
@@ -280,8 +283,8 @@ async def create(request: Request):
         'JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 '
         'JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 AND k.level=2 '
         'LEFT JOIN knowledge_point m ON m.id=k.parent_id AND m.deleted=0 '
-        'WHERE ' + counted('q') + ' AND q.subject_id=? AND ' + stem_ready('q') + ' '
-        'AND q.id IN (SELECT value FROM json_each(?))', (subject_id, ids))
+        'WHERE ' + counted('q') + ' AND q.student_id=? AND q.subject_id=? AND ' + stem_ready('q') + ' '
+        'AND q.id IN (SELECT value FROM json_each(?))', (student_id, subject_id, ids))
     links = {(row['question_id'], row['point_id']): row for row in rows}
     usable = {row['question_id'] for row in rows}
     for item in items:
@@ -294,8 +297,8 @@ async def create(request: Request):
     busy = await db.all(
         'SELECT DISTINCT pq.question_id FROM practice_set_question pq '
         'JOIN practice_set ps ON ps.id=pq.practice_set_id AND ps.deleted=0 AND COALESCE(ps.reviewed,0)=0 '
-        'AND ps.created_at>=? WHERE pq.deleted=0 AND pq.question_id IN (SELECT value FROM json_each(?))',
-        (open_cutoff(), ids))
+        'AND ps.student_id=? AND ps.created_at>=? WHERE pq.deleted=0 AND pq.question_id IN (SELECT value FROM json_each(?))',
+        (student_id, open_cutoff(), ids))
     if busy:
         raise HTTPException(409, '错题 %s 已经在没批改的卷子里' % '、'.join(str(row['question_id']) for row in busy))
 
@@ -309,9 +312,9 @@ async def create(request: Request):
     ordered = [item for _, item in sorted(enumerate(items), key=order_key)]
     stamp = now().isoformat(' ')
     paper = await db.first(
-        "INSERT INTO practice_set(name,subject_id,source_type,question_type,kind,total_questions,reviewed,review_count,"
-        "grading_revision,deleted,created_at) VALUES(?,?,'question','mixed','targeted',?,0,0,0,0,?) RETURNING id",
-        ((name or '').strip() or default_name(subject['name']), subject_id, len(ordered), stamp))
+        "INSERT INTO practice_set(student_id,name,subject_id,source_type,question_type,kind,total_questions,reviewed,review_count,"
+        "grading_revision,deleted,created_at) VALUES(?,?,?,'question','mixed','targeted',?,0,0,0,0,?) RETURNING id",
+        (student_id, (name or '').strip() or default_name(subject['name']), subject_id, len(ordered), stamp))
     statements = [('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order,'
                    'form,reason,knowledge_point_id,deleted) VALUES(?,?,NULL,?,?,?,?,0)',
                    (paper['id'], item['question_id'], index, item['form'], item['reason'], item['point_id']))
@@ -320,17 +323,18 @@ async def create(request: Request):
         await batch_or_http(db, statements)
     except Exception:
         # 题目行没写进去：把空卷子软删除，不留下半份卷子
-        await db.run('UPDATE practice_set SET deleted=1 WHERE id=?', (paper['id'],))
+        await db.run('UPDATE practice_set SET deleted=1 WHERE id=? AND student_id=?', (paper['id'], student_id))
         raise
-    return await get_practice(db, paper['id'])
+    return await get_practice(db, paper['id'], student_id=student_id)
 
 
 # ---------------------------------------------------------------- 准备相似题、换相似题
 
 
-async def load_open_paper(db, practice_set_id):
-    """读取一份还能改题面的考点卷：不存在或已删除 404，不是考点卷 422，已批改 409。"""
-    paper = await db.first('SELECT id,kind,reviewed FROM practice_set WHERE id=? AND deleted=0', (practice_set_id,))
+async def load_open_paper(db, practice_set_id, student_id):
+    """读取这个学生一份还能改题面的考点卷：不存在、已删除或不是这个学生的 404，不是考点卷 422，已批改 409。"""
+    paper = await db.first('SELECT id,kind,reviewed FROM practice_set WHERE id=? AND student_id=? AND deleted=0',
+                           (practice_set_id, student_id))
     if not paper:
         raise HTTPException(404, '练习卷不存在')
     if paper['kind'] != 'targeted':
@@ -341,6 +345,7 @@ async def load_open_paper(db, practice_set_id):
 
 
 # 题目行连同错题内容（生成相似题要用）；调用方在后面接 WHERE 条件
+# scope-ok: 只在 load_open_paper 确认卷子属于当前学生之后使用，卷子上的题就是这个学生的
 ITEM_SQL = ('SELECT pq.id AS item_id, pq.form, pq.similar_question_id, q.id, q.parsed_question, q.original_text, '
             'q.answer, q.review_reasons, s.name AS subject_name FROM practice_set_question pq '
             'JOIN question q ON q.id=pq.question_id AND q.deleted=0 '
@@ -377,7 +382,7 @@ async def prepare(practice_set_id: int, request: Request):
     if not isinstance(fallback, bool):
         raise HTTPException(422, 'fallback 必须是真或假')
     db = Database(request.scope['env'].DB)
-    await load_open_paper(db, practice_set_id)
+    await load_open_paper(db, practice_set_id, current_student_id(request))
     pending = await db.all(
         ITEM_SQL + "WHERE pq.practice_set_id=? AND pq.deleted=0 AND pq.form='similar' "
         'AND pq.similar_question_id IS NULL ORDER BY pq.display_order, pq.id', (practice_set_id,))
@@ -397,6 +402,7 @@ async def prepare(practice_set_id: int, request: Request):
                      "AND form='similar' AND similar_question_id IS NULL", (row['id'], target['item_id']))
     # 剩余题数按库里重新数（固定一条 SQL，条件和上面的 pending 相同），别的页面同时写过时也准确
     left = await db.first(
+        # scope-ok: 卷子已用 load_open_paper 确认属于当前学生
         'SELECT COUNT(*) AS count FROM practice_set_question pq JOIN question q ON q.id=pq.question_id AND q.deleted=0 '
         "WHERE pq.practice_set_id=? AND pq.deleted=0 AND pq.form='similar' AND pq.similar_question_id IS NULL",
         (practice_set_id,))
@@ -408,7 +414,7 @@ async def reroll(practice_set_id: int, request: Request):
     """把卷子里一道相似题换成新生成的一道；旧的软删除，以后不再复用。"""
     payload = await read_payload(request)
     db = Database(request.scope['env'].DB)
-    await load_open_paper(db, practice_set_id)
+    await load_open_paper(db, practice_set_id, current_student_id(request))
     item_id = payload.get('item_id')
     target = None
     if is_plain_int(item_id):

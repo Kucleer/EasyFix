@@ -45,13 +45,13 @@ def image_list(row):
     return [row['original_image']] if row.get('original_image') else []
 
 
-async def load_question_rows(db):
-    """所有已核对、没删除的错题：编号、录入时间、主考点、有没有题干、原图（一条 SQL）。"""
+async def load_question_rows(db, student_id):
+    """这个学生所有已核对、没删除的错题：编号、录入时间、主考点、有没有题干、原图（一条 SQL）。"""
     return await db.all(
         'SELECT q.id, q.created_at AS entered, qk.knowledge_point_id AS point_id, '
         '(' + stem_ready('q') + ') AS has_stem, q.original_image, q.original_images FROM question q '
         'LEFT JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 AND qk.is_primary=1 '
-        'WHERE ' + counted('q') + ' ORDER BY q.id')
+        'WHERE ' + counted('q') + ' AND q.student_id=? ORDER BY q.id', (student_id,))
 
 
 async def states_of(db, student_id, cutoff, rows):
@@ -61,10 +61,10 @@ async def states_of(db, student_id, cutoff, rows):
     """
     result_rows = await db.all(
         'SELECT o.question_id AS qid, o.is_correct, o.display_order, ps.last_reviewed_at '
-        'FROM practice_set_question o JOIN practice_set ps ON ps.id=o.practice_set_id AND ps.deleted=0 '
-        'JOIN question q ON q.id=o.question_id AND ' + counted('q') + ' '
+        'FROM practice_set_question o JOIN practice_set ps ON ps.id=o.practice_set_id AND ps.deleted=0 AND ps.student_id=? '
+        'JOIN question q ON q.id=o.question_id AND ' + counted('q') + ' AND q.student_id=? '
         'WHERE o.deleted=0 AND o.is_correct IS NOT NULL AND o.skip_reason IS NULL AND ps.last_reviewed_at<?',
-        (cutoff,))
+        (student_id, student_id, cutoff))
     adjust_rows = await db.all(
         "SELECT knowledge_point_id AS point_id, created_at FROM mastery_adjustment WHERE deleted=0 AND student_id=? "
         "AND kind='set_mastered' AND created_at<?", (student_id, cutoff))
@@ -89,7 +89,7 @@ async def states_of(db, student_id, cutoff, rows):
 
 async def load_states(db, student_id, cutoff):
     """所有已核对、没删除的错题在 cutoff 之前的状态（三条 SQL）。测试用它核对"翻牌不改毕业状态"。"""
-    return await states_of(db, student_id, cutoff, await load_question_rows(db))
+    return await states_of(db, student_id, cutoff, await load_question_rows(db, student_id))
 
 
 async def load_logs(db, student_id, today):
@@ -107,7 +107,7 @@ async def load_pool(db, student_id, today):
 
     候选题：没毕业、并且题干不为空或者有原图。
     """
-    rows = await load_question_rows(db)
+    rows = await load_question_rows(db, student_id)
     states = await states_of(db, student_id, cutoff_of(today), rows)
     candidates, seen = [], set()
     for row in rows:
@@ -122,15 +122,15 @@ async def load_pool(db, student_id, today):
     return candidates, await load_logs(db, student_id, today)
 
 
-async def load_cards(db, card_ids):
-    """按顺序取卡片内容：学科名、主考点名、题干、原图、错误答案、答案、解析（一条 SQL）。"""
+async def load_cards(db, card_ids, student_id):
+    """按顺序取这个学生的卡片内容：学科名、主考点名、题干、原图、错误答案、答案、解析（一条 SQL）。"""
     rows = await db.all(
         'SELECT q.id, s.name AS subject_name, k.name AS point_name, q.parsed_question, q.original_text, '
         'q.original_image, q.original_images, q.wrong_answer, q.answer, q.analysis, q.analysis_image '
         'FROM question q LEFT JOIN subject s ON s.id=q.subject_id '
         'LEFT JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 AND qk.is_primary=1 '
         'LEFT JOIN knowledge_point k ON k.id=qk.knowledge_point_id AND k.deleted=0 '
-        'WHERE q.id IN (SELECT value FROM json_each(?)) ORDER BY q.id', (json.dumps(card_ids),))
+        'WHERE q.student_id=? AND q.id IN (SELECT value FROM json_each(?)) ORDER BY q.id', (student_id, json.dumps(card_ids)))
     by_id = {}
     for row in rows:
         by_id.setdefault(row['id'], row)
@@ -151,7 +151,7 @@ async def build_today(db, student_id, today):
     """今天这一组还没翻的卡片和进度：{'total', 'done', 'cards'}（五条 SQL；没有卡片时四条）。"""
     candidates, logs = await load_pool(db, student_id, today)
     picked = pick_today(candidates, logs, today)
-    cards = await load_cards(db, picked['cards']) if picked['cards'] else []
+    cards = await load_cards(db, picked['cards'], student_id) if picked['cards'] else []
     return {'total': picked['done'] + len(picked['cards']), 'done': picked['done'], 'cards': cards}
 
 

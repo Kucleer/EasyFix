@@ -20,6 +20,7 @@ from grading_model import (MAX_PAGE_TEXT, NUMBERING_CHANGED_TEXT, build_judge_pr
 from intake import read_payload
 from intake_model import is_plain_int
 from practices import get as get_practice
+from question_scope import current_student_id
 from scan_model import (HOST_TIMEOUT_SECONDS, MISSING_IMAGE_TEXT, SCAN_MAX_TOKENS, SCAN_TEMPERATURE,
                         parse_model_json, read_with_retries)
 from settings import generate_json
@@ -32,9 +33,9 @@ JUDGE_FAILED_TEXT = '比对没成功，已改为手动批改'
 ONLY_QUESTION_TEXT = '只有错题练习卷可以识别批改'
 
 
-async def load_question_set(db, practice_set_id, details):
-    """读一份错题练习卷：不存在或已删除 404，单词、阅读练习 422。"""
-    practice = await get_practice(db, practice_set_id, details)
+async def load_question_set(db, practice_set_id, details, student_id):
+    """读这个学生的一份错题练习卷：不存在、已删除或不是这个学生的 404，单词、阅读练习 422。"""
+    practice = await get_practice(db, practice_set_id, details, student_id=student_id)
     if practice['source_type'] in ('word', 'reading'):
         raise HTTPException(422, ONLY_QUESTION_TEXT)
     return practice
@@ -50,7 +51,7 @@ async def recognize_page(practice_set_id: int, request: Request):
     payload = await read_payload(request)
     index = payload.get('index')
     db = Database(request.scope['env'].DB)
-    practice = await load_question_set(db, practice_set_id, False)
+    practice = await load_question_set(db, practice_set_id, False, current_student_id(request))
     images = practice['review_images'] or []
     if not is_plain_int(index) or not 0 <= index < len(images):
         raise HTTPException(422, '照片序号不对')
@@ -101,7 +102,7 @@ async def recognize_judge(practice_set_id: int, request: Request):
     """
     payload = await read_payload(request)
     db = Database(request.scope['env'].DB)
-    practice = await load_question_set(db, practice_set_id, True)
+    practice = await load_question_set(db, practice_set_id, True, current_student_id(request))
     pages = read_pages(payload, len(practice['review_images'] or []))
     if numbering_changed(practice):
         raise HTTPException(409, NUMBERING_CHANGED_TEXT)

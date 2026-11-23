@@ -577,7 +577,7 @@ def test_create_then_prepare_until_done(calls):
     assert paper['name'].startswith('数学练习卷 ') and paper['name'].endswith('日')
     left = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
     assert left['remaining'] == 0 and calls['model'] == 1          # 只有一道相似题要生成，只调一次模型
-    detail = starmap_test.run(practices.get(db, paper['id']))
+    detail = starmap_test.run(practices.get(db, paper['id'], student_id=1))
     similar = [q for q in detail['questions'] if q['form'] == 'similar'][0]
     assert similar['question_text'] == '相似题目' and similar['explanation']
     assert similar['answer'] == '相似答案' and similar['reason'] == 'wrong' and similar['knowledge_point_id'] == 102
@@ -721,7 +721,7 @@ def test_prepare_reuses_unused_similar(calls):
     paper = create_paper(db, create_items(plan_body(db, size=3, spot_count=0)))
     left = starmap_test.run(targeted.prepare(paper['id'], request_for(db, {})))
     assert left['remaining'] == 0 and left['fallback'] is False and calls['model'] == 0
-    detail = starmap_test.run(practices.get(db, paper['id']))
+    detail = starmap_test.run(practices.get(db, paper['id'], student_id=1))
     similar = [q for q in detail['questions'] if q['form'] == 'similar'][0]
     assert similar['similar_question_id'] == 9 and similar['question_text'] == '旧相似题'
 
@@ -835,12 +835,12 @@ def test_get_keeps_old_sets_working():
         c.execute('INSERT INTO practice_set_question(practice_set_id,question_id,similar_question_id,display_order) '
                   'VALUES(?,1,5,0)', (set_id,))
     c.commit()
-    old_similar = starmap_test.run(practices.get(db, 90))
+    old_similar = starmap_test.run(practices.get(db, 90, student_id=1))
     question = old_similar['questions'][0]
     assert question['question_text'] == '旧相似题' and question['answer'] == '旧相似答案'
     assert question['number'] == 1 and question['analysis'] == '原解析' and question['form'] is None
     assert old_similar['kind'] == 'manual' and old_similar['grading_revision'] == 0
-    old_original = starmap_test.run(practices.get(db, 91))
+    old_original = starmap_test.run(practices.get(db, 91, student_id=1))
     question = old_original['questions'][0]
     assert question['question_text'] == '题1' and question['answer'] == '原答案'
     assert {'reason', 'knowledge_point_id', 'skip_reason', 'explanation'} <= set(question)
@@ -872,7 +872,7 @@ def with_motivation(function):
         calls = {'trigger': 0}
         saved = motivation.trigger
 
-        async def fake_trigger(db, code, reason=None):
+        async def fake_trigger(db, owner, code, reason=None):
             calls['trigger'] += 1
         motivation.trigger = fake_trigger
         try:
@@ -960,9 +960,9 @@ def test_grading_guard_blocks_concurrent_submit(calls):
     c, db = grading_fixture()
     saved = practices.get
 
-    async def stale_get(binding, practice_id, details=True):
+    async def stale_get(binding, practice_id, details=True, *, student_id):
         """先读到旧的卷子，再模拟另一个人抢先提交（库里版本号加 1）。"""
-        row = await saved(binding, practice_id, details)
+        row = await saved(binding, practice_id, details, student_id=student_id)
         c.execute('UPDATE practice_set SET grading_revision=grading_revision+1 WHERE id=?', (practice_id,))
         return row
     practices.get = stale_get
@@ -991,7 +991,7 @@ def test_grading_skip_reasons(calls):
         'SELECT question_id,is_correct,skip_reason FROM practice_set_question WHERE practice_set_id=10')}
     assert rows == {1: (None, 'not_done'), 2: (None, 'bad_question'), 3: (1, None)}
     assert counters(c, 1) == (0, 0, 0) and counters(c, 2) == (0, 0, 0) and counters(c, 3) == (1, 1, 0)
-    events = starmap_test.run(starmap.load_events(db, 1))
+    events = starmap_test.run(starmap.load_events(db, 1, 1))
     practice_qids = {e['qid'] for point in events.values() for e in point if e['source'] == 'practice'}
     assert practice_qids == {3}
 
@@ -1105,7 +1105,7 @@ def test_grading_query_count_is_fixed():
 
     saved = motivation.trigger
 
-    async def fake_trigger(db, code, reason=None):
+    async def fake_trigger(db, owner, code, reason=None):
         pass
     motivation.trigger = fake_trigger
     try:
@@ -1312,9 +1312,9 @@ def test_pdf_check_is_one_query():
     import pdf
     c, db, paper, item_id = unprepared_paper()
     counter = starmap_test.CountingDB(c)
-    starmap_test.expect_http_error(409, pdf.ensure_printable(counter, {'id': paper['id'], 'kind': 'targeted'}))
+    starmap_test.expect_http_error(409, pdf.ensure_printable(counter, {'id': paper['id'], 'kind': 'targeted', 'student_id': 1}))
     assert counter.calls == 1
-    starmap_test.run(pdf.ensure_printable(counter, {'id': paper['id'], 'kind': 'manual'}))
+    starmap_test.run(pdf.ensure_printable(counter, {'id': paper['id'], 'kind': 'manual', 'student_id': 1}))
     assert counter.calls == 1
 
 
@@ -1381,9 +1381,9 @@ def test_targeted_numbers_stable_after_question_deleted():
                                                  (3, None, 'original')], kind='manual')
     c.execute('UPDATE question SET deleted=1 WHERE id=2')
     c.commit()
-    detail = starmap_test.run(practices.get(db, 10))
+    detail = starmap_test.run(practices.get(db, 10, student_id=1))
     assert [(q['question_id'], q['number']) for q in detail['questions']] == [(1, 1), (3, 3)]
-    legacy = starmap_test.run(practices.get(db, 12))
+    legacy = starmap_test.run(practices.get(db, 12, student_id=1))
     assert [(q['question_id'], q['number']) for q in legacy['questions']] == [(1, 1), (3, 2)]
 
 
@@ -1411,7 +1411,7 @@ def test_bad_question_similar_never_reused(calls):
     payload = {'question_results': [{'question_id': 3, 'skip_reason': 'bad_question'}], 'grading_revision': 0}
     saved = motivation.trigger
 
-    async def fake_trigger(db, code, reason=None):
+    async def fake_trigger(db, owner, code, reason=None):
         pass
     motivation.trigger = fake_trigger
     try:
@@ -1419,7 +1419,7 @@ def test_bad_question_similar_never_reused(calls):
     finally:
         motivation.trigger = saved
     # 批改后卷子上仍显示这道相似题（以后改批改时不会变成原题）
-    detail = starmap_test.run(practices.get(db, paper['id']))
+    detail = starmap_test.run(practices.get(db, paper['id'], student_id=1))
     assert [q['question_text'] for q in detail['questions'] if q['form'] == 'similar'] == ['相似题目']
     c.execute('UPDATE practice_set SET deleted=1 WHERE id=?', (paper['id'],))
     c.commit()

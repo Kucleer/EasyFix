@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query, Request
 from database import Database
+from question_scope import current_student_id
 from settings import generate_json
 from provenance import PROVENANCE
 
@@ -29,14 +30,16 @@ async def topics():
 async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), topic: str | None = None, grade: int | None = Query(None, ge=1, le=12), difficulty: int | None = Query(None, ge=1, le=5)):
     """分页筛选短文。"""
     db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
     filters, values = ['deleted=0'], []
     for key, value in [('topic', topic), ('grade', grade), ('difficulty', difficulty)]:
         if value is not None:
             filters.append(key + '=?')
             values.append(value)
     where = ' AND '.join(filters)
-    count = await db.first('SELECT COUNT(*) AS total FROM reading_passage WHERE ' + where, values)
-    rows = await db.all('SELECT * FROM reading_passage WHERE ' + where + ' ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?', [*values, limit, skip])
+    count = await db.first('SELECT COUNT(*) AS total FROM reading_passage WHERE student_id=? AND ' + where, [student_id, *values])
+    rows = await db.all('SELECT * FROM reading_passage WHERE student_id=? AND ' + where + ' ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?',
+                        [student_id, *values, limit, skip])
     return {'total': count['total'], 'items': [await decorate(db, row) for row in rows]}
 
 
@@ -44,7 +47,8 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
 async def detail(reading_id: int, request: Request):
     """读取短文与题目详情。"""
     db = Database(request.scope['env'].DB)
-    row = await db.first('SELECT * FROM reading_passage WHERE id=? AND deleted=0', (reading_id,))
+    row = await db.first('SELECT * FROM reading_passage WHERE id=? AND student_id=? AND deleted=0',
+                         (reading_id, current_student_id(request)))
     if not row:
         raise HTTPException(404, '短文不存在')
     return await decorate(db, row)
@@ -65,7 +69,9 @@ async def save(request, payload):
             raise HTTPException(422, '题目、选项或答案缺失')
     db = Database(request.scope['env'].DB)
     data = {key: payload[key] for key in ('title', 'content', 'topic', 'grade')}
-    data.update(difficulty=payload.get('difficulty', 3), word_count=payload.get('word_count') or len(payload['content'].split()), source=payload.get('source', 'manual'), deleted=0, created_at=(datetime.utcnow()+timedelta(hours=8)).isoformat(' '))
+    data.update(difficulty=payload.get('difficulty', 3), word_count=payload.get('word_count') or len(payload['content'].split()), source=payload.get('source', 'manual'), deleted=0, created_at=(datetime.utcnow()+timedelta(hours=8)).isoformat(' '),
+                student_id=current_student_id(request))
+    # scope-ok: student_id 已放进 data 一起写入
     row = await db.first('INSERT INTO reading_passage(' + ','.join(data) + ') VALUES (' + ','.join('?' for _ in data) + ') RETURNING *', list(data.values()))
     await db.batch([('INSERT INTO reading_question(passage_id,' + ','.join(Q_FIELDS) + ',deleted,created_at) VALUES (' + ','.join('?' for _ in range(11)) + ')', [row['id'], *[question.get(key) for key in Q_FIELDS], 0, data['created_at']]) for question in questions])
     return await decorate(db, row)
@@ -85,6 +91,7 @@ async def generate(request: Request):
 async def delete(reading_id: int, request: Request):
     """软删除短文，不删除原始题目。"""
     await detail(reading_id, request)
-    await Database(request.scope['env'].DB).run('UPDATE reading_passage SET deleted=1 WHERE id=?', (reading_id,))
+    await Database(request.scope['env'].DB).run('UPDATE reading_passage SET deleted=1 WHERE id=? AND student_id=?',
+                                                (reading_id, current_student_id(request)))
     from fastapi.responses import Response
     return Response(status_code=204)

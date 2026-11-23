@@ -9,6 +9,7 @@ from database import Database
 from analytics import now
 from phrase_focus import build_cells,default_spec,mixed_quota,next_level,next_phase,spec_active,split_tokens,unannotated_auto_level,unannotated_next_level
 from word_focus import load_focus_context
+from identity import current_identity
 
 router=APIRouter(prefix='/api/words/review')
 
@@ -26,7 +27,7 @@ PHRASE_SHARE=0.4
 async def start(request:Request,count:int=Query(25,ge=10,le=100),grade:int|None=None,word_ids:str|None=None,entry_type:str|None=Query(None,pattern='^(word|phrase)$'),dictation_level:int|None=Query(None,ge=1,le=3)):
     """沿用未复习、到期、低正确率、其他的抽词优先级；可按类型筛选并手动指定档位。"""
     db=Database(request.scope['env'].DB)
-    return await start_session(db,count,grade,word_ids,entry_type,dictation_level)
+    return await start_session(db,current_identity(request)['student_id'],count,grade,word_ids,entry_type,dictation_level)
 
 
 def pick_by_priority(rows,count,current):
@@ -45,8 +46,8 @@ def pick_by_priority(rows,count,current):
     return selected
 
 
-async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
-    """抽取复习题并登记场次；已标注的词组额外返回默写格子。"""
+async def start_session(db,student_id,count,grade,word_ids,entry_type,dictation_level):
+    """从这个学生的单词里抽取复习题并登记场次；已标注的词组额外返回默写格子。"""
     filters=['deleted=0'];values=[]
     if entry_type is not None and entry_type not in ('word','phrase'):raise HTTPException(422,'词条类型无效')
     if dictation_level is not None and (type(dictation_level) is not int or not 1<=dictation_level<=3):raise HTTPException(422,'默写档位无效')
@@ -55,7 +56,7 @@ async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
     if ids:filters.append('id IN (SELECT value FROM json_each(?))');values.append(json.dumps(ids))
     if grade:filters.append('grade=?');values.append(grade)
     if entry_type:filters.append('entry_type=?');values.append(entry_type)
-    rows=await db.all('SELECT id,english,chinese,review_count,correct_count,next_review_at,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,learning_phase,grade FROM word WHERE '+' AND '.join(filters),values)
+    rows=await db.all('SELECT id,english,chinese,review_count,correct_count,next_review_at,entry_type,focus_spec,focus_status,focus_updated_at,dictation_level,learning_phase,grade FROM word WHERE student_id=? AND '+' AND '.join(filters),[student_id,*values])
     if not rows:raise HTTPException(400,'没有可复习的单词')
     current=now()
     if entry_type is None and not ids:
@@ -69,10 +70,10 @@ async def start_session(db,count,grade,word_ids,entry_type,dictation_level):
     else:
         selected=pick_by_priority(rows,count,current)
     stamp=current.isoformat(' ')
-    session=await db.first('INSERT INTO word_review(total_count,correct_count,error_count,duration,reviewed_at) VALUES(?,0,0,0,?) RETURNING id',(len(selected),stamp))
+    session=await db.first('INSERT INTO word_review(student_id,total_count,correct_count,error_count,duration,reviewed_at) VALUES(?,?,0,0,0,?) RETURNING id',(student_id,len(selected),stamp))
     await db.run('INSERT INTO request_record(name,value,deleted,created_at) VALUES(?,?,0,?)',('word-session:'+str(session['id']),json.dumps([row['id'] for row in selected]),stamp))
     # 抽完词后一次性载入已标注词组的重点（没有已标注词组时不查询）
-    context=await load_focus_context(db,selected)
+    context=await load_focus_context(db,student_id,selected)
     questions=[]
     for row in selected:
         others=[item for item in rows if item['id']!=row['id']]
@@ -117,19 +118,20 @@ def validate_result_item(item):
 async def submit(request:Request):
     """提交复习结果；首次提交成功且题量足够时触发激励。"""
     db=Database(request.scope['env'].DB);payload=await request.json()
-    output,first_time=await submit_session(db,payload)
+    owner=current_identity(request)
+    output,first_time=await submit_session(db,owner['student_id'],payload)
     # 只有首次提交才触发激励；幂等命中不重复触发
     if first_time and len(payload['results'])>=10:
         from motivation import trigger,word_accuracy
         try:
-            await trigger(db,'review_practice_set','单词练习')
+            await trigger(db,owner,'review_practice_set','单词练习')
             await word_accuracy(request,output['total'],output['correct'],'单词正确率'+str(output['accuracy'])+'%')
         except HTTPException:pass
     return output
 
 
-async def submit_session(db,payload):
-    """在同一 D1 事务内写入复习日志、记忆计划、练习场次与幂等结果；返回 (结果, 是否首次提交)。"""
+async def submit_session(db,student_id,payload):
+    """在同一 D1 事务内写入这个学生的复习日志、记忆计划、练习场次与幂等结果；返回 (结果, 是否首次提交)。"""
     session_id=payload.get('session_id');results=payload.get('results',[])
     if type(session_id) is not int or not isinstance(results,list) or not 1<=len(results)<=100:raise HTTPException(422,'复习结果无效')
     for item in results:validate_result_item(item)
@@ -144,9 +146,10 @@ async def submit_session(db,payload):
         return record['result'],False
     selection=await db.first('SELECT value FROM request_record WHERE name=? AND deleted=0',('word-session:'+str(session_id),))
     if not selection or set(json.loads(selection['value']))!=set(ids):raise HTTPException(400,'场次与单词不匹配，请重新开始复习')
-    words=await db.all('SELECT * FROM word WHERE deleted=0 AND id IN ('+','.join('?' for _ in ids)+')',ids)
+    words=await db.all('SELECT * FROM word WHERE deleted=0 AND student_id=? AND id IN ('+','.join('?' for _ in ids)+')',[student_id,*ids])
     if len(words)!=len(ids):raise HTTPException(400,'部分单词已删除，请重新开始')
     word_map={row['id']:row for row in words};current=now();stamp=current.isoformat(' ')
+    # scope-ok: 单词编号已在上一条按 student_id 确认属于当前学生
     old_logs=await db.all('SELECT word_id,is_correct FROM (SELECT word_id,is_correct,ROW_NUMBER() OVER(PARTITION BY word_id ORDER BY reviewed_at DESC,id DESC) AS rn FROM word_review_log WHERE deleted=0 AND word_id IN ('+','.join('?' for _ in ids)+')) WHERE rn<=9 ORDER BY word_id,rn',ids)
     history={}
     for row in old_logs:history.setdefault(row['word_id'],[]).append(bool(row['is_correct']))
@@ -183,11 +186,12 @@ async def submit_session(db,payload):
     if type(duration) is not int or duration<0:raise HTTPException(422,'复习时长无效')
     packed=json.dumps(plan,ensure_ascii=False)
     statements=[('INSERT INTO request_record(name,value,deleted,created_at) VALUES(?,?,0,?)',(key,json.dumps({'fingerprint':fingerprint,'result':output}),stamp)),
-                ('UPDATE word_review SET correct_count=?,error_count=?,duration=?,reviewed_at=? WHERE id=?',(correct,len(results)-correct,duration,stamp,session_id)),
+                ('UPDATE word_review SET correct_count=?,error_count=?,duration=?,reviewed_at=? WHERE id=? AND student_id=?',(correct,len(results)-correct,duration,stamp,session_id,student_id)),
+                # scope-ok: 日志里的单词编号已按 student_id 确认属于当前学生
                 ('INSERT INTO word_review_log(word_id,is_correct,user_answer,review_type,reviewed_at,deleted,token_results,dictation_level) SELECT json_extract(value,\'$.id\'),json_extract(value,\'$.correct\'),json_extract(value,\'$.user_answer\'),json_extract(value,\'$.review_type\'),?,0,json_extract(value,\'$.token_results\'),json_extract(value,\'$.log_level\') FROM json_each(?)',(stamp,packed)),
-                ('UPDATE word SET review_count=COALESCE(review_count,0)+1,correct_count=COALESCE(correct_count,0)+(SELECT json_extract(value,\'$.correct\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),interval=(SELECT json_extract(value,\'$.interval\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),learning_phase=(SELECT json_extract(value,\'$.phase\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),next_review_at=(SELECT json_extract(value,\'$.next\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),dictation_level=(SELECT json_extract(value,\'$.word_level\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),last_reviewed_at=?,updated_at=? WHERE deleted=0 AND id IN(SELECT json_extract(value,\'$.id\') FROM json_each(?))',(packed,packed,packed,packed,packed,stamp,stamp,packed)),
-                ('INSERT INTO practice_set(name,subject_id,source_type,question_type,total_questions,reviewed,review_count,deleted,created_at,accuracy,last_reviewed_at) VALUES(?,?,\'word\',\'original\',?,1,1,0,?,?,?)',('单词复习 '+current.strftime('%Y-%m-%d %H:%M'),subject['id'],len(results),stamp,accuracy,stamp)),
-                ('INSERT INTO word_review_session(practice_set_id,session_id,total_count,correct_count,accuracy,duration,reviewed_at,word_results) VALUES(last_insert_rowid(),?,?,?,?,?,?,?)',(session_id,len(results),correct,int(accuracy),duration,stamp,json.dumps([{'word_id':item['word_id'],'is_correct':item['is_correct']} for item in results])))]
+                ('UPDATE word SET review_count=COALESCE(review_count,0)+1,correct_count=COALESCE(correct_count,0)+(SELECT json_extract(value,\'$.correct\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),interval=(SELECT json_extract(value,\'$.interval\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),learning_phase=(SELECT json_extract(value,\'$.phase\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),next_review_at=(SELECT json_extract(value,\'$.next\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),dictation_level=(SELECT json_extract(value,\'$.word_level\') FROM json_each(?) WHERE json_extract(value,\'$.id\')=word.id),last_reviewed_at=?,updated_at=? WHERE deleted=0 AND student_id=? AND id IN(SELECT json_extract(value,\'$.id\') FROM json_each(?))',(packed,packed,packed,packed,packed,stamp,stamp,student_id,packed)),
+                ('INSERT INTO practice_set(student_id,name,subject_id,source_type,question_type,total_questions,reviewed,review_count,deleted,created_at,accuracy,last_reviewed_at) VALUES(?,?,?,\'word\',\'original\',?,1,1,0,?,?,?)',(student_id,'单词复习 '+current.strftime('%Y-%m-%d %H:%M'),subject['id'],len(results),stamp,accuracy,stamp)),
+                ('INSERT INTO word_review_session(student_id,practice_set_id,session_id,total_count,correct_count,accuracy,duration,reviewed_at,word_results) VALUES(?,last_insert_rowid(),?,?,?,?,?,?,?)',(student_id,session_id,len(results),correct,int(accuracy),duration,stamp,json.dumps([{'word_id':item['word_id'],'is_correct':item['is_correct']} for item in results])))]
     try:await db.batch(statements)
     except Exception:
         existing=await db.first('SELECT value FROM request_record WHERE name=? AND deleted=0',(key,))

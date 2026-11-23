@@ -23,6 +23,8 @@ STUDENT_TABLES = (
     'question', 'error_book', 'word', 'word_review', 'word_review_session', 'practice_set', 'learning_report',
     'reading_passage', 'tag', 'reward', 'redemption', 'star_balance', 'star_record', 'achievement_progress',
     'paper', 'scan_page', 'weekly_report', 'flip_log', 'mastery_adjustment',
+    # 下面这张表自己没有 student_id，靠 word_id 挂在单词上；查它时必须连上 word（或复习场次）按学生过滤
+    'word_review_log',
 )
 # 有 student_id 列但按共用目录处理的表（只有管理员能改，大家都能读），不检查
 SHARED_TABLES = ('star_action', 'achievement', 'textbook_section')
@@ -31,7 +33,8 @@ TABLE_PATTERN = re.compile(r'\b(?:FROM|JOIN|UPDATE|INTO)\s+(%s)\b' % '|'.join(ST
 EXEMPT_MARK = '# scope-ok:'
 
 # 每个文件允许的豁免条数：{'文件名.py': 条数}
-ALLOWED_EXEMPTIONS = {'catalog.py': 1, 'intake.py': 3, 'knowledge.py': 3, 'questions.py': 3, 'scan.py': 9, 'similar.py': 1}
+ALLOWED_EXEMPTIONS = {'catalog.py': 1, 'intake.py': 3, 'knowledge.py': 3, 'practices.py': 3, 'questions.py': 3, 'readings.py': 1,
+                       'review.py': 2, 'scan.py': 9, 'similar.py': 1, 'targeted.py': 2, 'words.py': 4}
 
 
 def string_parts(node):
