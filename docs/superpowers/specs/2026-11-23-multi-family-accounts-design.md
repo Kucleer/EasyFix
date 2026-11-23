@@ -201,7 +201,11 @@ EasyFix 现在只有一个共享访问密码，所有数据默认属于"1 号学
    - 先用备份恢复出的本地 D1 演练一次 0018（`wrangler d1 execute --local`），核对行数、最大编号、`PRAGMA foreign_key_check` 为空。
    然后在远程执行 0018。
 3. 本地运行一个小工具（`backend/scripts/set_admin_password.py`，用 Python `hashlib.pbkdf2_hmac` 生成和网关相同格式的哈希），通过 wrangler 给 1 号用户写入登录名和密码。密码只在终端输入，不写进文件和命令历史。
-4. 同时发布 Worker 和 Pages（Cookie 格式一起变）。发布后所有人要重新登录。
+4. 同时发布 Worker 和 Pages（Cookie 格式一起变）。发布后所有人要重新登录。发布前先确认（实施时留下的待办）：
+   - Pages 构建现在是 `_worker.js/` 目录形式（`index.js` 加 `session.js`、`password.js`、`auth_routes.js`），先用预览分支部署一次，确认能跑；
+   - PBKDF2 迭代次数暂定 5 万次（本机约 7 毫秒）：在预览部署上登录几次，看 Cloudflare 日志里的 CPU 时间没有超限，超限就调低 `password.js` 和 `set_admin_password.py` 里的数字；
+   - 重新运行 `tools/easyfix-intake/install.py`，让本机安装的录入技能和小工具带上 `student_id` 的支持；
+   - 在浏览器里把"设置 → 账号"和"我的账号"点一遍（本机测试环境没有网关，开发时没点通）。
 5. 核对：管理员能登录，数据和发布前一致；新建一个测试家庭和学生，确认首页、错题、单词、练习中心、周报、翻一翻、学情都是空的，读开发者家的附件路径返回 404；测试完把测试家庭停用。
 6. 删除 `ACCESS_PASSWORD` 密钥。
 7. 在 `docs/cloudflare-migration-status.md` 记录发布。
