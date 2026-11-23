@@ -178,6 +178,18 @@ test('不是表单的上传请求返回 422', async () => {
   assert.equal((await worker.fetch(request, env)).status, 422);
 });
 
+test('登录页和登录接口由网关处理，不转给后端', async () => {
+  const { env, backendCalls } = makeEnv();
+  const page = await worker.fetch(new Request(SITE + '/login'), env);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /id="username"/);
+  const login = await worker.fetch(new Request(SITE + '/api/auth/login', { method: 'POST', body: '{}',
+    headers: { 'Content-Type': 'application/json' } }), env);
+  assert.equal(login.status, 401);
+  await worker.fetch(new Request(SITE + '/api/auth/me'), env);
+  assert.deepEqual(backendCalls, ['/api/auth/me']);   // 只有 /api/auth/me 交给后端
+});
+
 test('其他接口仍然转给 Python 后端', async () => {
   const { env, stored, backendCalls } = makeEnv();
   await worker.fetch(uploadRequest('/api/questions', [['file', 'p.jpg', 'image/jpeg', 10]]), env);

@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 # 迭代次数与网关 password.js 的 PBKDF2_ITERATIONS 保持一致
-ITERATIONS = 100000
+ITERATIONS = 50000
 USERNAME_PATTERN = re.compile(r'^[a-z0-9_]{3,20}$')
 MIN_PASSWORD_LENGTH = 10
 

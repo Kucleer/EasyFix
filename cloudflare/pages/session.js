@@ -72,3 +72,35 @@ export function ownsUpload(userId, key) {
   if (match) return Number(match[1]) === Number(userId);
   return Number(userId) === 1;
 }
+
+// ---------------------------------------------------------------- 确认请求的身份（网关各处共用）
+
+// 录入口令（ACCESS_TOKEN）代表的身份：管理员家庭（1 号用户）。学生由后端按请求头决定，网关用不到
+export const AGENT_IDENTITY = { userId: 1, username: 'agent', isAdmin: true, studentId: null, agent: true };
+
+/** 常量时间比较两个字符串。 */
+function constantEqual(left, right) {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return diff === 0;
+}
+
+/** 录入口令是否正确。 */
+export function isAgent(request, env) {
+  return Boolean(env.ACCESS_TOKEN) && constantEqual(request.headers.get('Authorization') || '', 'Bearer ' + env.ACCESS_TOKEN);
+}
+
+/** 只验 Cookie 的签名和过期时间（不查库），给页面请求用：页面本身不带数据。 */
+export async function signedIn(request, env) {
+  if (isAgent(request, env)) return true;
+  return (await parseSession(env.SESSION_SECRET, readSessionCookie(request), Date.now() / 1000)) !== null;
+}
+
+/** 确认身份（验签名后再查库：账号没停用、会话版本没变、学生属于这个账号）；没登录返回 null。 */
+export async function identify(request, env) {
+  if (isAgent(request, env)) return AGENT_IDENTITY;
+  const parsed = await parseSession(env.SESSION_SECRET, readSessionCookie(request), Date.now() / 1000);
+  if (!parsed) return null;
+  return loadIdentity(env, parsed);
+}

@@ -5,7 +5,7 @@
 const encoder = new TextEncoder();
 
 // 迭代次数：上线前按计划任务 11 实测，取网关免费计划 CPU 下稳定不超限的最大值
-export const PBKDF2_ITERATIONS = 100000;
+export const PBKDF2_ITERATIONS = 50000;
 
 // 随机密码用的字母表：去掉了容易看错的 0 O 1 l I
 const PASSWORD_ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
