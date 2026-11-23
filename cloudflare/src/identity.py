@@ -85,6 +85,17 @@ def upload_prefix(user_id: int) -> str:
 _USER_PREFIX = re.compile(r'^u([0-9]+)/')
 
 
+def check_uploads(identity: dict, keys) -> None:
+    """提交上来的图片路径都必须属于当前家庭（空值跳过，带 /uploads/ 前缀的先去掉）；有一张不是就 404。"""
+    for key in keys:
+        if key is None or key == '':
+            continue
+        if isinstance(key, str) and key.startswith('/uploads/'):
+            key = key[len('/uploads/'):]
+        if not owns_upload(identity, key):
+            raise HTTPException(404, '图片不存在')
+
+
 def owns_upload(identity: dict, key) -> bool:
     """判断附件是否属于当前用户：audio/ 大家共用；u<编号>/ 属于那个用户；没有前缀的旧附件属于 1 号用户。"""
     if not isinstance(key, str) or not key:

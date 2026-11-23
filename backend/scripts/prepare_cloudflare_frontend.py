@@ -11,7 +11,13 @@ def main():
     output=(root/'tmp/cloudflare-pages-build').resolve()
     if not output.is_relative_to((root/'tmp').resolve()) or output.name!='cloudflare-pages-build':raise RuntimeError('构建目录越界')
     subprocess.run(['node',str(root/'frontend/node_modules/vite/bin/vite.js'),'build','--outDir',str(output),'--emptyOutDir'],cwd=root/'frontend',check=True)
-    shutil.copy2(root/'cloudflare/pages/_worker.js',output/'_worker.js')
+    # 网关拆成了几个模块（会话、密码、登录接口），用 Pages 的"_worker.js 目录"形式发布：
+    # 入口是 _worker.js/index.js，同目录放它引用的模块；这个目录里的文件不会被当成静态资源公开
+    worker_dir=output/'_worker.js'
+    worker_dir.mkdir()
+    shutil.copy2(root/'cloudflare/pages/_worker.js',worker_dir/'index.js')
+    for module in sorted((root/'cloudflare/pages').glob('*.js')):
+        if module.name!='_worker.js':shutil.copy2(module,worker_dir/module.name)
     shutil.copytree(root/'backend/app/static/katex/fonts',output/'assets/math/v0.19.0/fonts',dirs_exist_ok=True)
     print('Prepared cloud frontend at '+str(output))
 

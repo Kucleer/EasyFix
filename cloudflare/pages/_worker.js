@@ -1,6 +1,7 @@
-let sessionKey;
-let sessionKeySource;
-const encoder=new TextEncoder();
+import { parseSession, readSessionCookie, loadIdentity, ownsUpload } from './session.js';
+
+// 录入口令（ACCESS_TOKEN）代表的身份：管理员家庭（1 号用户）。学生由后端按请求头决定，这里用不到
+const AGENT_IDENTITY={userId:1,username:'agent',isAdmin:true,studentId:null,agent:true};
 
 function constantEqual(left,right){
   if(left.length!==right.length)return false;
@@ -8,14 +9,23 @@ function constantEqual(left,right){
   return diff===0;
 }
 
-async function authenticated(request,env){
-  if(env.ACCESS_TOKEN && constantEqual(request.headers.get('Authorization')||'','Bearer '+env.ACCESS_TOKEN))return true;
-  const cookie=(request.headers.get('Cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('easyfix_session='));
-  if(!cookie||!env.SESSION_SECRET)return false;
-  const [expires,signature]=cookie.slice('easyfix_session='.length).split('.');
-  if(!/^[0-9]+$/.test(expires)||!/^[0-9a-f]{64}$/.test(signature||'')||Number(expires)<=Date.now()/1000)return false;
-  if(sessionKeySource!==env.SESSION_SECRET){sessionKey=await crypto.subtle.importKey('raw',encoder.encode(env.SESSION_SECRET),{name:'HMAC',hash:'SHA-256'},false,['verify']);sessionKeySource=env.SESSION_SECRET;}
-  return crypto.subtle.verify('HMAC',sessionKey,Uint8Array.from(signature.match(/../g),x=>parseInt(x,16)),encoder.encode(expires));
+/** 录入口令是否正确。 */
+function isAgent(request,env){
+  return Boolean(env.ACCESS_TOKEN)&&constantEqual(request.headers.get('Authorization')||'','Bearer '+env.ACCESS_TOKEN);
+}
+
+/** 只验 Cookie 的签名和过期时间（不查库），给页面请求用：页面本身不带数据。 */
+async function signedIn(request,env){
+  if(isAgent(request,env))return true;
+  return (await parseSession(env.SESSION_SECRET,readSessionCookie(request),Date.now()/1000))!==null;
+}
+
+/** 确认身份（验签名后再查库：账号没停用、会话版本没变、学生属于这个账号）；没登录返回 null。 */
+export async function identify(request,env){
+  if(isAgent(request,env))return AGENT_IDENTITY;
+  const parsed=await parseSession(env.SESSION_SECRET,readSessionCookie(request),Date.now()/1000);
+  if(!parsed)return null;
+  return loadIdentity(env,parsed);
 }
 
 // ---------- 图片上传：在网关直接写入 R2，不经过 Python 后端 ----------
@@ -49,30 +59,32 @@ async function maintenanceEnabled(env){
   }
 }
 
-// 校验并保存一张图片。成功返回 {path, original_filename, size}，不合格返回 {error: 中文原因}。
-async function saveImage(env,file){
+// 校验并保存一张图片到这个家庭的前缀下。成功返回 {path, original_filename, size}，不合格返回 {error: 中文原因}。
+async function saveImage(env,file,userId){
   if(!IMAGE_TYPES.includes(file.type))return {error:'不支持的图片类型'};
   if(file.size===0||file.size>MAX_IMAGE_BYTES)return {error:'图片为空或超过10MB'};
   // 存储路径与后端一致：年/月/8位随机字符_原文件名（文件名里的斜杠换成下划线）
   const name=(file.name||'image').replace(/[\/\\]/g,'_');
   const month=beijingNow().toISOString().slice(0,7).replace('-','/');
-  const key=month+'/'+crypto.randomUUID().replace(/-/g,'').slice(0,8)+'_'+name;
+  // 路径前面加 u<家庭编号>/，读附件时网关按这个前缀判断归属
+  const key='u'+userId+'/'+month+'/'+crypto.randomUUID().replace(/-/g,'').slice(0,8)+'_'+name;
   await env.IMAGES.put(key,await file.arrayBuffer(),{httpMetadata:{contentType:file.type}});
   return {path:key,original_filename:file.name,size:file.size};
 }
 
-// 记一条操作日志，格式与后端写入成功后记的一致；日志写不进去不影响已经存好的图片。
-async function logUpload(env,path){
+// 记一条操作日志，格式与后端写入成功后记的一致（操作人是登录名，录入口令写 agent）；日志写不进去不影响已经存好的图片。
+async function logUpload(env,path,operator){
   try{
     const created=beijingNow().toISOString().replace('T',' ').replace('Z','');
-    await env.DB.prepare("INSERT INTO operation_log(operator,operation_type,operation_status,target_type,target_id,request_data,deleted,created_at) VALUES('cloudflare',?,'success',?,NULL,?,0,?)")
-      .bind('upload','upload',JSON.stringify({method:'POST',path}),created).run();
+    await env.DB.prepare("INSERT INTO operation_log(operator,operation_type,operation_status,target_type,target_id,request_data,deleted,created_at) VALUES(?,?,'success',?,NULL,?,0,?)")
+      .bind(operator,'upload','upload',JSON.stringify({method:'POST',path}),created).run();
   }catch(error){}
 }
 
 // 处理图片上传：先做和后端相同的登录、维护开关、来源检查，再逐张保存。
 async function handleUpload(request,env,url){
-  if(!await authenticated(request,env))return jsonResponse({detail:'需要登录'},401);
+  const identity=await identify(request,env);
+  if(!identity)return jsonResponse({detail:'需要登录'},401);
   if(await maintenanceEnabled(env))return jsonResponse({detail:'系统维护中，请稍后再试'},503);
   const origin=request.headers.get('Origin');
   if(origin&&origin!==url.origin)return jsonResponse({detail:'请求来源无效'},403);
@@ -84,20 +96,20 @@ async function handleUpload(request,env,url){
   const files=form.getAll(single?'file':'files').filter(item=>typeof item!=='string');
   if(files.length===0)return jsonResponse({detail:'请选择要上传的图片'},422);
   if(single){
-    const saved=await saveImage(env,files[0]);
+    const saved=await saveImage(env,files[0],identity.userId);
     if(saved.error)return jsonResponse({detail:saved.error},400);
-    await logUpload(env,url.pathname);
+    await logUpload(env,url.pathname,identity.username);
     return jsonResponse(saved);
   }
   if(files.length>MAX_BATCH_IMAGES)return jsonResponse({detail:'每批最多10张图片'},422);
   const images=[];
   for(const file of files){
-    const saved=await saveImage(env,file);
+    const saved=await saveImage(env,file,identity.userId);
     if(saved.error)images.push({original_filename:file.name,success:false,error:saved.error});
     else images.push({path:saved.path,image_path:saved.path,original_filename:saved.original_filename,size:saved.size,success:true});
   }
   const success=images.filter(item=>item.success).length;
-  await logUpload(env,url.pathname);
+  await logUpload(env,url.pathname,identity.username);
   return jsonResponse({images,total_count:images.length,success_count:success,failed_count:images.length-success});
 }
 
@@ -111,12 +123,14 @@ export default{
       }
       if(request.method==='POST'&&UPLOAD_PATHS.includes(url.pathname))return await handleUpload(request,env,url);
       if(url.pathname.startsWith('/api/')||['/login','/health'].includes(url.pathname))return await env.BACKEND.fetch(request);
-      const valid=await authenticated(request,env);
       if(url.pathname.startsWith('/uploads/')){
-        if(!valid)return Response.json({detail:'需要登录'},{status:401});
+        const identity=await identify(request,env);
+        if(!identity)return Response.json({detail:'需要登录'},{status:401});
         if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
         const key=decodeURIComponent(url.pathname.slice('/uploads/'.length));
         if(!key||key.includes('\\')||key.split('/').some(part=>['','.','..'].includes(part)))return Response.json({detail:'附件路径无效'},{status:400});
+        // 别家的附件按不存在处理，不透露它在不在
+        if(!ownsUpload(identity.userId,key))return Response.json({detail:'附件不存在'},{status:404});
         const object=await env.IMAGES.get(key,{range:request.headers});
         if(!object)return Response.json({detail:'附件不存在'},{status:404});
         const headers=new Headers();object.writeHttpMetadata(headers);
@@ -129,7 +143,7 @@ export default{
         if(request.method==='HEAD'){await object.body.cancel();return new Response(null,{status,headers});}
         return new Response(object.body,{status,headers});
       }
-      if(!valid)return Response.redirect(new URL('/login',url),303);
+      if(!await signedIn(request,env))return Response.redirect(new URL('/login',url),303);
       const result=await env.ASSETS.fetch(request);
       if(result.status!==404)return result;
       return env.ASSETS.fetch(new Request(new URL('/index.html',url),request));

@@ -227,6 +227,8 @@ async def create_page(request: Request):
     image = payload.get('image')
     if not isinstance(image, str) or not IMAGE_KEY_PATTERN.fullmatch(image):
         raise HTTPException(422, '照片路径格式不对，请使用上传照片后返回的路径')
+    from identity import check_uploads, current_identity
+    check_uploads(current_identity(request), [image])   # 只能识别本家庭上传的照片
     subject_id = payload.get('subject_id')
     if not is_plain_int(subject_id):
         raise HTTPException(422, '学科格式不对')

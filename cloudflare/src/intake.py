@@ -276,6 +276,11 @@ async def validate_submission(request, db, payload):
         paper = normalize_paper(raw_paper, subject['name'], stamp_now()[:10])
     except IntakeError as error:
         paper_errors.append(error_item(None, error.detail))
+    if paper is not None:
+        from identity import current_identity, owns_upload
+        if not all(owns_upload(current_identity(request), key) for key in paper['images']):
+            paper_errors.append(error_item(None, '照片不是这个账号上传的，请重新上传后再提交'))
+            paper = None
     result['paper'] = paper
     # 题目数量不对、或照片字段本身不对（无法判断页码）时不逐题检查，免得报出一堆连带的错
     image_count = count_images(raw_paper)

@@ -196,6 +196,8 @@ async def images(practice_set_id:int,request:Request):
     db=Database(request.scope['env'].DB);student_id=current_student_id(request);await get(db,practice_set_id,False,student_id=student_id)
     payload=await request.json();images=payload.get('images')
     if images is not None and not isinstance(images,list):raise HTTPException(422,'图片列表无效')
+    from identity import check_uploads
+    check_uploads(current_identity(request),images or [])   # 只能挂本家庭上传的照片
     await db.run('UPDATE practice_set SET review_images=? WHERE id=? AND student_id=? AND deleted=0',(json.dumps(images,ensure_ascii=False),practice_set_id,student_id))
     return {'message':'更新成功','review_images':images}
 
@@ -485,6 +487,9 @@ async def reviewed(practice_set_id:int,request:Request):
         try:results=json.loads(results)
         except ValueError:raise HTTPException(422,'批改数据无效')
     if not isinstance(results,list):raise HTTPException(422,'批改数据无效')
+    if isinstance(payload.get('images'),list):
+        from identity import check_uploads
+        check_uploads(current_identity(request),payload['images'])   # 只能挂本家庭上传的照片
     if practice['source_type'] in ('reading','word'):
         return await review_other(db,practice,payload,results,current_identity(request))
     # 其余都是错题练习（和 get 的判断一致）

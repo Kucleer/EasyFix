@@ -24,6 +24,7 @@ from knowledge import (
 from knowledge_model import map_error, normalize_name_key
 from knowledge_stats import knowledge_options, validate_filter_ids
 from question_scope import current_student_id
+from identity import check_uploads, current_identity
 
 router = APIRouter()
 FIELDS = {'error_book_id', 'subject_id', 'original_image', 'original_images', 'original_text',
@@ -151,6 +152,11 @@ async def save(db, payload, question_id=None, request=None, student_id=None):
     if question_id and not old:
         raise HTTPException(404, '错题不存在')
     subject = await validate_common(db, payload, data, old, student_id)
+    if request is not None:
+        # 图片路径必须是本家庭上传的（别家的、或别人旧图的路径一律 404）
+        images = data.get('original_images')
+        listed = json.loads(images) if isinstance(images, str) else []
+        check_uploads(current_identity(request), [data.get('original_image'), data.get('analysis_image'), *listed])
     ensure_stem(data, old)
     subject_id = subject['id']
     if subject['name'] == '数学' and request is not None:

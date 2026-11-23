@@ -101,6 +101,9 @@ def register(kind, table, fields, scoped):
         if 'original_images' in data:
             if data['original_images'] is not None and not isinstance(data['original_images'], list):
                 raise HTTPException(422, '图片列表无效')
+        if scoped and ('cover_image' in data or 'original_images' in data):
+            from identity import check_uploads, current_identity
+            check_uploads(current_identity(request), [data.get('cover_image'), *(data.get('original_images') or [])])
             data['original_images'] = json.dumps(data['original_images'] or [], ensure_ascii=False)
         if old:
             if data:

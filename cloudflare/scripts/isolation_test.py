@@ -245,7 +245,41 @@ def test_flip_pool_isolated():
     assert 9001 not in ids, cards
 
 
+# ---------------------------------------------------------------- 任务 9：图片路径归属
+
+FOREIGN = ('u1/2026/11/aaaaaaaa_x.jpg', '2026/11/aaaaaaaa_x.jpg')   # 1 号家庭的新图、迁移前的旧图
+MINE = 'u2/2026/11/bbbbbbbb_y.jpg'
+
+
+def test_foreign_image_path_rejected():
+    """家庭 2 把别家的图片路径交给建题、复核图片、整页识别、录卷子，都被拒绝，表里行数不变。"""
+    c, client = build()
+    add_practice(c, 7005, 5)
+    counts = lambda: tuple(c.execute('SELECT COUNT(*) FROM %s' % table).fetchone()[0]
+                           for table in ('question', 'scan_page', 'paper'))
+    before = counts()
+    for key in FOREIGN:
+        response = call(client, OTHER, 'POST', '/api/questions',
+                        {'subject_id': 2, 'parsed_question': 'x ___', 'original_image': key})
+        assert response.status_code == 404, (key, response.status_code, response.text)
+        response = call(client, OTHER, 'PUT', '/api/practice-sets/7005/review-images', {'images': [key]})
+        assert response.status_code == 404, (key, response.status_code)
+        response = call(client, OTHER, 'POST', '/api/scan/pages', {'image': key, 'subject_id': 2})
+        assert response.status_code == 404, (key, response.status_code, response.text)
+        check = call(client, OTHER, 'POST', '/api/intake/papers/check', {
+            'spec_version': 1, 'parent_reply': '跳过',
+            'paper': {'subject_id': 2, 'grade': 6, 'semester': 1, 'name': '', 'paper_type': 'homework', 'images': [key]},
+            'questions': []})
+        assert any('图片' in str(item) or '照片' in str(item) for item in check.json().get('errors', [])), check.text
+    assert counts() == before
+    assert c.execute('SELECT review_images FROM practice_set WHERE id=7005').fetchone()[0] is None
+    ok = call(client, OTHER, 'POST', '/api/questions', {'subject_id': 2, 'parsed_question': 'y ___', 'original_image': MINE})
+    assert ok.status_code == 201, ok.text
+    assert call(client, OTHER, 'PUT', '/api/practice-sets/7005/review-images', {'images': [MINE]}).status_code == 200
+
+
 TESTS = [
+    test_foreign_image_path_rejected,
     test_words_practices_readings_by_id_404,
     test_lists_isolated,
     test_motivation_isolated_per_student,
