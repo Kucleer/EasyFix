@@ -468,7 +468,7 @@ def test_guide_uses_app_default_grade():
     data = run(intake.guide(guide_request(db), subject_id=1))
     assert (data['grade'], data['semester'], data['default_grade']) == (None, None, None)
     assert data['catalog_available'] is True
-    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('app','{\"default_grade\":6,\"default_semester\":1}',0,CURRENT_TIMESTAMP)")
+    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('app:1','{\"default_grade\":6,\"default_semester\":1}',0,CURRENT_TIMESTAMP)")
     data = run(intake.guide(guide_request(db), subject_id=1))
     assert (data['grade'], data['semester'], data['default_grade'], data['default_semester']) == (6, 1, 6, 1)
 
@@ -1020,7 +1020,7 @@ def test_manual_paper_rejects_images():
 def set_app_config(c, db, value):
     """写入应用配置（默认年级、学期），并把 settings.Database 换成测试库。"""
     fake_request({}, db, settings)
-    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('app',?,0,CURRENT_TIMESTAMP)",
+    c.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('app:1',?,0,CURRENT_TIMESTAMP)",
               (json.dumps(value),))
 
 

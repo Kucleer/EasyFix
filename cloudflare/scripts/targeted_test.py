@@ -610,7 +610,7 @@ def grade_fixture(default_grade):
     """考点 101 下三道题：五年级、年级为空、六年级；default_grade 为空时不写应用配置。"""
     c = build_db()
     if default_grade is not None:
-        starmap_test.set_config(c, 'app', {'default_grade': default_grade, 'default_semester': 1})
+        starmap_test.set_config(c, 'app:1', {'default_grade': default_grade, 'default_semester': 1})
     for qid, grade in ((1, 5), (2, None), (3, 6)):
         starmap_test.add_question(c, qid, 1, '2026-09-0%d 08:00:00' % qid, [101])
         c.execute('UPDATE question SET grade=? WHERE id=?', (grade, qid))

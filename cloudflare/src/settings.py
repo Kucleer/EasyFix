@@ -8,21 +8,36 @@ from database import Database
 router = APIRouter(prefix='/api/config')
 
 
+# 按学生分开存的配置：默认年级学期（app）、知识星空进度（starmap）。
+# 调用方照旧写 load(request, 'app')，实际读写的是 'app:<当前学生编号>'。
+PER_STUDENT_CONFIGS = {'app', 'starmap'}
+
+
+def stored_name(request, name):
+    """配置在 runtime_config 里的实际名字：按学生分开的加上 ':<学生编号>'，其余原样。"""
+    if name in PER_STUDENT_CONFIGS:
+        from question_scope import current_student_id
+        return '%s:%d' % (name, current_student_id(request))
+    return name
+
+
 async def load(request, name, default=None):
     """读取 D1 配置，缺省时使用部署的初始化配置。"""
-    row = await Database(request.scope['env'].DB).first('SELECT value FROM runtime_config WHERE name=? AND deleted=0', (name,))
+    key = stored_name(request, name)
+    row = await Database(request.scope['env'].DB).first('SELECT value FROM runtime_config WHERE name=? AND deleted=0', (key,))
     if row:
         return json.loads(row['value'])
     if name == 'llm':
         return json.loads(str(getattr(request.scope['env'], 'LLM_CONFIG', '{}')))
-    if name == 'app':
+    if key == 'app:1':
+        # 部署时的初始配置只属于 1 号学生（原来的数据主人），别的学生从空白开始
         return json.loads(str(getattr(request.scope['env'], 'APP_CONFIG', '{}')))
     return default or {}
 
 
 async def store(request, name, value):
     """使用参数化语句保存运行配置。"""
-    await Database(request.scope['env'].DB).run('INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES (?,?,0,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,deleted=0,updated_at=excluded.updated_at', (name, json.dumps(value, ensure_ascii=False), datetime.utcnow().isoformat()))
+    await Database(request.scope['env'].DB).run('INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES (?,?,0,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,deleted=0,updated_at=excluded.updated_at', (stored_name(request, name), json.dumps(value, ensure_ascii=False), datetime.utcnow().isoformat()))
 
 
 @router.get('/app')

@@ -98,7 +98,7 @@ def build_connection():
     connection.executescript(FLIP_MIGRATION.read_text(encoding='utf-8'))
     connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')
     connection.execute('INSERT INTO knowledge_assert(id,guard,structure) VALUES(1,1,1)')
-    config = {'data_revision': '0', 'taxonomy_version': '1', 'app': '{"default_grade":6,"default_semester":1}'}
+    config = {'data_revision': '0', 'taxonomy_version': '1', 'app:1': '{"default_grade":6,"default_semester":1}'}
     for name, value in config.items():
         connection.execute(
             'INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES(?,?,0,CURRENT_TIMESTAMP)',

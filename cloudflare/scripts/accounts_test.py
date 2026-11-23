@@ -442,6 +442,50 @@ def test_me():
                     'students': [{'id': 6, 'name': '学生6'}, {'id': 5, 'name': '学生5'}]}
 
 
+# ---------------------------------------------------------------- 任务 5：每个学生的配置
+
+
+def student_request(c, student_id, user_id=1, payload=None):
+    """造一个某学生身份的假请求，并让 settings、starmap 模块直接用传入的库。"""
+    import settings
+    import starmap
+    settings.Database = lambda binding: binding
+    starmap.Database = lambda binding: binding
+    identity = {'user_id': user_id, 'username': 'u%d' % user_id, 'is_admin': user_id == 1, 'version': 1,
+                'student_id': student_id}
+    return GuardRequest(c, 'GET', '/api/config/app', payload=payload, identity=identity)
+
+
+def test_app_config_per_student():
+    """默认年级学期按学生存：学生 1 存的 6 年级，学生 5 读不到；学生 5 存了也不影响学生 1。"""
+    import settings
+    c = build_db()
+    seed_family(c, 2, 'li', (5,))
+    run(settings.save_app(student_request(c, 1, payload={'default_grade': 6, 'default_semester': 1})))
+    assert run(settings.app_config(student_request(c, 5, 2))) == {'default_grade': None, 'default_semester': None}
+    run(settings.save_app(student_request(c, 5, 2, payload={'default_grade': 4, 'default_semester': 2})))
+    assert run(settings.app_config(student_request(c, 1)))['default_grade'] == 6
+    assert run(settings.app_config(student_request(c, 5, 2)))['default_grade'] == 4
+    names = {row[0] for row in c.execute("SELECT name FROM runtime_config WHERE name LIKE 'app%'")}
+    assert {'app:1', 'app:5'} <= names
+
+
+def test_starmap_progress_per_student():
+    """星空"学到哪一节"按学生存：学生 5 改了进度，学生 1 的不变。"""
+    import starmap
+    c = build_db()
+    seed_family(c, 2, 'li', (5,))
+    for order, number in enumerate(('1.1', '1.2')):
+        c.execute("INSERT INTO textbook_section(student_id,subject_id,textbook,chapter_no,chapter_name,section_no,"
+                  "section_name,sort_order,deleted,created_at) VALUES(1,1,'六上',1,'第一章',?,?,?,0,CURRENT_TIMESTAMP)",
+                  (number, '第%s节' % number, order))
+    first, second = '1.1', '1.2'
+    run(starmap.save_progress(student_request(c, 1, payload={'section_no': first}), 1))
+    run(starmap.save_progress(student_request(c, 5, 2, payload={'section_no': second}), 1))
+    assert run(starmap.get_progress(student_request(c, 1), 1))['section_no'] == first
+    assert run(starmap.get_progress(student_request(c, 5, 2), 1))['section_no'] == second
+
+
 TESTS = [
     test_migration_account_columns,
     test_username_unique_among_live_users,
@@ -465,6 +509,8 @@ TESTS = [
     test_switch_student,
     test_switch_student_refused_for_agent,
     test_me,
+    test_app_config_per_student,
+    test_starmap_progress_per_student,
 ]
 
 

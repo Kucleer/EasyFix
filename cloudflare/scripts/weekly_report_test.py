@@ -410,7 +410,7 @@ def test_facts_point_changes():
     # 教材：4.1 → 112，4.2 → 111，进度 4.1：111 没有记录时算没学
     starmap_test.add_section(c, 1, 1, 4, '4.1', 41, [112])
     starmap_test.add_section(c, 2, 1, 4, '4.2', 42, [111])
-    starmap_test.set_config(c, 'starmap', {'progress': {'1': '4.1'}})
+    starmap_test.set_config(c, 'starmap:1', {'progress': {'1': '4.1'}})
     # 考点 101：上周前录入 2 道错题（薄弱 0.2），本周练习卷里两道都做对（一般 0.5）
     add_question(c, 1, 1, '2026-11-01 10:00:00.000000', [101])
     add_question(c, 2, 1, '2026-11-02 10:00:00.000000', [101])
@@ -494,7 +494,7 @@ def budget_fixture(extra):
             add_set(c, 100 + index, '2026-11-17 10:00:00.000000', '2026-11-18 10:00:00.000000',
                     [(qid, True, 'original'), (qid + 1, True, 'original')])
             add_dictation(c, 10 + index, '2026-11-19 19:00:00.000000', False)
-        starmap_test.set_config(c, 'app', {'default_grade': 6, 'default_semester': 1})
+        starmap_test.set_config(c, 'app:1', {'default_grade': 6, 'default_semester': 1})
     c.commit()
     return c
 

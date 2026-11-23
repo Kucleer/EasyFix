@@ -289,7 +289,7 @@ def math_fixture():
     add_section(c, 1, 1, 4, '4.1', 41, [111])
     add_section(c, 2, 1, 4, '4.2', 42, [112])
     c.execute('INSERT INTO knowledge_link(from_point_id,to_point_id,deleted) VALUES(101,102,0)')
-    set_config(c, 'starmap', {'progress': {'1': '4.1'}})
+    set_config(c, 'starmap:1', {'progress': {'1': '4.1'}})
     c.commit()
     return c
 
@@ -386,7 +386,7 @@ def test_starmap_upper_nodes():
 def test_starmap_english_learn_grade_and_vocab():
     """英语：学习年级不高于默认年级的算学过；词汇星团按单词本"正确率超过 80%"算掌握。"""
     c = build_database()
-    set_config(c, 'app', {'default_grade': 6, 'default_semester': 1})
+    set_config(c, 'app:1', {'default_grade': 6, 'default_semester': 1})
     for wid, review, correct in ((1, 5, 5), (2, 10, 9), (3, 4, 1)):
         c.execute("INSERT INTO word(id,english,chinese,review_count,correct_count,deleted,created_at,updated_at) "
                   "VALUES(?,?,'词',?,?,0,'2026-10-01','2026-10-01')", (wid, 'w%d' % wid, review, correct))
@@ -488,7 +488,7 @@ def test_starmap_query_count_is_fixed():
                     'VALUES(?,?,?,1,2,120,0,0)', (300 + offset, '考点%d' % offset, 'kp%d' % offset))
         add_question(big, 100 + offset, 1, '2026-10-0%d 08:00:00' % (offset % 9 + 1), [300 + offset])
         add_practice(big, 100 + offset, '2026-10-10 08:00:00', [(100 + offset, 1, 0)])
-    set_config(big, 'app', {'default_grade': 6, 'default_semester': 1})
+    set_config(big, 'app:1', {'default_grade': 6, 'default_semester': 1})
     big.commit()
     counter_big = CountingDB(big)
     run(starmap.starmap_view(request_for(counter_big), 1))
@@ -814,7 +814,7 @@ def gate_fixture(default_grade):
     """考点 121 下三道错题：一道题干为空、一道五年级、一道六年级；default_grade 为空时不写应用配置。"""
     c = build_database()
     if default_grade is not None:
-        set_config(c, 'app', {'default_grade': default_grade, 'default_semester': 1})
+        set_config(c, 'app:1', {'default_grade': default_grade, 'default_semester': 1})
     for qid, grade in ((1, 6), (2, 5), (3, 6)):
         add_question(c, qid, 1, '2026-10-0%d 08:00:00' % qid, [121])
         c.execute('UPDATE question SET grade=? WHERE id=?', (grade, qid))
