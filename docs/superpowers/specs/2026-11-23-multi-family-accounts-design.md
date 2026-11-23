@@ -194,7 +194,12 @@ EasyFix 现在只有一个共享访问密码，所有数据默认属于"1 号学
 ### 5.9 发布与初始化
 
 1. 导出 D1 备份。
-2. 执行迁移 0018。
+2. 执行迁移 0018 之前的预检（都应没有结果；有结果先停下来处理）：
+   - 远程 `PRAGMA table_info(tag)`、`PRAGMA table_info(achievement_progress)` 的列和 0018 里新表的列一致；
+   - `SELECT student_id, COUNT(*) FROM star_balance WHERE deleted=0 GROUP BY 1 HAVING COUNT(*)>1;`
+   - `SELECT student_id, achievement_id, COUNT(*) FROM achievement_progress WHERE deleted=0 GROUP BY 1,2 HAVING COUNT(*)>1;`
+   - 先用备份恢复出的本地 D1 演练一次 0018（`wrangler d1 execute --local`），核对行数、最大编号、`PRAGMA foreign_key_check` 为空。
+   然后在远程执行 0018。
 3. 本地运行一个小工具（`backend/scripts/set_admin_password.py`，用 Python `hashlib.pbkdf2_hmac` 生成和网关相同格式的哈希），通过 wrangler 给 1 号用户写入登录名和密码。密码只在终端输入，不写进文件和命令历史。
 4. 同时发布 Worker 和 Pages（Cookie 格式一起变）。发布后所有人要重新登录。
 5. 核对：管理员能登录，数据和发布前一致；新建一个测试家庭和学生，确认首页、错题、单词、练习中心、周报、翻一翻、学情都是空的，读开发者家的附件路径返回 404；测试完把测试家庭停用。
@@ -210,8 +215,8 @@ EasyFix 现在只有一个共享访问密码，所有数据默认属于"1 号学
 1. 执行前导出 D1 备份，记下两张表的行数和最大编号。
 2. 迁移开头 `PRAGMA defer_foreign_keys = on;`（`question_tag`、`word_tag` 有外键指向 `tag(id)`，`achievement_progress` 有外键指向 `achievement(id)`；D1 默认检查外键，推迟到提交时检查才能删旧表）。
 3. 建新表 `tag_new`、`achievement_progress_new`：列和旧表完全相同（包括 0011 加的 `student_id`），去掉旧的表级唯一约束，保留旧的外键约束。
-4. `INSERT INTO 新表(全部列) SELECT 全部列 FROM 旧表`，编号原样保留。
-5. 删旧表，把新表改名为旧名。
+4. `achievement_progress`（只是子表）：`INSERT INTO 新表 SELECT … FROM 旧表`，删旧表，新表改名。
+5. `tag`（被 `question_tag`、`word_tag` 引用的父表）：先把数据复制到 `tag_copy`，删旧表，`tag_new` 改名为 `tag`，再从 `tag_copy` 插回（编号原样保留），最后删 `tag_copy`。D1 默认检查外键，删父表会把子行记成违约，只有往改名后的 `tag` 里插回同样的编号才能抵消；先插进 `tag_new` 再改名的做法在提交时会失败（评审时复现过）。
 6. 建新的唯一索引：`tag(student_id, name) WHERE deleted=0`；`achievement_progress(student_id, achievement_id) WHERE deleted=0`。旧表上的其他索引按原样重建。
 7. 迁移后核对：行数、最大编号与第 1 步一致；`question_tag`、`word_tag` 没有指向不存在标签的行；`PRAGMA foreign_key_check` 无结果。
 

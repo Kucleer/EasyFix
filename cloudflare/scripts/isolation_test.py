@@ -337,7 +337,19 @@ def test_admin_disable_ends_sessions():
     assert c.execute('SELECT deleted FROM student WHERE id=?', (deleted['id'],)).fetchone()[0] == 1
 
 
+def test_error_book_cover_only():
+    """错题本只带封面图（不带原图列表）也能保存；封面必须是本家庭的图。"""
+    c, client = build()
+    made = call(client, OTHER, 'POST', '/api/error-books', {'name': '英语本', 'subject_id': 2, 'cover_image': MINE})
+    assert made.status_code == 201, made.text
+    edited = call(client, OTHER, 'PUT', '/api/error-books/%d' % made.json()['id'], {'cover_image': MINE})
+    assert edited.status_code == 200, edited.text
+    foreign = call(client, OTHER, 'POST', '/api/error-books', {'name': '偷图', 'subject_id': 2, 'cover_image': FOREIGN[0]})
+    assert foreign.status_code == 404, foreign.text
+
+
 TESTS = [
+    test_error_book_cover_only,
     test_admin_creates_family_and_students,
     test_admin_user_validation,
     test_admin_disable_ends_sessions,

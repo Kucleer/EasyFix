@@ -24,6 +24,10 @@ UPDATE app_user SET is_admin=1 WHERE id=1;
 ALTER TABLE student ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
 
 -- 3. 重建 tag：列与旧表相同，去掉表级 UNIQUE(name)，改为同一学生内唯一
+--    tag 被 question_tag、word_tag 引用（是父表）。D1 默认检查外键：DROP TABLE tag 会先隐式删光它的行，
+--    把引用它的子行记成"违约"；只有之后往名字叫 tag 的表里插回同样的编号，违约才会抵消。
+--    所以先把数据复制到 tag_copy，删旧表、新表改名为 tag，再从 tag_copy 插回来。
+CREATE TABLE tag_copy AS SELECT id,name,color,deleted,student_id FROM tag;
 CREATE TABLE tag_new (
   id INTEGER NOT NULL,
   name VARCHAR(50) NOT NULL,
@@ -32,10 +36,11 @@ CREATE TABLE tag_new (
   student_id INTEGER NOT NULL DEFAULT 1,
   CONSTRAINT tag_pkey PRIMARY KEY (id)
 );
-INSERT INTO tag_new(id,name,color,deleted,student_id)
-  SELECT id,name,color,deleted,student_id FROM tag;
 DROP TABLE tag;
 ALTER TABLE tag_new RENAME TO tag;
+INSERT INTO tag(id,name,color,deleted,student_id)
+  SELECT id,name,color,deleted,student_id FROM tag_copy;
+DROP TABLE tag_copy;
 CREATE UNIQUE INDEX idx_tag_student_name ON tag(student_id,name) WHERE deleted=0;
 
 -- 4. 重建 achievement_progress：列与旧表相同，去掉表级 UNIQUE(user_id, achievement_id)，

@@ -32,8 +32,9 @@ async def word_stats(db,practice_id,student_id):
     row=await db.first('SELECT SUM(total_count) AS total_count,SUM(correct_count) AS correct_count,SUM(duration) AS duration,MAX(reviewed_at) AS reviewed_at FROM word_review_session WHERE deleted=0 AND practice_set_id=? AND student_id=?',(practice_id,student_id))
     if not row or not row['total_count']: return None
     row['accuracy']=round((row['correct_count'] or 0)/row['total_count']*100,1)
-    # scope-ok: 单词编号和复习时间都来自这个学生自己的复习场次（已按 student_id 取出）
-    log=await db.first('SELECT review_type FROM word_review_log WHERE reviewed_at=? AND deleted=0 ORDER BY id DESC LIMIT 1',(row['reviewed_at'],))
+    # 只按时间对日志会碰上别的学生同一时刻的记录，所以连上单词按学生过滤
+    log=await db.first('SELECT l.review_type FROM word_review_log l JOIN word w ON w.id=l.word_id AND w.student_id=? '
+                       'WHERE l.reviewed_at=? AND l.deleted=0 ORDER BY l.id DESC LIMIT 1',(student_id,row['reviewed_at']))
     row['review_type']=log['review_type'] if log else 1
     return row
 

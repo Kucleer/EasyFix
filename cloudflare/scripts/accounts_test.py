@@ -27,9 +27,11 @@ def build_db_before_0018():
 
 
 def apply_0018(c):
-    """在测试库上执行迁移 0018。"""
-    c.executescript(MIGRATION_0018.read_text(encoding='utf-8'))
+    """在测试库上执行迁移 0018：和 D1 一样打开外键检查、在一个事务里执行（执行完再关掉外键，不影响其他测试）。"""
     c.commit()
+    c.execute('PRAGMA foreign_keys=ON')
+    c.executescript('BEGIN;\n' + MIGRATION_0018.read_text(encoding='utf-8') + '\nCOMMIT;')
+    c.execute('PRAGMA foreign_keys=OFF')
     return c
 
 
@@ -85,6 +87,25 @@ def test_rebuild_keeps_rows_and_ids():
     assert tags_before == tags_after and len(tags_after) == 2
     assert progress_before == progress_after and len(progress_after) == 1
     assert c.execute('PRAGMA foreign_key_check').fetchall() == []
+
+
+def test_rebuild_keeps_tag_links_with_foreign_keys():
+    """错题、单词挂着标签时（D1 默认检查外键），迁移能提交，关联一条不少，外键检查无问题。"""
+    c = build_db_before_0018()
+    c.execute("INSERT INTO tag(id,name,color,deleted) VALUES(7,'粗心','#f00',0)")
+    c.execute("INSERT INTO question(id,subject_id,original_text,review_count,correct_count,error_count,deleted,created_at,updated_at,review_status) "
+              "VALUES(501,1,'题',0,0,0,0,'2026-11-20 10:00:00','2026-11-20 10:00:00','approved')")
+    c.execute("INSERT INTO word(id,english,chinese,deleted,created_at,updated_at) "
+              "VALUES(601,'apple','苹果',0,'2026-11-20 10:00:00','2026-11-20 10:00:00')")
+    c.execute('INSERT INTO question_tag(question_id,tag_id,deleted) VALUES(501,7,0)')
+    c.execute('INSERT INTO word_tag(word_id,tag_id,deleted) VALUES(601,7,0)')
+    apply_0018(c)
+    assert c.execute('SELECT COUNT(*) FROM question_tag WHERE tag_id=7').fetchone()[0] == 1
+    assert c.execute('SELECT COUNT(*) FROM word_tag WHERE tag_id=7').fetchone()[0] == 1
+    assert tuple(c.execute('SELECT id,name FROM tag').fetchone()) == (7, '粗心')
+    assert c.execute('PRAGMA foreign_key_check').fetchall() == []
+    names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert 'tag_copy' not in names and 'tag_new' not in names
 
 
 def test_second_student_same_tag_name():
@@ -486,10 +507,34 @@ def test_starmap_progress_per_student():
     assert run(starmap.get_progress(student_request(c, 5, 2), 1))['section_no'] == second
 
 
+# ---------------------------------------------------------------- 评审修复
+
+
+def test_word_stats_ignores_other_students_log_at_same_time():
+    """单词练习的题型只看本学生的复习日志：别的学生同一时刻的日志不算。"""
+    import practices
+    c = build_db()
+    seed_family(c, 2, 'li', (5,))
+    stamp = '2026-11-20 10:00:00'
+    for wid, sid in ((801, 1), (805, 5)):
+        c.execute("INSERT INTO word(id,english,chinese,deleted,created_at,updated_at,student_id) "
+                  "VALUES(?,'w','词',0,?,?,?)", (wid, stamp, stamp, sid))
+    c.execute("INSERT INTO practice_set(id,name,subject_id,source_type,deleted,created_at,student_id) "
+              "VALUES(70,'单词',2,'word',0,?,1)", (stamp,))
+    c.execute("INSERT INTO word_review_session(practice_set_id,session_id,total_count,correct_count,accuracy,duration,"
+              "reviewed_at,word_results,deleted,student_id) VALUES(70,1,1,1,100,5,?,'[]',0,1)", (stamp,))
+    c.execute("INSERT INTO word_review_log(id,word_id,is_correct,review_type,reviewed_at,deleted) VALUES(1,801,1,1,?,0)", (stamp,))
+    c.execute("INSERT INTO word_review_log(id,word_id,is_correct,review_type,reviewed_at,deleted) VALUES(2,805,1,2,?,0)", (stamp,))
+    stats = run(practices.word_stats(adapter(c), 70, 1))
+    assert stats['review_type'] == 1, stats
+
+
 TESTS = [
+    test_word_stats_ignores_other_students_log_at_same_time,
     test_migration_account_columns,
     test_username_unique_among_live_users,
     test_rebuild_keeps_rows_and_ids,
+    test_rebuild_keeps_tag_links_with_foreign_keys,
     test_second_student_same_tag_name,
     test_achievement_progress_unique_per_student,
     test_star_balance_unique_per_student,

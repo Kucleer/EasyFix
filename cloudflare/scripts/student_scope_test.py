@@ -33,7 +33,7 @@ TABLE_PATTERN = re.compile(r'\b(?:FROM|JOIN|UPDATE|INTO)\s+(%s)\b' % '|'.join(ST
 EXEMPT_MARK = '# scope-ok:'
 
 # 每个文件允许的豁免条数：{'文件名.py': 条数}
-ALLOWED_EXEMPTIONS = {'catalog.py': 1, 'intake.py': 3, 'knowledge.py': 3, 'practices.py': 3, 'questions.py': 3, 'readings.py': 1,
+ALLOWED_EXEMPTIONS = {'catalog.py': 1, 'intake.py': 3, 'knowledge.py': 3, 'practices.py': 2, 'questions.py': 3, 'readings.py': 1,
                        'review.py': 2, 'scan.py': 9, 'similar.py': 1, 'targeted.py': 2, 'words.py': 4}
 
 
