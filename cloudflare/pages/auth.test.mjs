@@ -32,3 +32,44 @@ test('randomPassword 长度和字符', () => {
   assert.match(p, /^[a-km-np-zA-HJ-NP-Z2-9]+$/);
   assert.notEqual(randomPassword(), randomPassword());
 });
+
+// ---------------------------------------------------------------- 会话 Cookie 与附件归属
+
+import { signSession, parseSession, ownsUpload, readSessionCookie, sessionCookieHeader } from './session.js';
+
+// 与后端 accounts_test.py 的 GATEWAY_COOKIE 相同：sign_session('s', 2000000000, 3, 7, 2)
+const PY_COOKIE = 'v2.2000000000.3.7.2.50e519e3a6ffed8721c1c634a6296672b1fde44747960929abb1a925631b9160';
+
+test('网关与后端的 Cookie 一致', async () => {
+  const cookie = await signSession('s', { expires: 2000000000, userId: 3, studentId: 7, version: 2 });
+  assert.equal(cookie, PY_COOKIE);
+  assert.deepEqual(await parseSession('s', PY_COOKIE, 1), { expires: 2000000000, userId: 3, studentId: 7, version: 2 });
+});
+
+test('parseSession 拒绝坏 Cookie', async () => {
+  const cookie = await signSession('s', { expires: 2000000000, userId: 3, studentId: 7, version: 2 });
+  assert.equal(await parseSession('other', cookie, 1), null);
+  assert.equal(await parseSession('s', cookie, 2000000001), null);
+  assert.equal(await parseSession('s', '1999999999.' + 'a'.repeat(64), 1), null);
+  assert.equal(await parseSession('', cookie, 1), null);
+  assert.equal(await parseSession('s', cookie.replace('.3.7.', '.3.8.'), 1), null);
+  assert.equal(await parseSession('s', '', 1), null);
+});
+
+test('ownsUpload 与后端规则相同', () => {
+  assert.ok(ownsUpload(2, 'u2/2026/11/ab_x.jpg') && ownsUpload(2, 'audio/words/x.mp3'));
+  assert.ok(!ownsUpload(2, 'u1/2026/11/ab_x.jpg') && !ownsUpload(2, '2026/11/ab_x.jpg'));
+  assert.ok(!ownsUpload(2, 'u22/2026/11/ab_x.jpg'));
+  assert.ok(ownsUpload(1, '2026/11/ab_x.jpg') && ownsUpload(1, 'practice_sets/a.pdf'));
+  assert.ok(!ownsUpload(1, 'u2/2026/11/ab_x.jpg'));
+  assert.ok(!ownsUpload(2, '') && !ownsUpload(2, null));
+});
+
+test('读取和写出 Cookie 头', () => {
+  const request = new Request('https://easyfix.test/', { headers: { Cookie: 'a=1; easyfix_session=v2.x; b=2' } });
+  assert.equal(readSessionCookie(request), 'v2.x');
+  assert.equal(readSessionCookie(new Request('https://easyfix.test/')), '');
+  assert.equal(sessionCookieHeader('v2.x'),
+    'easyfix_session=v2.x; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Strict');
+  assert.equal(sessionCookieHeader('', 0), 'easyfix_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict');
+});

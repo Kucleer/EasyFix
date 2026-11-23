@@ -139,6 +139,113 @@ def test_config_copied_per_student():
     assert json.loads(rows['starmap:1']) == {'progress': {'1': 3}} and 'starmap' in rows
 
 
+# ---------------------------------------------------------------- 任务 3：会话与身份
+
+
+def adapter(c):
+    """把连接包装成生产代码使用的异步数据库接口。"""
+    return starmap_test.adapter(c)
+
+
+def seed_family(c, user_id, username, student_ids, is_admin=0, disabled=0):
+    """造一个家庭：用户 + 若干学生（学生名为"学生N"，排序按给定顺序）。"""
+    c.execute('INSERT INTO app_user(id,name,username,is_admin,disabled,session_version,deleted) VALUES(?,?,?,?,?,1,0)',
+              (user_id, username + '家', username, is_admin, disabled))
+    for order, student_id in enumerate(student_ids):
+        c.execute('INSERT INTO student(id,user_id,name,sort_order,deleted) VALUES(?,?,?,?,0)',
+                  (student_id, user_id, '学生%d' % student_id, order))
+    c.commit()
+
+
+def test_session_round_trip():
+    """Cookie 签发后能原样解析；换密钥、过期、旧格式、空密钥都解析不出。"""
+    from session import parse_session, sign_session
+    token = sign_session('s', 2000000000, 3, 7, 2)
+    assert token.startswith('v2.2000000000.3.7.2.')
+    assert parse_session('s', token, 1.0) == {'expires': 2000000000, 'user_id': 3, 'student_id': 7, 'version': 2}
+    assert parse_session('other', token, 1.0) is None
+    assert parse_session('s', token, 2000000001.0) is None
+    assert parse_session('s', '1999999999.' + 'a' * 64, 1.0) is None
+    assert parse_session('', token, 1.0) is None
+    assert parse_session('s', token.replace('.3.7.', '.3.8.'), 1.0) is None   # 改学生编号签名就对不上
+    assert parse_session('s', '', 1.0) is None
+
+
+def test_session_matches_gateway_vector():
+    """与网关测试里写死的 Cookie 完全一致（两边格式相同）。"""
+    from session import sign_session
+    assert sign_session('s', 2000000000, 3, 7, 2) == GATEWAY_COOKIE
+
+
+def test_stale_version_rejected():
+    """会话版本对不上、账号停用时，身份查询返回 None。"""
+    from identity import load_identity
+    c = build_db()
+    seed_family(c, 2, 'li', (5,))
+    parsed = {'user_id': 2, 'student_id': 5, 'version': 1, 'expires': 9999999999}
+    identity = run(load_identity(adapter(c), parsed))
+    assert identity == {'user_id': 2, 'username': 'li', 'is_admin': False, 'version': 1, 'student_id': 5}
+    c.execute('UPDATE app_user SET session_version=2 WHERE id=2')
+    assert run(load_identity(adapter(c), parsed)) is None
+    c.execute('UPDATE app_user SET session_version=1, disabled=1 WHERE id=2')
+    assert run(load_identity(adapter(c), parsed)) is None
+
+
+def test_identity_rejects_other_familys_student():
+    """带着别家学生编号的 Cookie 查不出身份；学生被删除后也查不出。"""
+    from identity import load_identity
+    c = build_db()
+    seed_family(c, 2, 'li', (5, 6))
+    assert run(load_identity(adapter(c), {'user_id': 2, 'student_id': 1, 'version': 1})) is None
+    c.execute('UPDATE student SET deleted=1 WHERE id=6')
+    assert run(load_identity(adapter(c), {'user_id': 2, 'student_id': 6, 'version': 1})) is None
+
+
+def test_agent_identity():
+    """录入口令代表 1 号家庭：不指定学生取排在最前的，指定别家学生查不出。"""
+    from identity import agent_identity
+    c = build_db()
+    c.execute("UPDATE app_user SET username='admin' WHERE id=1")
+    c.execute("INSERT INTO student(id,user_id,name,sort_order) VALUES(2,1,'二宝',1)")
+    seed_family(c, 3, 'li', (5,))
+    assert run(agent_identity(adapter(c), None))['student_id'] == 1
+    assert run(agent_identity(adapter(c), '2'))['student_id'] == 2
+    assert run(agent_identity(adapter(c), '5')) is None
+    assert run(agent_identity(adapter(c), 'abc')) is None
+    assert run(agent_identity(adapter(c), None))['is_admin'] is True
+
+
+def test_owns_upload():
+    """附件归属：自己前缀的、音频能读；别家的、旧附件（非 1 号用户）不能读。"""
+    from identity import owns_upload, upload_prefix
+    me = {'user_id': 2}
+    assert upload_prefix(2) == 'u2/'
+    assert owns_upload(me, 'u2/2026/11/ab_x.jpg') and owns_upload(me, 'audio/words/x.mp3')
+    assert not owns_upload(me, 'u1/2026/11/ab_x.jpg') and not owns_upload(me, '2026/11/ab_x.jpg')
+    assert not owns_upload(me, 'u22/2026/11/ab_x.jpg')
+    assert owns_upload({'user_id': 1}, '2026/11/ab_x.jpg') and owns_upload({'user_id': 1}, 'practice_sets/a.pdf')
+    assert not owns_upload({'user_id': 1}, 'u2/2026/11/ab_x.jpg')
+    assert not owns_upload(me, '') and not owns_upload(me, None)
+
+
+def test_admin_only_rules():
+    """管理员专用接口：管理接口、模型设置、共用目录的写入。"""
+    from identity import admin_only
+    assert admin_only('POST', '/api/subjects') and admin_only('DELETE', '/api/subjects/3')
+    assert admin_only('DELETE', '/api/knowledge-points/3') and admin_only('PUT', '/api/knowledge-points/3')
+    assert admin_only('POST', '/api/stars/actions') and admin_only('PUT', '/api/achievements/2')
+    assert admin_only('GET', '/api/config/llm') and admin_only('POST', '/api/config/llm')
+    assert admin_only('GET', '/api/admin/users') and admin_only('POST', '/api/admin/users')
+    assert not admin_only('GET', '/api/subjects') and not admin_only('GET', '/api/knowledge-points/tree')
+    assert not admin_only('POST', '/api/tags') and not admin_only('POST', '/api/rewards')
+    assert not admin_only('PUT', '/api/starmap/progress') and not admin_only('GET', '/api/stars/actions')
+    assert not admin_only('POST', '/api/subjectsx')
+
+
+# 网关测试 auth.test.mjs 里的 PY_COOKIE 是同一个值
+GATEWAY_COOKIE = 'v2.2000000000.3.7.2.50e519e3a6ffed8721c1c634a6296672b1fde44747960929abb1a925631b9160'
+
+
 TESTS = [
     test_migration_account_columns,
     test_username_unique_among_live_users,
@@ -147,6 +254,13 @@ TESTS = [
     test_achievement_progress_unique_per_student,
     test_star_balance_unique_per_student,
     test_config_copied_per_student,
+    test_session_round_trip,
+    test_session_matches_gateway_vector,
+    test_stale_version_rejected,
+    test_identity_rejects_other_familys_student,
+    test_agent_identity,
+    test_owns_upload,
+    test_admin_only_rules,
 ]
 
 
