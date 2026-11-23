@@ -27,6 +27,7 @@ from uuid import uuid4
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, Response  # noqa: E402
@@ -550,6 +551,7 @@ def build_app(connection, uploads_dir, frontend_dir, ocr_url=None, ocr_key=None,
     async def inject_env(request: Request, call_next):
         """给每个请求放上 env（只有 DB），不做任何登录校验。"""
         request.scope['env'] = SimpleNamespace(DB=database)
+        request.scope['easyfix'] = default_identity()   # 本机测试环境免登录，固定是管理员家庭的 1 号学生
         return await call_next(request)
 
     mounted = mount_routers(app)

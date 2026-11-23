@@ -17,6 +17,7 @@ import traceback
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 from phrase_focus import (  # noqa: E402
     apply_annotation,
@@ -472,7 +473,7 @@ class FakeRequest:
     """伪造 FastAPI 的 Request，只提供 scope 与 json()。"""
 
     def __init__(self, payload):
-        self.scope = {'env': FakeEnv()}
+        self.scope = {'env': FakeEnv(), 'easyfix': default_identity()}
         self.payload = payload
 
     async def json(self):

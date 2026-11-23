@@ -17,6 +17,7 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 from fastapi import HTTPException  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -370,7 +371,7 @@ class FakeRequest:
     """伪造 FastAPI 的 Request，只提供 scope 与 json()。"""
 
     def __init__(self, payload, db):
-        self.scope = {'env': FakeEnv(db)}
+        self.scope = {'env': FakeEnv(db), 'easyfix': default_identity()}
         self.payload = payload
 
     async def json(self):

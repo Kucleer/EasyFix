@@ -16,6 +16,7 @@ from fastapi import HTTPException
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 import starmap_test  # noqa: E402  复用输出与检查助手
 import targeted_test  # noqa: E402  复用建库（starmap_test 的库 + 0015）
@@ -888,11 +889,17 @@ def guard_revision_after(method, path):
         """下游处理成功。"""
         return JSONResponse({'id': 1, 'status': 'facts_ready', 'busy': False})
 
+    async def admin_agent(db, student_header):
+        """录入口令的身份：默认的管理员家庭（不查库）。"""
+        return default_identity()
+
     original_database, original_maintenance = cache.Database, auth.maintenance_enabled
-    cache.Database, auth.maintenance_enabled = (lambda binding: binding), not_in_maintenance
+    original_agent = auth.agent_identity
+    cache.Database, auth.maintenance_enabled, auth.agent_identity = (lambda binding: binding), not_in_maintenance, admin_agent
     try:
         response = run(auth.guard(GuardRequest(), call_next))
     finally:
+        auth.agent_identity = original_agent
         cache.Database, auth.maintenance_enabled = original_database, original_maintenance
     assert response.status_code == 200, response.status_code
     revision = c.execute("SELECT value FROM runtime_config WHERE name='data_revision'").fetchone()[0]

@@ -35,5 +35,6 @@ def grade_ready(alias: str, min_grade: int | None) -> tuple[str, list]:
 
 
 def current_student_id(request) -> int:
-    """当前学生；目前固定返回 1，多学生上线时只改这里。"""
-    return 1
+    """当前学生：guard 确认过的登录身份里的学生编号（没有身份时报错，不默认成 1 号学生）。"""
+    from identity import current_identity
+    return current_identity(request)['student_id']

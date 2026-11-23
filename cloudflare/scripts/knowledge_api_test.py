@@ -14,6 +14,7 @@ from types import SimpleNamespace
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -101,6 +102,7 @@ def build_client():
     @app.middleware('http')
     async def inject(request, call_next):
         request.scope['env'] = SimpleNamespace(DB=FakeD1(connection))
+        request.scope['easyfix'] = default_identity()
         return await call_next(request)
 
     app.include_router(knowledge_router)

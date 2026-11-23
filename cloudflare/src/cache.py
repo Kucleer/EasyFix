@@ -13,7 +13,8 @@ async def lookup(request):
     db=Database(request.scope['env'].DB)
     row=await db.first('SELECT value FROM runtime_config WHERE name=\'data_revision\' AND deleted=0')
     revision=row['value'] if row else '0'
-    key=(str(request.url),revision)
+    # 键里带上学生：同一个网址，不同学生看到的统计不同
+    key=(request.scope['easyfix']['student_id'],str(request.url),revision)
     entry=ENTRIES.get(key)
     if entry and entry[0]>time.monotonic():return entry[1],key
     return None,key
@@ -24,6 +25,14 @@ def remember(key,body,media_type):
     if key is None or len(body)>256*1024:return
     if len(ENTRIES)>=64:ENTRIES.clear()
     ENTRIES[key]=(time.monotonic()+60,(body,media_type))
+
+
+def operator_of(request):
+    """操作日志里的操作人：录入口令写 agent，其余写登录名。"""
+    if request.scope.get('easyfix_agent'):
+        return 'agent'
+    identity = request.scope.get('easyfix') or {}
+    return identity.get('username') or 'user%s' % identity.get('user_id', '?')
 
 
 async def invalidate(request):
@@ -40,4 +49,4 @@ async def invalidate(request):
     if 'similar' in request.url.path:operation='generate_similar'
     await Database(request.scope['env'].DB).batch([
       ('UPDATE runtime_config SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE name=\'data_revision\' AND deleted=0',()),
-      ('INSERT INTO operation_log(operator,operation_type,operation_status,target_type,target_id,request_data,deleted,created_at) VALUES(\'cloudflare\',?,\'success\',?,?,?,0,?)',(operation,resource,target_id,json.dumps({'method':request.method,'path':request.url.path}),(datetime.utcnow()+timedelta(hours=8)).isoformat(' ')))])
+      ('INSERT INTO operation_log(operator,operation_type,operation_status,target_type,target_id,request_data,deleted,created_at) VALUES(?,?,\'success\',?,?,?,0,?)',(operator_of(request),operation,resource,target_id,json.dumps({'method':request.method,'path':request.url.path}),(datetime.utcnow()+timedelta(hours=8)).isoformat(' ')))])

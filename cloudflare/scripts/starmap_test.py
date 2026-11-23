@@ -14,6 +14,7 @@ import traceback
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
 
@@ -217,7 +218,7 @@ class FakeRequest:
     """伪造 FastAPI 的 Request，只提供 scope 与 json()。"""
 
     def __init__(self, payload, db):
-        self.scope = {'env': FakeEnv(db)}
+        self.scope = {'env': FakeEnv(db), 'easyfix': default_identity()}
         self.payload = payload
 
     async def json(self):

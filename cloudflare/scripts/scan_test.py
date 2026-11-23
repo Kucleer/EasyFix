@@ -16,6 +16,7 @@ import traceback
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
+from identity_fixture import default_identity  # noqa: E402
 
 from fastapi import HTTPException  # noqa: E402
 from knowledge_invariants_test import SQLiteDB  # noqa: E402  复用生产异步接口的 sqlite 适配器
@@ -51,7 +52,7 @@ class FakeRequest:
     """伪造 FastAPI 的 Request，只提供 scope。"""
 
     def __init__(self):
-        self.scope = {'env': FakeEnv()}
+        self.scope = {'env': FakeEnv(), 'easyfix': default_identity()}
 
 
 class FakeOcrClient:
@@ -530,7 +531,7 @@ class PageRequest:
     """伪造 FastAPI 的 Request：提供 scope 与 json()。"""
 
     def __init__(self, db, payload=None, rescan=None):
-        self.scope = {'env': ScanEnv(db, rescan)}
+        self.scope = {'env': ScanEnv(db, rescan), 'easyfix': default_identity()}
         self.payload = payload
 
     async def json(self):
@@ -1472,7 +1473,7 @@ class GuardRequest:
         self.headers = {'authorization': 'Bearer agent-token'}
         self.cookies = {}
         self.scope = {'env': type('Env', (), {'ACCESS_TOKEN': 'agent-token', 'SESSION_SECRET': 's',
-                                              'MIGRATION_READY': 'true'})()}
+                                              'MIGRATION_READY': 'true', 'DB': None})()}
 
 
 def count_invalidations(method, path):
@@ -1493,11 +1494,17 @@ def count_invalidations(method, path):
         return JSONResponse({'ok': True})
 
     # guard 在函数里才导入 invalidate，所以要换 cache 模块里的，不是 auth 里的
+    async def admin_agent(db, student_header):
+        """录入口令的身份：默认的管理员家庭（不查库）。"""
+        return default_identity()
+
     original_invalidate, original_maintenance = cache.invalidate, auth.maintenance_enabled
-    cache.invalidate, auth.maintenance_enabled = counting_invalidate, not_in_maintenance
+    original_agent = auth.agent_identity
+    cache.invalidate, auth.maintenance_enabled, auth.agent_identity = counting_invalidate, not_in_maintenance, admin_agent
     try:
         response = run(auth.guard(GuardRequest(method, path), call_next))
     finally:
+        auth.agent_identity = original_agent
         cache.invalidate, auth.maintenance_enabled = original_invalidate, original_maintenance
     assert response.status_code == 200, response.status_code
     return len(calls)

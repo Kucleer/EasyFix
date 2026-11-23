@@ -449,11 +449,16 @@ async def advance_step(request, moment: datetime):
 # ---------------------------------------------------------------- 定时任务
 
 
+# 定时任务默认身份：1 号家庭的 1 号学生（任务 10 改为逐个学生推进）
+ADMIN_IDENTITY = {'user_id': 1, 'username': 'admin', 'is_admin': True, 'version': 1, 'student_id': 1}
+
+
 class ScheduledRequest:
     """定时任务里没有请求对象；现有函数只从 request.scope['env'] 取环境，用这个替身传进去。"""
 
-    def __init__(self, env):
-        self.scope = {'env': env}
+    def __init__(self, env, identity=None):
+        # 定时任务没有登录身份；按要推进的学生构造一个（不传时是 1 号家庭的 1 号学生）
+        self.scope = {'env': env, 'easyfix': identity or dict(ADMIN_IDENTITY)}
 
 
 async def run_scheduled(env) -> str:

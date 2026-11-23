@@ -246,6 +246,202 @@ def test_admin_only_rules():
 GATEWAY_COOKIE = 'v2.2000000000.3.7.2.50e519e3a6ffed8721c1c634a6296672b1fde44747960929abb1a925631b9160'
 
 
+# ---------------------------------------------------------------- 任务 4：guard、/api/auth/me、切换学生
+
+SECRET = 's'
+AGENT_TOKEN = 'agent-token'
+FAR = 4000000000   # 远未过期的时间戳
+
+
+class GuardEnv:
+    """guard 用到的环境：口令、会话密钥、迁移就绪、数据库。"""
+
+    def __init__(self, db):
+        self.ACCESS_TOKEN = AGENT_TOKEN
+        self.SESSION_SECRET = SECRET
+        self.MIGRATION_READY = 'true'
+        self.DB = db
+
+
+class GuardRequest:
+    """伪造经过 auth.guard 的请求；cookie 为会话 Cookie 值，headers 用小写键。"""
+
+    def __init__(self, c, method, path, cookie='', headers=None, payload=None, identity=None):
+        self.method = method
+        self.url = type('Url', (), {'path': path, '__str__': lambda self: 'http://test' + path})()
+        self.headers = headers or {}
+        self.cookies = {'easyfix_session': cookie} if cookie else {}
+        self.scope = {'env': GuardEnv(adapter(c))}
+        if identity is not None:
+            self.scope['easyfix'] = identity
+        self.payload = payload
+
+    async def json(self):
+        """返回构造时给定的请求体。"""
+        return self.payload
+
+
+def guard_call(request):
+    """让 guard 处理一个请求，下游成功时记下下游看到的身份；返回 (响应, 下游看到的身份)。"""
+    import auth
+    import cache
+    from fastapi.responses import JSONResponse
+    seen = {}
+
+    async def call_next(inner):
+        """下游处理成功，记下身份。"""
+        seen['identity'] = inner.scope.get('easyfix')
+        return JSONResponse({'ok': True})
+
+    async def not_in_maintenance(inner):
+        """维护开关关闭。"""
+        return False
+
+    async def no_invalidate(inner):
+        """不碰缓存版本和日志。"""
+
+    saved = (auth.Database, cache.Database, auth.maintenance_enabled, cache.invalidate)
+    auth.Database, cache.Database = (lambda binding: binding), (lambda binding: binding)
+    auth.maintenance_enabled, cache.invalidate = not_in_maintenance, no_invalidate
+    try:
+        response = run(auth.guard(request, call_next))
+    finally:
+        auth.Database, cache.Database, auth.maintenance_enabled, cache.invalidate = saved
+    return response, seen.get('identity')
+
+
+def body_of(response):
+    """读出 JSONResponse 的内容。"""
+    return json.loads(response.body)
+
+
+def test_guard_rejects_stale_session():
+    """会话版本过期（改过密码、被重置）后，API 请求返回 401。"""
+    from session import sign_session
+    c = build_db()
+    seed_family(c, 2, 'li', (5,))
+    cookie = sign_session(SECRET, FAR, 2, 5, 1)
+    response, _ = guard_call(GuardRequest(c, 'GET', '/api/questions', cookie))
+    assert response.status_code == 200
+    c.execute('UPDATE app_user SET session_version=2 WHERE id=2')
+    response, seen = guard_call(GuardRequest(c, 'GET', '/api/questions', cookie))
+    assert response.status_code == 401 and body_of(response) == {'detail': '需要登录'} and seen is None
+
+
+def test_guard_rejects_old_cookie_format():
+    """旧格式 Cookie 当作没登录：API 401，页面跳转登录页。"""
+    import hashlib
+    import hmac
+    c = build_db()
+    old = str(FAR) + '.' + hmac.new(SECRET.encode(), str(FAR).encode(), hashlib.sha256).hexdigest()
+    response, _ = guard_call(GuardRequest(c, 'GET', '/api/home', old))
+    assert response.status_code == 401
+    response, _ = guard_call(GuardRequest(c, 'GET', '/questions', old))
+    assert response.status_code == 303 and response.headers['location'] == '/login'
+
+
+def test_guard_sets_identity_and_blocks_non_admin():
+    """普通家庭：下游看到自己的学生；写共用目录、看模型设置返回 403。"""
+    from session import sign_session
+    c = build_db()
+    seed_family(c, 2, 'li', (5,))
+    cookie = sign_session(SECRET, FAR, 2, 5, 1)
+    response, seen = guard_call(GuardRequest(c, 'GET', '/api/questions', cookie))
+    assert response.status_code == 200 and seen['student_id'] == 5 and seen['is_admin'] is False
+    for method, path in (('POST', '/api/subjects'), ('GET', '/api/config/llm'), ('GET', '/api/admin/users')):
+        response, seen = guard_call(GuardRequest(c, method, path, cookie))
+        assert response.status_code == 403 and body_of(response) == {'detail': '只有管理员可以操作'}, path
+        assert seen is None
+
+
+def test_agent_token_student_header():
+    """录入口令：不带学生头进 1 号家庭排在最前的学生；指定别家学生返回 401。"""
+    c = build_db()
+    c.execute("UPDATE app_user SET username='admin' WHERE id=1")
+    seed_family(c, 2, 'li', (5,))
+    bearer = {'authorization': 'Bearer ' + AGENT_TOKEN}
+    response, seen = guard_call(GuardRequest(c, 'GET', '/api/questions', headers=dict(bearer)))
+    assert response.status_code == 200 and seen['student_id'] == 1 and seen['is_admin'] is True
+    response, seen = guard_call(GuardRequest(c, 'GET', '/api/questions',
+                                             headers={**bearer, 'x-easyfix-student': '5'}))
+    assert response.status_code == 401 and seen is None
+    response, _ = guard_call(GuardRequest(c, 'GET', '/api/questions', headers={'authorization': 'Bearer wrong'}))
+    assert response.status_code == 401
+
+
+def test_cache_key_includes_student():
+    """统计缓存按学生区分：学生 1 存过的结果，学生 5 读不到。"""
+    import cache
+    c = build_db()
+    saved = cache.Database
+    cache.Database = lambda binding: binding
+    try:
+        cache.ENTRIES.clear()
+        first = GuardRequest(c, 'GET', '/api/home', identity={'user_id': 1, 'student_id': 1})
+        hit, key = run(cache.lookup(first))
+        assert hit is None
+        cache.remember(key, b'{"n":1}', 'application/json')
+        assert run(cache.lookup(first))[0] == (b'{"n":1}', 'application/json')
+        other = GuardRequest(c, 'GET', '/api/home', identity={'user_id': 2, 'student_id': 5})
+        assert run(cache.lookup(other))[0] is None
+    finally:
+        cache.Database = saved
+        cache.ENTRIES.clear()
+
+
+def test_switch_student():
+    """切换到自家另一个学生：重新签发 Cookie；切到别家学生返回 404。"""
+    import auth
+    from session import parse_session
+    c = build_db()
+    c.execute("UPDATE app_user SET username='admin' WHERE id=1")
+    c.execute("INSERT INTO student(id,user_id,name,sort_order) VALUES(2,1,'二宝',1)")
+    seed_family(c, 3, 'li', (5,))
+    me = {'user_id': 1, 'username': 'admin', 'is_admin': True, 'version': 1, 'student_id': 1}
+    saved = auth.Database
+    auth.Database = lambda binding: binding
+    try:
+        response = run(auth.switch_student(GuardRequest(c, 'POST', '/api/auth/switch-student',
+                                                        payload={'student_id': 2}, identity=me)))
+        assert response.status_code == 200
+        cookie = response.headers['set-cookie'].split(';')[0].split('=', 1)[1]
+        parsed = parse_session(SECRET, cookie, 1.0)
+        assert (parsed['user_id'], parsed['student_id'], parsed['version']) == (1, 2, 1)
+        assert 'HttpOnly' in response.headers['set-cookie'] and 'Max-Age=2592000' in response.headers['set-cookie']
+        response = run(auth.switch_student(GuardRequest(c, 'POST', '/api/auth/switch-student',
+                                                        payload={'student_id': 5}, identity=me)))
+        assert response.status_code == 404
+    finally:
+        auth.Database = saved
+
+
+def test_switch_student_refused_for_agent():
+    """录入口令不能切换学生。"""
+    import auth
+    c = build_db()
+    request = GuardRequest(c, 'POST', '/api/auth/switch-student', payload={'student_id': 1},
+                           identity={'user_id': 1, 'username': 'admin', 'is_admin': True, 'version': 1, 'student_id': 1})
+    request.scope['easyfix_agent'] = True
+    response = run(auth.switch_student(request))
+    assert response.status_code == 400 and body_of(response) == {'detail': '录入口令不能切换学生'}
+
+
+def test_me():
+    """/api/auth/me：登录名、名字、是否管理员、当前学生、学生列表（按排序）。"""
+    import auth
+    c = build_db()
+    seed_family(c, 2, 'li', (6, 5))
+    me = {'user_id': 2, 'username': 'li', 'is_admin': False, 'version': 1, 'student_id': 5}
+    saved = auth.Database
+    auth.Database = lambda binding: binding
+    try:
+        body = run(auth.me(GuardRequest(c, 'GET', '/api/auth/me', identity=me)))
+    finally:
+        auth.Database = saved
+    assert body == {'username': 'li', 'name': 'li家', 'is_admin': False, 'student': {'id': 5, 'name': '学生5'},
+                    'students': [{'id': 6, 'name': '学生6'}, {'id': 5, 'name': '学生5'}]}
+
+
 TESTS = [
     test_migration_account_columns,
     test_username_unique_among_live_users,
@@ -261,6 +457,14 @@ TESTS = [
     test_agent_identity,
     test_owns_upload,
     test_admin_only_rules,
+    test_guard_rejects_stale_session,
+    test_guard_rejects_old_cookie_format,
+    test_guard_sets_identity_and_blocks_non_admin,
+    test_agent_token_student_header,
+    test_cache_key_includes_student,
+    test_switch_student,
+    test_switch_student_refused_for_agent,
+    test_me,
 ]
 
 
