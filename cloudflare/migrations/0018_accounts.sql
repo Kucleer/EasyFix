@@ -17,8 +17,14 @@ ALTER TABLE app_user ADD COLUMN last_login_at TEXT;
 ALTER TABLE app_user ADD COLUMN updated_at TEXT;
 -- 登录名只在未删除的用户里唯一；没设登录名（NULL）的不参与
 CREATE UNIQUE INDEX idx_app_user_username ON app_user(username) WHERE deleted=0 AND username IS NOT NULL;
--- 1 号用户（现有数据的主人）是管理员；登录名和密码由 backend/scripts/set_admin_password.py 设置
-UPDATE app_user SET is_admin=1 WHERE id=1;
+-- 1 号用户、1 号学生是现有全部数据的主人（0011 起所有学生数据的 student_id 默认就是 1），也就是管理员自己家。
+-- 万一这两行缺了、被删了或被停用，这里补回来，保证管理员能登录、旧数据有主人。
+-- 登录名和密码由 backend/scripts/set_admin_password.py 设置（同时可以把"默认用户/默认学生"改成真名）。
+INSERT INTO app_user(id,name,deleted,created_at) VALUES(1,'默认用户',0,CURRENT_TIMESTAMP) ON CONFLICT(id) DO NOTHING;
+UPDATE app_user SET is_admin=1, deleted=0, disabled=0 WHERE id=1;
+INSERT INTO student(id,user_id,name,deleted,created_at,updated_at)
+  VALUES(1,1,'默认学生',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(id) DO NOTHING;
+UPDATE student SET user_id=1, deleted=0 WHERE id=1;
 
 -- 2. 学生排序（登录时默认进入排在最前面的学生）
 ALTER TABLE student ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;

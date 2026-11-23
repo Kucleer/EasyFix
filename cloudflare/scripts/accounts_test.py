@@ -529,7 +529,63 @@ def test_word_stats_ignores_other_students_log_at_same_time():
     assert stats['review_type'] == 1, stats
 
 
+# ---------------------------------------------------------------- 现有数据归管理员
+
+
+def test_existing_data_belongs_to_admin():
+    """迁移前的数据（没写 student_id，取默认值）在 0018 后全归 1 号用户的 1 号学生，1 号用户是管理员、能登录。"""
+    from identity import agent_identity, load_identity
+    c = build_db_before_0018()
+    stamp = '2026-11-20 10:00:00'
+    c.execute("INSERT INTO question(id,subject_id,original_text,review_count,correct_count,error_count,deleted,created_at,"
+              "updated_at,review_status) VALUES(900,1,'旧题',0,0,0,0,?,?,'approved')", (stamp, stamp))
+    c.execute("INSERT INTO word(id,english,chinese,deleted,created_at,updated_at) VALUES(901,'old','旧',0,?,?)", (stamp, stamp))
+    c.execute("INSERT INTO practice_set(id,name,subject_id,deleted,created_at) VALUES(902,'旧练习',1,0,?)", (stamp,))
+    c.execute("INSERT INTO tag(id,name,deleted) VALUES(903,'旧标签',0)")
+    apply_0018(c)
+    for table in ('question', 'word', 'practice_set', 'tag'):
+        assert {r[0] for r in c.execute('SELECT DISTINCT student_id FROM %s' % table)} == {1}, table
+    assert tuple(c.execute('SELECT user_id,deleted FROM student WHERE id=1').fetchone()) == (1, 0)
+    db = adapter(c)
+    c.execute("UPDATE app_user SET username='admin' WHERE id=1")
+    me = run(load_identity(db, {'user_id': 1, 'student_id': 1, 'version': 1}))
+    assert me['is_admin'] is True and me['student_id'] == 1
+    assert run(agent_identity(db, None))['student_id'] == 1
+
+
+def test_0018_restores_admin_rows_if_missing():
+    """万一 1 号用户或 1 号学生不在（或被删、被停用），0018 把它们补回来，保证管理员能登录、旧数据有主人。"""
+    c = build_db_before_0018()
+    c.execute('DELETE FROM student WHERE id=1')
+    c.execute('UPDATE app_user SET deleted=1 WHERE id=1')
+    apply_0018(c)
+    assert tuple(c.execute('SELECT deleted,disabled,is_admin FROM app_user WHERE id=1').fetchone()) == (0, 0, 1)
+    assert tuple(c.execute('SELECT user_id,deleted FROM student WHERE id=1').fetchone()) == (1, 0)
+
+
+def test_set_admin_password_sql_renames_family_and_student():
+    """初始化工具的 SQL：设登录名和密码、会话版本加 1；给了名字就把"默认用户/默认学生"改成真名。"""
+    sys.path.insert(0, str(ROOT.parent / 'backend' / 'scripts'))
+    import set_admin_password as tool
+    c = build_db()
+    sql = tool.build_sql('papa', 'pbkdf2-sha256$1$AA==$AA==', '2026-11-23 20:00:00', '我家', '大宝')
+    c.executescript(sql)
+    row = c.execute('SELECT username,password_hash,session_version,name FROM app_user WHERE id=1').fetchone()
+    assert tuple(row) == ('papa', 'pbkdf2-sha256$1$AA==$AA==', 2, '我家')
+    assert c.execute('SELECT name FROM student WHERE id=1').fetchone()[0] == '大宝'
+    c.executescript(tool.build_sql('papa', 'x', '2026-11-23 20:00:00'))   # 不给名字：名字不变
+    assert c.execute('SELECT name FROM app_user WHERE id=1').fetchone()[0] == '我家'
+    try:
+        tool.build_sql('papa', 'x', 'now', "我'家", None)
+        assert False, '名字里有单引号应被拒绝'
+    except ValueError:
+        pass
+
+
 TESTS = [
+    test_existing_data_belongs_to_admin,
+    test_0018_restores_admin_rows_if_missing,
+    test_set_admin_password_sql_renames_family_and_student,
     test_word_stats_ignores_other_students_log_at_same_time,
     test_migration_account_columns,
     test_username_unique_among_live_users,

@@ -1,4 +1,5 @@
-"""给 1 号用户（管理员）设置登录名和密码；多家庭账号上线时运行一次，以后忘了密码也用它重设。
+"""给 1 号用户（管理员，也就是现有全部数据的主人）设置登录名和密码；多家庭账号上线时运行一次，以后忘了密码也用它重设。
+上线时可以顺便把"默认用户""默认学生"改成真名。
 
 密码只在终端里输入（不回显），不写进文件、命令历史和日志。哈希格式与网关
 cloudflare/pages/password.js 完全相同：pbkdf2-sha256$迭代次数$盐(base64)$哈希(base64)。
@@ -33,11 +34,21 @@ def hash_password(password: str, iterations: int, salt: bytes) -> str:
     return 'pbkdf2-sha256$%d$%s$%s' % (iterations, base64.b64encode(salt).decode(), base64.b64encode(digest).decode())
 
 
-def build_sql(username: str, password_hash: str, now_text: str) -> str:
-    """生成更新 1 号用户的 SQL；会话版本加 1，旧登录全部失效。"""
+def build_sql(username: str, password_hash: str, now_text: str, family_name=None, student_name=None) -> str:
+    """生成更新 1 号用户（现有数据的主人）的 SQL；会话版本加 1，旧登录全部失效。
+
+    family_name / student_name 给了就把"默认用户""默认学生"改成真名；名字里不能有单引号。
+    """
     # 登录名已按正则校验，哈希只含 base64 字符和 $，都不含单引号，直接拼进 SQL 是安全的
-    return ("UPDATE app_user SET username='%s', password_hash='%s', session_version=session_version+1, "
-            "updated_at='%s' WHERE id=1;" % (username, password_hash, now_text))
+    for name in (family_name, student_name):
+        if name is not None and ("'" in name or not name.strip() or len(name.strip()) > 40):
+            raise ValueError('名字不能为空、不能超过 40 个字、不能含单引号')
+    sql = ("UPDATE app_user SET username='%s', password_hash='%s', session_version=session_version+1, "
+           "updated_at='%s'%s WHERE id=1;" % (username, password_hash, now_text,
+                                              ", name='%s'" % family_name.strip() if family_name else ''))
+    if student_name:
+        sql += "\nUPDATE student SET name='%s', updated_at='%s' WHERE id=1;" % (student_name.strip(), now_text)
+    return sql
 
 
 def read_inputs():
@@ -53,7 +64,10 @@ def read_inputs():
     if getpass.getpass('再输一遍：') != password:
         print('两次输入不一致。')
         return None
-    return username, password
+    # 现有数据都在 1 号学生名下：顺便把"默认用户""默认学生"改成真名（直接回车表示不改）
+    family_name = input('家庭名字（直接回车不改）：').strip() or None
+    student_name = input('现有数据所属学生的名字（直接回车不改）：').strip() or None
+    return username, password, family_name, student_name
 
 
 def main():
@@ -64,9 +78,13 @@ def main():
     inputs = read_inputs()
     if inputs is None:
         sys.exit(1)
-    username, password = inputs
+    username, password, family_name, student_name = inputs
     now_text = (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
-    sql = build_sql(username, hash_password(password, ITERATIONS, os.urandom(16)), now_text)
+    try:
+        sql = build_sql(username, hash_password(password, ITERATIONS, os.urandom(16)), now_text, family_name, student_name)
+    except ValueError as error:
+        print(str(error))
+        sys.exit(1)
     if args.dry_run:
         print(re.sub(r"password_hash='[^']*'", "password_hash='***'", sql))
         return
