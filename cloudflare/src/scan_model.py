@@ -100,6 +100,38 @@ def _knowledge_rules(catalog):
     )
 
 
+# 下面三条是题型规则，整页整理和单题补全的提示词都带上。
+
+# 围绕一篇短文的大题（完形、选词填空、阅读理解）：整篇算一题，不拆成小题；
+# 有一空做错就整篇判错，答案按空号列全（用户 2026-11-22 定）
+PASSAGE_RULE = (
+    '围绕一篇短文的大题（完形填空、选词填空、短文填空、阅读理解等）整篇算一题，不要拆成每空或每小题一项：'
+    'question_no 只写大题号（例如"三"）；parsed_question 写整篇文章（空保留卷面上的空号，写成 __1__、__2__ …），'
+    '空一行，再按原样抄全部选项（词框里的全部选项，或每个空 / 每个小题的全部 ABCD 选项，一空一行）；'
+    'wrong_answer 和 answer 按空号列全部空，例如"1.E 2.A 3.B 4.D 5.C"；'
+    '只要有一空做错就整篇判 wrong，reason 写成"学生最终答案 …，正确答案 …，错在第 2、4 空"；'
+    '全部做对才判 right。'
+)
+
+# 几道彼此独立的句子共用一个词框（不是一篇短文）：每句一题，每题都带上整个词框
+SHARED_OPTIONS_RULE = (
+    '几道彼此独立的句子共用一个词框（不是一篇短文）时，每句单独列一项，'
+    '每一项的 parsed_question 都写成：这一句（空用 __ 表示），空一行，再把词框里的全部选项按原样抄一遍。'
+    '不能只在第一项里带选项，也不能省略选项。'
+)
+
+# 对画线部分提问：读图文字里没有画线，只能由模型按题型和答案推出画线部分
+UNDERLINE_RULE = (
+    '"对画线部分提问"这类题，读图文字里没有画线，要根据题目要求和正确答案推断原句里画线的是哪几个词，'
+    '在 parsed_question 的原句里把它们写成 \\(\\underline{\\text{…}}\\)，'
+    '例如 He climbed the wall \\(\\underline{\\text{like a cat}}\\). （对画线部分提问）。'
+    '推断不出画线部分时原句照抄，不要乱标。'
+)
+
+# 题型规则合在一起，方便两个提示词一次带上
+QUESTION_TYPE_RULES = (PASSAGE_RULE, SHARED_OPTIONS_RULE, UNDERLINE_RULE)
+
+
 def _ocr_block(ocr_text, enhanced_text):
     """整页读图文字的提示词片段（有重扫文字时两份都给），整页整理和单题补全共用。"""
     parts = ['下面是整页读图得到的文字（OCR）：', '<<<OCR', ocr_text or '', 'OCR>>>']
@@ -130,6 +162,7 @@ def build_page_prompt(subject_name, grade, semester, ocr_text, enhanced_text, ca
         '数学公式用 LaTeX：行内写 \\(...\\)，独立公式写 \\[...\\]。'
         'wrong_answer、solution、reason、answer、analysis 里的公式也一样，每个公式都要写在 \\(...\\) 里，'
         '不能直接写 \\frac{1}{2} 这样不带边界的公式。',
+        *('  ' + rule for rule in QUESTION_TYPE_RULES),
         '- wrong_answer：学生写的最终答案，读不出就留空字符串。',
         '- solution：你自己的演算，一两行，写出关键步骤和最终结果。每道题都要先写它，再下判断。',
         '- verdict：wrong（做错了）、right（做对了）或 unsure（拿不准）。',
@@ -181,6 +214,7 @@ def build_fill_prompt(subject_name, grade, item, ocr_text, enhanced_text, catalo
         '',
         '只返回这一道题的 JSON（一个对象），字段：',
         '- parsed_question：完整题干。',
+        *('  ' + rule for rule in QUESTION_TYPE_RULES),
         '- wrong_answer：学生写的答案，读不出就留空字符串，不许猜。',
         '- answer：正确答案。',
         '- analysis：解析。',
@@ -297,6 +331,24 @@ def wrap_bare_math(text):
     return ''.join(pieces)
 
 
+def cut_stem(text):
+    """把判对的题的题干截到 RIGHT_STEM_CHARS 个字；截断处落在公式中间时，退到这个公式前面，
+    免得留下没闭合的 \\( 让页面报公式错误。"""
+    limit = RIGHT_STEM_CHARS
+    for span in _MATH_SPAN.finditer(text):
+        if span.start() >= limit:
+            break
+        if span.end() > limit:
+            return text[:span.start()]  # 公式跨过了截断处：整个公式都不要
+    # 没闭合的公式开头（模型写坏了）也不能截一半
+    cut = text[:limit]
+    for opener in ('\\(', '\\[', '$$'):
+        position = cut.rfind(opener)
+        if position != -1 and not _MATH_SPAN.match(text, position):
+            cut = cut[:position]
+    return cut
+
+
 def _clean_item(raw, seq, catalog_ids):
     """清洗模型返回的一道题，得到完整的草稿项。"""
     item = blank_item(seq)
@@ -327,7 +379,7 @@ def _clean_item(raw, seq, catalog_ids):
         # 做对的题不带答案、解析、考点，难度取默认值；
         # 题干只留开头（模型没照做、给了完整题干时这里截短），补成错题时再补全
         item['answer'] = item['analysis'] = ''
-        item['parsed_question'] = item['parsed_question'][:RIGHT_STEM_CHARS]
+        item['parsed_question'] = cut_stem(item['parsed_question'])
         return item
     item['knowledge_point_ids'], item['primary_knowledge_point_id'] = _clean_knowledge(raw, catalog_ids)
     item['difficulty'] = _clean_difficulty(raw.get('difficulty'))
