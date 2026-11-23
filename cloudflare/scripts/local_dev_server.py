@@ -50,7 +50,7 @@ CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
 # 挂载顺序与 main.py 一致：intake、scan 的固定路径要排在 questions 的 {question_id} 之前，
 # targeted（/api/practice-sets/targeted/...）要排在 practices 的 {practice_set_id} 之前
 ROUTER_MODULES = ('intake', 'papers', 'similar', 'catalog', 'knowledge', 'scan', 'questions', 'settings', 'analytics',
-                  'targeted', 'grading_scan', 'practices', 'reports', 'starmap', 'weekly', 'home', 'flip')
+                  'targeted', 'grading_scan', 'practices', 'reports', 'starmap', 'weekly', 'home', 'flip', 'auth', 'accounts')
 IMAGE_TYPES = ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_FILES = 10

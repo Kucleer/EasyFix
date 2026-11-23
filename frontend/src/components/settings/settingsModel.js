@@ -15,6 +15,25 @@ export const SETTINGS_TABS = [
   { key: 'model', label: '模型' },
 ]
 
+/** 只有管理员看得到的标签：账号（开家庭、加学生、重置密码） */
+const ACCOUNTS_TAB = { key: 'accounts', label: '账号' }
+/** 每个人都有的标签：我的账号（看登录名、改自己的密码） */
+const ME_TAB = { key: 'me', label: '我的账号' }
+
+/**
+ * 按角色决定显示哪些标签。
+ * 管理员：七个原有标签 + 账号 + 我的账号；家长：去掉模型（模型密钥只给管理员看），最后是我的账号。
+ */
+export function tabs_for(is_admin) {
+  if (is_admin) return [...SETTINGS_TABS, ACCOUNTS_TAB, ME_TAB]
+  return [...SETTINGS_TABS.filter(t => t.key !== 'model'), ME_TAB]
+}
+
+/** 学科、知识点这些全站共用的目录，只有管理员能新增、修改、删除 */
+export function can_edit_shared(is_admin) {
+  return is_admin === true
+}
+
 /** 年级选项 1–12 */
 export const GRADE_OPTIONS = [
   { label: '一年级', value: 1 },

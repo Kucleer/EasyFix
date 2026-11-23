@@ -8,7 +8,8 @@
       class="kp-tip"
       title="两级目录：一级是知识模块，二级是具体考点。删除有子级或有题目引用的节点会被拒绝；有引用的节点也不能改学科或移动。"
     />
-    <div class="set-bar">
+    <!-- 知识点目录全站共用，只有管理员看得到新增、编辑、删除 -->
+    <div v-if="editable" class="set-bar">
       <el-button type="primary" @click="dialog_ref.open_new(1)"><el-icon><Plus /></el-icon>新增一级模块</el-button>
       <el-button @click="dialog_ref.open_new(2)"><el-icon><Plus /></el-icon>新增二级考点</el-button>
       <el-button v-if="legacy.length" plain type="warning" @click="show_legacy = !show_legacy">
@@ -58,7 +59,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="sort_order" label="排序" width="70" align="right" />
-      <el-table-column label="操作" width="190" fixed="right">
+      <el-table-column v-if="editable" label="操作" width="190" fixed="right">
         <template #default="{ row }">
           <ListActions
             :primary="{ label: '编辑', run: () => dialog_ref.open_edit(row) }"
@@ -110,7 +111,8 @@ import { refreshKnowledgeColors } from '@/composables/knowledgeColors'
 import { use_is_mobile } from '@/composables/useIsMobile'
 import MobileList from './MobileList.vue'
 import KnowledgeDialog from './KnowledgeDialog.vue'
-import { GRADE_OPTIONS, SEMESTER_OPTIONS, knowledge_query, pick_legacy, knowledge_rows, legacy_rows } from './settingsModel'
+import { GRADE_OPTIONS, SEMESTER_OPTIONS, can_edit_shared, knowledge_query, pick_legacy, knowledge_rows, legacy_rows } from './settingsModel'
+import { useAccountStore } from '@/stores/account'
 
 const catalog = useCatalogStore()
 const appConfigStore = useAppConfigStore()
@@ -124,12 +126,15 @@ const loading = ref(false)
 const dialog_ref = ref(null)
 const filters = reactive({ subject_id: null, grade: null, semester: null, keyword: '' })
 
-// 手机紧凑列表的行：操作和表格里的按钮一一对应
+const accountStore = useAccountStore()
+const editable = computed(() => can_edit_shared(accountStore.isAdmin))
+
+// 手机紧凑列表的行：操作和表格里的按钮一一对应；不是管理员时不给操作
 const tree_rows = computed(() => knowledge_rows(tree.value, {
   edit: row => dialog_ref.value.open_edit(row),
   add_child: row => dialog_ref.value.open_new(2, row),
   remove,
-}))
+}).map(row => (editable.value ? row : { ...row, actions: [] })))
 const legacy_list_rows = computed(() => legacy_rows(legacy.value, {
   promote: row => dialog_ref.value.open_edit(row),
   remove,

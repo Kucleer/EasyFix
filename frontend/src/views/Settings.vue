@@ -1,15 +1,15 @@
 <template>
-  <!-- 设置页：进来先验一次访问密码；标签和地址 ?tab= 同步，点到哪个标签才加载哪个标签的数据 -->
+  <!-- 设置页：进来先验一次登录密码；标签按角色显示（管理员多"账号"），和地址 ?tab= 同步，点到哪个标签才加载哪个标签的数据 -->
   <div class="settings-page">
     <header class="page-head">
       <h1>设置</h1>
       <p>不常改的东西都在这里，进来只验一次密码。</p>
     </header>
 
-    <!-- 访问密码：关不掉，验过之前下面什么都不显示；回车直接验证 -->
+    <!-- 登录密码：关不掉，验过之前下面什么都不显示；回车直接验证 -->
     <el-dialog
       :model-value="!verified"
-      title="请输入访问密码"
+      title="请输入登录密码"
       :width="is_mobile ? '92%' : '400px'"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -17,8 +17,8 @@
       append-to-body
     >
       <el-form @submit.prevent>
-        <el-form-item label="访问密码">
-          <el-input v-model="password" type="password" placeholder="请输入访问密码" show-password autofocus @keyup.enter="verify" />
+        <el-form-item label="登录密码">
+          <el-input v-model="password" type="password" placeholder="请输入当前账号的密码" show-password autofocus @keyup.enter="verify" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -28,7 +28,7 @@
     </el-dialog>
 
     <template v-if="verified">
-      <TabBar v-model="tab" :tabs="SETTINGS_TABS" class="page-tabs" />
+      <TabBar v-model="tab" :tabs="visible_tabs" class="page-tabs" />
       <section class="panel">
         <!-- 标签组件缓存着：第一次点到时才挂载、才请求数据，切回来时保留筛选和弹窗里记住的内容 -->
         <KeepAlive>
@@ -40,7 +40,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/auth'
@@ -52,7 +52,10 @@ import TagsTab from '@/components/settings/TagsTab.vue'
 import KnowledgeTab from '@/components/settings/KnowledgeTab.vue'
 import ErrorBooksTab from '@/components/settings/ErrorBooksTab.vue'
 import ModelTab from '@/components/settings/ModelTab.vue'
-import { SETTINGS_TABS } from '@/components/settings/settingsModel'
+import AccountTab from '@/components/settings/AccountTab.vue'
+import MyAccountTab from '@/components/settings/MyAccountTab.vue'
+import { tabs_for } from '@/components/settings/settingsModel'
+import { useAccountStore } from '@/stores/account'
 import { useTabQuery } from '@/composables/useTabQuery'
 import { use_is_mobile } from '@/composables/useIsMobile'
 
@@ -66,18 +69,27 @@ const TAB_COMPONENTS = {
   books: ErrorBooksTab,
   starmap: StarMapSettings,
   model: ModelTab,
+  accounts: AccountTab,
+  me: MyAccountTab,
 }
 
 const router = useRouter()
 const is_mobile = use_is_mobile()
-const tab = useTabQuery(SETTINGS_TABS.map(t => t.key), 'grade')
+const accountStore = useAccountStore()
+// 地址里认得全部标签；实际显示哪些按角色定，看不到的标签自动回到"年级与学期"
+const tab = useTabQuery(tabs_for(true).map(t => t.key), 'grade')
+const visible_tabs = computed(() => tabs_for(accountStore.isAdmin))
+watch([tab, visible_tabs, () => accountStore.loaded], () => {
+  if (accountStore.loaded && !visible_tabs.value.some(t => t.key === tab.value)) tab.value = 'grade'
+})
+onMounted(() => accountStore.load())
 
 // 这次打开页面是否已经验过密码；验过以后切换标签不再问
 const verified = ref(false)
 const password = ref('')
 const verifying = ref(false)
 
-/** 验证访问密码（会话本身已经登录，这里是改设置前再确认一次） */
+/** 验证当前账号的密码（会话本身已经登录，这里是改设置前再确认一次） */
 async function verify() {
   if (verifying.value) return
   if (!password.value) {

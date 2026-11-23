@@ -1,14 +1,14 @@
 <template>
-  <!-- 设置 · 学科：新增、删除；改完让目录数据 store 失效再重新读 -->
+  <!-- 设置 · 学科：新增、删除；改完让目录数据 store 失效再重新读。学科全站共用，只有管理员能改 -->
   <div class="subjects-tab">
-    <div class="set-bar">
+    <div v-if="editable" class="set-bar">
       <el-button type="primary" @click="dialog_visible = true"><el-icon><Plus /></el-icon>新增学科</el-button>
     </div>
     <MobileList v-if="is_mobile" :rows="rows" />
     <el-table v-else v-loading="loading" :data="subjects" stripe style="width: 100%">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="name" label="学科名称" />
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column v-if="editable" label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <ListActions :primary="{ label: '删除', run: () => remove(row), danger: true }" :actions="[]" />
         </template>
@@ -36,7 +36,8 @@ import { questionApi } from '@/api/question'
 import { useCatalogStore } from '@/stores/catalog'
 import { use_is_mobile } from '@/composables/useIsMobile'
 import MobileList from './MobileList.vue'
-import { subject_rows } from './settingsModel'
+import { can_edit_shared, subject_rows } from './settingsModel'
+import { useAccountStore } from '@/stores/account'
 
 const catalog = useCatalogStore()
 const is_mobile = use_is_mobile()
@@ -45,7 +46,11 @@ const loading = ref(false)
 const saving = ref(false)
 const dialog_visible = ref(false)
 const form = reactive({ name: '' })
-const rows = computed(() => subject_rows(subjects.value, { remove }))
+const accountStore = useAccountStore()
+// 学科是全站共用的目录，只有管理员看得到新增、删除按钮
+const editable = computed(() => can_edit_shared(accountStore.isAdmin))
+const rows = computed(() => subject_rows(subjects.value, { remove })
+  .map(row => (editable.value ? row : { ...row, actions: [] })))
 
 /** 读学科列表；force 为真时跳过 store 里已有的数据 */
 async function load(force = false) {

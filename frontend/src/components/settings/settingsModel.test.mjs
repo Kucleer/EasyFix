@@ -2,7 +2,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  SETTINGS_TABS, GRADE_OPTIONS, join_desc, format_stock, format_signed, read_saved_number,
+  SETTINGS_TABS, GRADE_OPTIONS, tabs_for, can_edit_shared, join_desc, format_stock, format_signed, read_saved_number,
   knowledge_query, pick_legacy, with_subject_names, subject_rows, tag_rows, knowledge_rows,
   legacy_rows, book_rows, star_action_rows, achievement_rows, reward_rows,
 } from './settingsModel.js'
@@ -14,6 +14,20 @@ test('标签栏：七个标签，顺序固定', () => {
   assert.deepEqual(SETTINGS_TABS.map(t => t.label), ['年级与学期', '学科', '标签', '知识点', '错题本', '知识星空', '模型'])
   assert.equal(GRADE_OPTIONS.length, 12)
   assert.equal(GRADE_OPTIONS[6].label, '初一')
+})
+
+test('按角色显示标签：管理员多"账号"，家长没有"模型"和"账号"，最后都是"我的账号"', () => {
+  assert.deepEqual(tabs_for(true).map(t => t.key),
+    ['grade', 'subjects', 'tags', 'knowledge', 'books', 'starmap', 'model', 'accounts', 'me'])
+  assert.deepEqual(tabs_for(false).map(t => t.key), ['grade', 'subjects', 'tags', 'knowledge', 'books', 'starmap', 'me'])
+  assert.equal(tabs_for(true).at(-2).label, '账号')
+  assert.equal(tabs_for(false).at(-1).label, '我的账号')
+})
+
+test('共用目录（学科、知识点）只有管理员能改', () => {
+  assert.equal(can_edit_shared(true), true)
+  assert.equal(can_edit_shared(false), false)
+  assert.equal(can_edit_shared(undefined), false)
 })
 
 test('join_desc / format_stock / format_signed', () => {

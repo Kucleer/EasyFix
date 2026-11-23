@@ -50,6 +50,12 @@ const UNIQUE_ENDPOINTS = [
   ["'/upload/batch-simple'", '多张上传'],
   ["'/upload/file'", '单张上传'],
   ["'/auth/verify-password'", '验密码'],
+  ["'/auth/me'", '当前账号'],
+  ["'/auth/switch-student'", '切换学生'],
+  ["'/auth/logout'", '退出登录'],
+  ["'/auth/change-password'", '改自己的密码'],
+  ["'/auth/admin/set-password'", '管理员重置密码'],
+  ["api.get('/admin/users'", '家庭列表'],
 ]
 
 test('每个接口只定义一个前端函数', () => {
