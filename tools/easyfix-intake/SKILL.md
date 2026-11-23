@@ -105,6 +105,15 @@ description: Use when a parent shares photos of a child's marked homework or tes
 | "这份作业是哪天做的、第几学期？" | 只问那一句原文。日期、年级、学期看不出就留空（系统会自动用默认年级学期），不追问、不推断。 |
 | "不能用旧 MySQL MCP / 旧本地脚本写生产"（自己知道，却没告诉家长） | 决定对，但家长说"直接写库"时，必须用一句话告诉家长为什么没那么做。 |
 
+## 录给哪个学生
+
+EasyFix 现在有多个家庭、多个学生。录入口令只代表管理员家庭：
+
+- `~/.easyfix/intake.json` 里不写 `student_id`（或环境变量 `EASYFIX_STUDENT` 没设）时，录给管理员家庭排在最前面的学生。
+- 家里有几个孩子时，在 `intake.json` 里加 `"student_id": 学生编号`（编号在网页"设置 → 账号"里看），
+  工具会在每个请求带上 `X-Easyfix-Student` 头。指定的学生不属于管理员家庭时，服务器拒绝（401）。
+- 不确定这份卷子是哪个孩子的，先问家长，不要猜。
+
 ## 退出码怎么处理
 
 - `check` / `submit` 返回 **2**：按返回的 `errors` 逐条改好，再重新提交。

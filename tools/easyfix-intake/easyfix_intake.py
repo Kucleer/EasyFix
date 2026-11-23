@@ -56,10 +56,15 @@ class ToolError(Exception):
 
 
 def load_config(environ, config_path):
-    """读取配置：环境变量优先，其次配置文件；缺任何一项都报错。"""
+    """读取配置：环境变量优先，其次配置文件；缺地址或口令都报错。
+
+    可选的 student_id（环境变量 EASYFIX_STUDENT 或配置文件里的 student_id）指定录给哪个学生，
+    不写就录给管理员家庭排在最前面的学生；写了必须是正整数。
+    """
     base_url = environ.get('EASYFIX_URL') or ''
     token = environ.get('EASYFIX_TOKEN') or ''
-    if not (base_url and token) and pathlib.Path(config_path).is_file():
+    student = environ.get('EASYFIX_STUDENT') or None
+    if pathlib.Path(config_path).is_file() and not (base_url and token and student):
         try:
             file_data = json.loads(pathlib.Path(config_path).read_text(encoding='utf-8-sig'))
         except (OSError, ValueError):
@@ -67,9 +72,16 @@ def load_config(environ, config_path):
         if isinstance(file_data, dict):
             base_url = base_url or str(file_data.get('base_url') or '')
             token = token or str(file_data.get('token') or '')
+            student = student if student is not None else file_data.get('student_id')
     if not (base_url and token):
         raise ToolError('还没有配置接口地址或访问口令，请先运行 install.py 并填写 ~/.easyfix/intake.json', EXIT_ENV)
-    return {'base_url': base_url, 'token': token}
+    config = {'base_url': base_url, 'token': token}
+    if student is not None:
+        text = str(student).strip()
+        if not text.isdigit() or int(text) <= 0:
+            raise ToolError('student_id 必须是正整数（学生编号，可在网页"设置 → 账号"里看到）', EXIT_ENV)
+        config['student_id'] = int(text)
+    return config
 
 
 def check_images(paths):
@@ -130,6 +142,9 @@ def call(config, method, path, *, params=None, json_body=None, body=None, conten
     # 必须带自己的 User-Agent：Cloudflare 会把 Python 默认的 "Python-urllib/x.y" 当成机器人直接 403
     headers = {'Authorization': 'Bearer ' + config['token'], 'Accept': 'application/json',
                'User-Agent': USER_AGENT}
+    if config.get('student_id'):
+        # 指定录给哪个学生；服务端会确认这个学生属于口令对应的家庭
+        headers['X-Easyfix-Student'] = str(config['student_id'])
     if json_body is not None:
         body = json.dumps(json_body, ensure_ascii=False).encode('utf-8')
         content_type = 'application/json; charset=utf-8'

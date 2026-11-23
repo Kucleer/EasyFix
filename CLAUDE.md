@@ -6,7 +6,7 @@
 
 EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知识点、单词与词组默写、阅读理解、练习集与 PDF 打印、统计分析、学习报告、激励系统，以及基于 LLM 的相似题与报告生成。
 
-**正式环境自 2026-11-09 起运行在 Cloudflare 上**，入口 https://easyfix-bl2.pages.dev ，需访问密码登录。数据在 D1，附件在私有 R2。
+**正式环境自 2026-11-09 起运行在 Cloudflare 上**，入口 https://easyfix-bl2.pages.dev ，用账号密码登录（多家庭账号，每个家庭只看得到自己孩子的数据）。数据在 D1，附件在私有 R2。
 
 ## 录入错题
 
@@ -23,7 +23,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | 组件 | 位置 | 说明 |
 |------|------|------|
 | 前端 | `frontend/` | Vue 3 + Vite + Element Plus + Pinia + ECharts + KaTeX，构建后发布到 Cloudflare Pages（项目 `easyfix`） |
-| Pages 网关 | `cloudflare/pages/_worker.js` | 校验会话、提供静态资源、从 R2 直读 `/uploads/` 附件，图片上传（`/api/upload/file`、`/api/upload/batch-simple`）直接写入 R2，其余 `/api/` 请求经服务绑定转给后端 Worker |
+| Pages 网关 | `cloudflare/pages/` | `_worker.js` 校验会话、提供静态资源、从 R2 直读 `/uploads/` 附件（按 `u<家庭编号>/` 前缀只给本家庭）、图片上传直接写入 R2；`auth_routes.js` 登录页和跟密码有关的接口；`session.js` 会话 Cookie 与身份；`password.js` PBKDF2；其余 `/api/` 请求经服务绑定转给后端 Worker。发布时整个目录按 `_worker.js/` 目录形式打包 |
 | 后端 Worker | `cloudflare/src/` | Python Worker `easyfix`：FastAPI + 异步 D1，不开放 workers.dev |
 | PDF Worker | `cloudflare/pdf/` | 内部 Worker `easyfix-pdf`：KaTeX 校验 + Browser Run 生成 PDF，无公开路由 |
 | 数据库 | D1 `easyfix` | 结构变更只通过 `cloudflare/migrations/` 追加 |
@@ -38,7 +38,8 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | 模块 | 用途 |
 |------|------|
 | `main.py` | FastAPI 入口，注册路由；`/health`；定时任务入口 |
-| `auth.py` | 密码登录、签名会话 Cookie、Agent Bearer 令牌、维护写开关 |
+| `auth.py` / `identity.py` / `session.py` | guard：确认登录身份（Cookie 或 Agent 令牌）、管理员规则、维护写开关；`/api/auth/me`、切换学生；身份查询与附件归属；会话 Cookie 签发与解析 |
+| `accounts.py` | 管理员接口 `/api/admin/*`：开家庭、加学生、改学生、停用 |
 | `database.py` / `cache.py` | D1 访问封装与统计缓存 |
 | `questions.py` / `similar.py` | 错题 CRUD、批量入库、相似题生成 |
 | `knowledge.py` / `knowledge_model.py` / `knowledge_stats.py` | 两级知识点目录、关联与统计 |
@@ -71,7 +72,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `components/flip/` | 翻一翻的卡片组件与纯函数 |
 | `components/ui/` | 共用组件：线条图标 `LineIcon`、图表卡 `ChartCard`、页内标签栏 `TabBar` |
 | `composables/` | 默写判分（`dictation.js`）、知识点配色、图表主题（`chartTheme.js`）、页内标签与地址同步（`useTabQuery.js`） |
-| `stores/` | `appConfig.js` 默认年级/学期；`catalog.js` 学科、标签、知识点树集中存放（目录写入后调用 `invalidate`）；`reviewCount.js` 待核对数量 |
+| `stores/` | `account.js` 当前账号与学生（切换学生后整页刷新）；`appConfig.js` 当前学生的默认年级/学期；`catalog.js` 学科、标签、知识点树集中存放（目录写入后调用 `invalidate`）；`reviewCount.js` 待核对数量 |
 | `router/index.js` | 路由配置 |
 
 | 路径 | 页面 |
@@ -81,7 +82,7 @@ EasyFix 是面向学生的错题整理应用：错题录入与归档、两级知
 | `/papers/:id` | 卷子详情 |
 | `/upload` | 手工添加错题 |
 | `/insight?tab=points\|words` | 学情：考点、单词 |
-| `/settings` | 设置 |
+| `/settings` | 设置（管理员多一个"账号"标签；每个人都有"我的账号"改密码） |
 | `/practice-sets` | 练习中心：所有练习一个列表（错题练习卷、单词、阅读），待批改的卷子也在这里筛选和批改 |
 | `/targeted-paper` | 考点卷：出卷页（选科目、题量、分法，预览后生成） |
 | `/grade/:id` | 错题练习卷批改（电脑、手机共用）：拍照 → 识别预批 → 复核；`/grade` 跳到练习中心并只看待批改的卷子 |
@@ -105,6 +106,10 @@ python cloudflare/scripts/knowledge_invariants_test.py
 python cloudflare/scripts/weekly_report_test.py
 python cloudflare/scripts/home_test.py
 python cloudflare/scripts/flip_test.py
+python cloudflare/scripts/accounts_test.py
+python cloudflare/scripts/isolation_test.py
+python cloudflare/scripts/student_scope_test.py
+node --test cloudflare/pages/worker.test.mjs cloudflare/pages/auth.test.mjs cloudflare/pages/auth_routes.test.mjs
 node --test frontend/src/composables/dictation.test.mjs frontend/src/composables/weeklyReport.test.mjs frontend/src/composables/chartTheme.test.mjs
 node --test frontend/src/stores/catalogModel.test.mjs frontend/src/api/apiLayer.test.mjs frontend/src/components/ui/ui.test.mjs
 node --test frontend/src/data/dailyLines.test.mjs frontend/src/components/home/homeText.test.mjs frontend/src/components/questions/questionFilters.test.mjs frontend/src/components/insight/insightModel.test.mjs frontend/src/components/settings/settingsModel.test.mjs
@@ -127,7 +132,8 @@ Pages 发布、D1 迁移、依赖变更、密钥与回滚的完整命令见 `doc
 - 数据库变更只追加 `cloudflare/migrations/` 迁移，执行前先导出 D1 备份。
 - 所有表保留 `deleted` 字段，只做软删除；查询必须过滤已删除记录。
 - 保持 Workers 免费计划：统计用 SQL 聚合，避免逐记录查询、重复 LLM 调用和重复生成 PDF。
-- 访问密码、会话密钥、Agent 令牌只存在 Worker / Pages 密钥和被忽略的 `tmp/cloudflare-config/` 中，不写入仓库或文档。
+- 会话密钥、Agent 令牌只存在 Worker / Pages 密钥和被忽略的 `tmp/cloudflare-config/` 中，不写入仓库或文档；账号密码只存 PBKDF2 哈希，明文不进库、不进日志。
+- 学生数据的读写必须带 `student_id`（`current_student_id(request)`），按编号访问别人的记录返回 404；新查询要让 `cloudflare/scripts/student_scope_test.py` 通过。
 - `tmp/`、`backups/` 含学生数据与密钥，不得提交或发布。
 
 ## 代码规范

@@ -128,6 +128,31 @@ class IntakeToolTest(unittest.TestCase):
         self.assertNotIn(TOKEN, str(ctx.exception))
         self.assertIn('install.py', str(ctx.exception))
 
+    def test_student_header_sent(self):
+        """配置里写了 student_id 时每个请求带 X-Easyfix-Student 头；没写时不带。"""
+        cfg_file = self.dir / 'intake.json'
+        cfg_file.write_text(json.dumps({'base_url': 'http://file.test', 'token': 'file-token', 'student_id': 2}),
+                            encoding='utf-8')
+        cfg = tool.load_config({}, cfg_file)
+        self.assertEqual(cfg['student_id'], 2)
+        seen = []
+
+        def opener(method, url, headers, body):
+            seen.append(headers)
+            return 200, b'{}'
+
+        tool.call(cfg, 'GET', '/api/health', opener=opener)
+        self.assertEqual(seen[-1].get('X-Easyfix-Student'), '2')
+        tool.call({'base_url': 'http://file.test', 'token': 'file-token'}, 'GET', '/api/health', opener=opener)
+        self.assertNotIn('X-Easyfix-Student', seen[-1])
+        # 环境变量 EASYFIX_STUDENT 也可以指定（优先于文件）
+        cfg = tool.load_config({'EASYFIX_STUDENT': '5'}, cfg_file)
+        self.assertEqual(cfg['student_id'], 5)
+        cfg_file.write_text(json.dumps({'base_url': 'http://file.test', 'token': 'file-token', 'student_id': 'x'}),
+                            encoding='utf-8')
+        with self.assertRaises(tool.ToolError):
+            tool.load_config({}, cfg_file)
+
     def test_check_images_rejects_big_and_non_image(self):
         big = self.dir / 'big.jpg'
         with open(big, 'wb') as f:

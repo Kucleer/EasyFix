@@ -37,9 +37,10 @@ python backend/scripts/prepare_cloudflare_frontend.py     # 生产构建，输�
 - **生产代码**：后端在 `cloudflare/src/`，Pages 网关在 `cloudflare/pages/_worker.js`，PDF 在 `cloudflare/pdf/`。`backend/app/` 是切换前的本地版本，修改它不会影响云端。
 - **数据库**：D1 `easyfix`。结构变更只追加 `cloudflare/migrations/NNNN_*.sql`，不得重放旧快照覆盖云端数据；执行前先用 `export_remote_cloudflare.py` 导出备份。
 - **软删除**：所有表包含 `deleted` 字段，禁止硬删除，查询必须过滤 `deleted=0`。
-- **登录与鉴权**：浏览器用访问密码登录，得到 HttpOnly 会话 Cookie；Agent 用 `Authorization: Bearer <ACCESS_TOKEN>`。密码、`SESSION_SECRET`、`ACCESS_TOKEN` 都是 Worker / Pages 密钥，本机副本在 `tmp/cloudflare-config/`，不写入仓库。
+- **登录与鉴权**：多家庭账号（设计见 `docs/superpowers/specs/2026-11-23-multi-family-accounts-design.md`）。浏览器用"账号 + 密码"登录（网关 `cloudflare/pages/auth_routes.js`，密码只存 PBKDF2 哈希），得到 HttpOnly 会话 Cookie `v2.过期.用户.学生.版本.签名`；网关和后端每个请求都验签名并查一次 D1 确认账号没停用、版本没变、学生属于这个账号。Agent 用 `Authorization: Bearer <ACCESS_TOKEN>`，代表管理员家庭，可带 `X-Easyfix-Student` 指定学生。`SESSION_SECRET`、`ACCESS_TOKEN` 是 Worker / Pages 密钥，本机副本在 `tmp/cloudflare-config/`，不写入仓库；管理员密码用 `backend/scripts/set_admin_password.py` 设置。
+- **按学生隔离**：所有学生数据表的读写都带 `student_id`（`question_scope.current_student_id(request)`），按编号访问别人的记录一律 404；`cloudflare/scripts/student_scope_test.py` 扫描源码盯住漏掉的查询，确实不需要过滤的语句写 `# scope-ok: 理由` 并在测试里登记条数。学科、两级知识点、教材章节、加星规则、成就定义是全站共用目录，只有管理员能改（`identity.admin_only`）。
 - **写入开关**：`MIGRATION_READY=true` 为正常状态，部署时不要关闭。停写维护用 D1 `runtime_config.write_maintenance`，开启后所有非只读请求（含 Bearer）返回 503。
-- **附件**：上传走 `POST /api/upload/file`（单张，10MB 以内的 jpg/png/webp）或 `POST /api/upload/batch-simple`，对象键为 `{year}/{month}/{uuid}_{filename}`，通过 `/uploads/<键>` 登录后读取。
+- **附件**：上传走 `POST /api/upload/file`（单张，10MB 以内的 jpg/png/webp）或 `POST /api/upload/batch-simple`，对象键为 `u{用户编号}/{year}/{month}/{uuid}_{filename}`（多家庭账号之前的旧附件没有 `u` 前缀，只有 1 号用户能读），通过 `/uploads/<键>` 登录后读取，网关按前缀只给本家庭的附件。
 - **应用与 LLM 配置**：通过 `/api/config/app`、`/api/config/llm` 读写；LLM 只在主动请求分析、报告、相似题、短文或词组标注时调用。
 - **前端 API 层**：`frontend/src/api/http.js` 对 GET 做去重和短时内存缓存，成功写入后清空；新接口注意缓存时长规则。
 - **导航**：`frontend/src/App.vue` 是桌面分组侧栏加手机底部导航。

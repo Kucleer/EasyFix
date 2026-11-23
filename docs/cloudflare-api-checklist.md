@@ -116,7 +116,7 @@
 
 - [x] `GET /api/weekly-reports`：各期简表（只列已算出数字的期，新的在前），每项 `id`、`number`、`monday`、`sunday`、`status`；`due` 为真表示最近一期还没做完，页面据此补做。
 - [x] `GET /api/weekly-reports/{id}`：一期的完整内容（`facts` 数字、`text` 文字）；不存在 404。
-- [x] `POST /api/weekly-reports/advance`：把最近一期推进一步（算数字 → 写文字），返回 `{id, status, busy}`；`busy` 为真表示这一步正被别人做着。这是写请求，维护开关开启时返回 503；它不清统计缓存（`auth.py` 已豁免）。定时任务（`*/10 12 * * sun`，UTC，即北京时间周日 20:00–20:50）走同一套推进逻辑，不经过这个接口。
+- [x] `POST /api/weekly-reports/advance`：把最近一期推进一步（算数字 → 写文字），返回 `{id, status, busy}`；`busy` 为真表示这一步正被别人做着。这是写请求，维护开关开启时返回 503；它不清统计缓存（`auth.py` 已豁免）。定时任务（`*/10 12-15 * * sun`，UTC，即北京时间周日 20:00–23:50；每次挑一个这期还没做完的学生推进一步）走同一套推进逻辑，不经过这个接口。
 
 ## 界面整合（项目 5 第 3 步，2026-11-21）
 
@@ -131,3 +131,22 @@
 - [x] `POST /api/flip/{question_id}`：请求 `{result}`，`result` 为 `remember`（我记得）或 `forget`（我忘了）；同一题同一天只记一次，重复提交不再写入；题目不在候选范围（不存在、未核对、已删除、已毕业、无题干也无原图）返回 404，`result` 非法返回 422；返回今天的 `{done, total}`。只写 `flip_log`，不影响考点掌握度和错题毕业。
 - [x] `GET /api/home`（改动）：增加 `flip: {total, done}`（今天的进度），`week` 增加 `flip_days`（本周翻过卡片的天数）。
 - [x] 每周周报（改动）：`facts` 增加 `flip: {days, cards}`（翻了几天、几张）；改动前生成的旧周报没有这个字段。
+
+## 多家庭账号（2026-11-23）
+
+网关（`cloudflare/pages/auth_routes.js`，跟密码有关的都在这里）：
+
+- [x] `GET /login`：账号、密码两个输入框的登录页。
+- [x] `POST /api/auth/login`：`{username, password}` → 签发 30 天的会话 Cookie（学生取排在最前的），更新 `last_login_at`；错误 401 `账号或密码不正确`；同一登录名 15 分钟内错满 5 次 429；账号没有学生 403。
+- [x] `POST /api/auth/logout`：清 Cookie。
+- [x] `POST /api/auth/verify-password`：设置页进入前验当前账号的密码。
+- [x] `POST /api/auth/change-password`：`{old_password, new_password}`，新密码至少 10 位；成功后会话版本加 1，给当前浏览器重新签发 Cookie。
+- [x] `POST /api/auth/admin/set-password`：`{user_id}`，管理员给别的家庭生成 12 位随机密码，返回 `{password}`（只这一次）；对自己 422。
+
+后端：
+
+- [x] `GET /api/auth/me`：`{username, name, is_admin, student, students}`。
+- [x] `POST /api/auth/switch-student`：`{student_id}`，只能切到本家庭的学生（否则 404），重新签发 Cookie；录入口令 400。
+- [x] `GET /api/admin/users`、`POST /api/admin/users`、`PUT /api/admin/users/{id}`、`POST /api/admin/users/{id}/students`、`PUT /api/admin/students/{id}`、`DELETE /api/admin/students/{id}`：只有管理员（guard 统一 403）。
+
+规则：学生数据只读写当前学生的，按编号访问别人的记录 404；学科、知识点、加星规则、成就、模型设置的写入只有管理员能做；提交的图片路径必须是本家庭上传的（`u<家庭编号>/…`），否则 404。
