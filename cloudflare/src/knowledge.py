@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from database import Database
+from question_scope import current_student_id
 from knowledge_model import (
     build_tree,
     clean_name,
@@ -381,6 +382,7 @@ async def save_directory(db, payload, item_id=None):
         child_count = (await db.first(
             'SELECT COUNT(*) AS count FROM knowledge_point WHERE parent_id=? AND deleted=0', (item_id,)))['count']
         usage = (await db.first(
+            # scope-ok: 改知识点层级（只有管理员能做）要看全站有没有题挂在它上面
             'SELECT COUNT(DISTINCT q.id) AS count FROM question_knowledge_point l '
             'JOIN question q ON q.id=l.question_id AND q.deleted=0 '
             'WHERE l.knowledge_point_id=? AND l.deleted=0', (item_id,)))['count']
@@ -467,8 +469,11 @@ async def directory_item(db, item_id, include_legacy=True):
     return (await decorate_directory(db, [row], include_legacy))[0]
 
 
-async def decorate_directory(db, rows, include_legacy=True):
-    """批量为目录行补充学科名、父级名、引用计数和错误类型。"""
+async def decorate_directory(db, rows, include_legacy=True, student_id=None):
+    """批量为目录行补充学科名、父级名、引用计数和错误类型。
+
+    student_id 给了就只数这个学生的题（家长看到的是自己孩子的题数）；不给（管理员改目录后的返回）数全站。
+    """
     if not include_legacy:
         rows = [row for row in rows if row.get('level') is not None]
     ids = [row['id'] for row in rows]
@@ -486,9 +491,9 @@ async def decorate_directory(db, rows, include_legacy=True):
             parents[item['id']] = item
     usage = {item['knowledge_point_id']: item['count'] for item in await db.all(
         'SELECT l.knowledge_point_id,COUNT(DISTINCT q.id) AS count FROM question_knowledge_point l '
-        'JOIN question q ON q.id=l.question_id AND q.deleted=0 '
+        'JOIN question q ON q.id=l.question_id AND q.deleted=0 AND (? IS NULL OR q.student_id=?) '
         "WHERE l.deleted=0 AND l.knowledge_point_id IN (SELECT value FROM json_each(?)) "
-        'GROUP BY l.knowledge_point_id', (packed,))}
+        'GROUP BY l.knowledge_point_id', (student_id, student_id, packed))}
     children = {item['parent_id']: item['count'] for item in await db.all(
         "SELECT parent_id,COUNT(*) AS count FROM knowledge_point WHERE deleted=0 AND level=2 AND parent_id IN "
         "(SELECT value FROM json_each(?)) GROUP BY parent_id", (packed,))}
@@ -553,7 +558,7 @@ async def tree(request: Request, subject_id: int | None = Query(None, ge=1),
         if row.get('level') == 2:
             parent_ids.add(row.get('parent_id'))
     included = [row for row in graded if row.get('level') == 2 or row['id'] in parent_ids]
-    decorated = await decorate_directory(db, included)
+    decorated = await decorate_directory(db, included, student_id=current_student_id(request))
     for item in decorated:
         item['children'] = []
     return {'taxonomy_version': await taxonomy_version(db),
@@ -583,7 +588,7 @@ async def listing(request: Request, subject_id: int | None = Query(None, ge=1),
         values.append(keyword.strip())
     rows = await db.all('SELECT * FROM knowledge_point WHERE ' + ' AND '.join(filters)
                         + ' ORDER BY level,sort_order,id', values)
-    return await decorate_directory(db, rows, include_legacy)
+    return await decorate_directory(db, rows, include_legacy, student_id=current_student_id(request))
 
 
 @router.post('/api/knowledge-points', status_code=201)
@@ -608,12 +613,14 @@ async def delete(item_id: int, request: Request):
     child_count = (await db.first('SELECT COUNT(*) AS count FROM knowledge_point WHERE parent_id=? AND deleted=0',
                                   (item_id,)))['count']
     usage = (await db.first(
+        # scope-ok: 删除知识点（只有管理员能做）要看全站有没有题挂在它上面
         'SELECT COUNT(DISTINCT q.id) AS count FROM question_knowledge_point l '
         'JOIN question q ON q.id=l.question_id AND q.deleted=0 '
         'WHERE l.knowledge_point_id=? AND l.deleted=0', (item_id,)))['count']
     if item.get('level') is None and item.get('name'):
         # 旧目录只被文本引用，删除前按原文本再确认一次，避免丢失回查证据。
         usage = max(usage, (await db.first(
+            # scope-ok: 同上，全站的旧文本引用
             'SELECT COUNT(*) AS count FROM question WHERE deleted=0 AND subject_id=? AND knowledge_point=?',
             (item.get('subject_id'), item.get('name'))))['count'])
     if child_count:

@@ -4,15 +4,18 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from database import Database
+from question_scope import current_student_id
 
 router = APIRouter()
+# 每项：(表名, 可写字段, 是否按学生分)。
+# 标签、错题本、奖品是各学生自己的；学科、加星规则、成就是全站共用目录（写入只有管理员能做，由 guard 拦）
 CATALOG = {
-    'subjects': ('subject', {'name'}),
-    'tags': ('tag', {'name', 'color'}),
-    'error-books': ('error_book', {'name', 'subject_id', 'description', 'cover_image', 'original_images'}),
-    'stars/actions': ('star_action', {'code','name','star_value','icon','enabled'}),
-    'achievements': ('achievement', {'code','name','level','description','icon','trigger_action','trigger_count','reward_stars','is_active'}),
-    'rewards': ('reward', {'name','description','icon','cost_stars','total_stock','remaining_stock','is_active','image_url'}),
+    'subjects': ('subject', {'name'}, False),
+    'tags': ('tag', {'name', 'color'}, True),
+    'error-books': ('error_book', {'name', 'subject_id', 'description', 'cover_image', 'original_images'}, True),
+    'stars/actions': ('star_action', {'code','name','star_value','icon','enabled'}, False),
+    'achievements': ('achievement', {'code','name','level','description','icon','trigger_action','trigger_count','reward_stars','is_active'}, False),
+    'rewards': ('reward', {'name','description','icon','cost_stars','total_stock','remaining_stock','is_active','image_url'}, True),
 }
 # 可以修改的目录；学科和标签前端只新增、删除，不注册修改接口
 EDITABLE_KINDS = {'error-books', 'stars/actions', 'achievements', 'rewards'}
@@ -28,12 +31,20 @@ async def enrich(db, kind, row):
     return row
 
 
-def register(kind, table, fields):
-    """为固定白名单实体注册路由，所有查询过滤软删除。"""
+def scope_condition(request, scoped):
+    """按学生分的目录返回 (' AND student_id=?', [学生编号])，共用目录返回 ('', [])。"""
+    return (' AND student_id=?', [current_student_id(request)]) if scoped else ('', [])
+
+
+def register(kind, table, fields, scoped):
+    """为固定白名单实体注册路由，所有查询过滤软删除；按学生分的目录只读写当前学生的。"""
     async def list_items(request: Request):
         """读取分类数据，错题本提供分页，其余返回列表。"""
         db = Database(request.scope['env'].DB)
         where, values = ['deleted=0'], []
+        if scoped:
+            where.append('student_id=?')
+            values.append(current_student_id(request))
         if kind == 'rewards':where.append('is_active=1')
         for key in ('subject_id', 'grade', 'semester'):
             value = request.query_params.get(key)
@@ -59,7 +70,8 @@ def register(kind, table, fields):
     async def get_item(item_id: int, request: Request):
         """读取单个未删除实体。"""
         db = Database(request.scope['env'].DB)
-        row = await db.first('SELECT * FROM ' + table + ' WHERE id=? AND deleted=0', (item_id,))
+        condition, extra = scope_condition(request, scoped)
+        row = await db.first('SELECT * FROM ' + table + ' WHERE id=? AND deleted=0' + condition, (item_id, *extra))
         if not row:
             raise HTTPException(404, '记录不存在')
         return await enrich(db, kind, row)
@@ -72,8 +84,9 @@ def register(kind, table, fields):
             raise HTTPException(422, '请求必须为对象')
         data = {key: value for key, value in payload.items() if key in fields}
         old = None
+        condition, extra = scope_condition(request, scoped)
         if item_id is not None:
-            old = await db.first('SELECT * FROM ' + table + ' WHERE id=? AND deleted=0', (item_id,))
+            old = await db.first('SELECT * FROM ' + table + ' WHERE id=? AND deleted=0' + condition, (item_id, *extra))
             if old is None:
                 raise HTTPException(404, '记录不存在')
             if kind in ('stars/actions','achievements') and (old.get('is_preset') or kind == 'stars/actions' and not old.get('is_custom')):
@@ -91,11 +104,14 @@ def register(kind, table, fields):
             data['original_images'] = json.dumps(data['original_images'] or [], ensure_ascii=False)
         if old:
             if data:
-                await db.run('UPDATE ' + table + ' SET ' + ','.join(key + '=?' for key in data) + ' WHERE id=? AND deleted=0', [*data.values(), item_id])
+                await db.run('UPDATE ' + table + ' SET ' + ','.join(key + '=?' for key in data) + ' WHERE id=? AND deleted=0'
+                             + condition, [*data.values(), item_id, *extra])
         else:
             defaults = {'stars/actions':{'star_value':0,'enabled':1,'is_custom':1},'achievements':{'level':1,'reward_stars':0,'is_preset':0,'is_active':1},'rewards':{'total_stock':-1,'remaining_stock':-1,'is_active':1}}
             data = {**defaults.get(kind,{}),**data}
             data['deleted'] = 0
+            if scoped:
+                data['student_id'] = extra[0]
             if table not in ('tag',):
                 data['created_at'] = datetime.now().isoformat(' ')
             meta = await db.run('INSERT INTO ' + table + ' (' + ','.join(data) + ') VALUES (' + ','.join('?' for _ in data) + ')', list(data.values()))
@@ -110,12 +126,14 @@ def register(kind, table, fields):
         db = Database(request.scope['env'].DB)
         if kind == 'subjects':
             points = await db.first('SELECT COUNT(*) AS count FROM knowledge_point WHERE subject_id=? AND deleted=0', (item_id,))
+            # scope-ok: 删除学科（只有管理员能做）要看全站还有没有这一科的错题
             questions = await db.first('SELECT COUNT(*) AS count FROM question WHERE subject_id=? AND deleted=0', (item_id,))
             if points['count']:
                 raise HTTPException(409, '该学科仍有 ' + str(points['count']) + ' 个有效知识点，不能删除')
             if questions['count']:
                 raise HTTPException(409, '该学科仍有 ' + str(questions['count']) + ' 道有效错题，不能删除')
-        await db.run('UPDATE ' + table + ' SET deleted=1 WHERE id=? AND deleted=0', (item_id,))
+        condition, extra = scope_condition(request, scoped)
+        await db.run('UPDATE ' + table + ' SET deleted=1 WHERE id=? AND deleted=0' + condition, (item_id, *extra))
         from fastapi.responses import Response
         return Response(status_code=204)
 
@@ -127,5 +145,5 @@ def register(kind, table, fields):
     router.add_api_route('/api/' + kind + '/{item_id}', delete_item, methods=['DELETE'], status_code=204)
 
 
-for kind, (table, fields) in CATALOG.items():
-    register(kind, table, fields)
+for kind, (table, fields, scoped) in CATALOG.items():
+    register(kind, table, fields, scoped)

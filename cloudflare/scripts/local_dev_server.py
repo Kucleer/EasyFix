@@ -45,6 +45,7 @@ SCAN_MIGRATION = ROOT / 'migrations' / '0014_scan_page.sql'
 TARGETED_MIGRATION = ROOT / 'migrations' / '0015_targeted_paper.sql'
 WEEKLY_MIGRATION = ROOT / 'migrations' / '0016_weekly_report.sql'
 FLIP_MIGRATION = ROOT / 'migrations' / '0017_flip_log.sql'
+ACCOUNTS_MIGRATION = ROOT / 'migrations' / '0018_accounts.sql'
 CATALOG_FILE = ROOT / 'scripts' / 'knowledge_grade6_catalog.json'
 # 挂载顺序与 main.py 一致：intake、scan 的固定路径要排在 questions 的 {question_id} 之前，
 # targeted（/api/practice-sets/targeted/...）要排在 practices 的 {practice_set_id} 之前
@@ -85,7 +86,7 @@ def seed_catalog(connection, subject_ids):
 
 
 def build_connection():
-    """建一份内存库：结构基线 + 0011、0012、0014、0015、0016、0017 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
+    """建一份内存库：结构基线 + 0011、0012、0014、0015、0016、0017、0018 迁移 + 种子数据 + 0013 星空种子，并模拟英语重新打标后的状态。"""
     # 测试客户端和 uvicorn 都会在别的线程里使用连接，单用户本机工具可以放开线程检查
     connection = sqlite3.connect(':memory:', check_same_thread=False)
     connection.row_factory = sqlite3.Row
@@ -96,6 +97,8 @@ def build_connection():
     connection.executescript(TARGETED_MIGRATION.read_text(encoding='utf-8'))
     connection.executescript(WEEKLY_MIGRATION.read_text(encoding='utf-8'))
     connection.executescript(FLIP_MIGRATION.read_text(encoding='utf-8'))
+    connection.executescript(ACCOUNTS_MIGRATION.read_text(encoding='utf-8'))
+    connection.execute("UPDATE app_user SET username='admin' WHERE id=1")
     connection.execute('INSERT INTO write_guard(id,revision,deleted) VALUES(1,0,0)')
     connection.execute('INSERT INTO knowledge_assert(id,guard,structure) VALUES(1,1,1)')
     config = {'data_revision': '0', 'taxonomy_version': '1', 'app:1': '{"default_grade":6,"default_semester":1}'}
@@ -551,7 +554,8 @@ def build_app(connection, uploads_dir, frontend_dir, ocr_url=None, ocr_key=None,
     async def inject_env(request: Request, call_next):
         """给每个请求放上 env（只有 DB），不做任何登录校验。"""
         request.scope['env'] = SimpleNamespace(DB=database)
-        request.scope['easyfix'] = default_identity()   # 本机测试环境免登录，固定是管理员家庭的 1 号学生
+        # 本机测试环境免登录，默认是管理员家庭的 1 号学生；测试可以在外层先放好别的身份
+        request.scope.setdefault('easyfix', default_identity())
         return await call_next(request)
 
     mounted = mount_routers(app)

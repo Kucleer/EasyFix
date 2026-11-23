@@ -338,23 +338,24 @@ async def find_replay_record(db, request_id):
     return int(paper_id), (fingerprint or None)
 
 
-async def replay_conflict(db, paper_id, stored_fingerprint, fingerprint):
-    """重放时的两种不能照旧返回的情况：内容变了、卷子已被删除；都不是返回 None。
+async def replay_conflict(db, paper_id, stored_fingerprint, fingerprint, student_id):
+    """重放时的两种不能照旧返回的情况：内容变了、卷子已被删除（或不是这个学生的）；都不是返回 None。
 
     响应体里故意不带 spec_version，小工具靠它区分“版本不一致”。
     """
     if stored_fingerprint is not None and stored_fingerprint != fingerprint:
         return JSONResponse({'detail': CHANGED_REPLAY_TEXT}, status_code=409)
-    paper = await db.first('SELECT deleted FROM paper WHERE id=?', (paper_id,))
+    paper = await db.first('SELECT deleted FROM paper WHERE id=? AND student_id=?', (paper_id, student_id))
     if paper is None or paper['deleted']:
         return JSONResponse({'detail': DELETED_REPLAY_TEXT}, status_code=409)
     return None
 
 
-async def load_result_body(db, paper_id, replayed):
+async def load_result_body(db, paper_id, replayed, student_id):
     """读出卷子和它的题目，组成正式提交的返回内容（首次成功和重放共用）。"""
-    paper = await db.first('SELECT * FROM paper WHERE id=?', (paper_id,))
-    rows = await db.all('SELECT * FROM question WHERE paper_id=? AND deleted=0 ORDER BY id', (paper_id,))
+    paper = await db.first('SELECT * FROM paper WHERE id=? AND student_id=?', (paper_id, student_id))
+    rows = await db.all('SELECT * FROM question WHERE paper_id=? AND student_id=? AND deleted=0 ORDER BY id',
+                        (paper_id, student_id))
     links = await question_links(db, [row['id'] for row in rows])
     for row in rows:
         row['original_images'] = json.loads(row['original_images'] or 'null')
@@ -403,6 +404,7 @@ def build_write_statements(checked, records, request_id, fingerprint, student_id
         record['paper_id'] = paper_id
     # 守卫：题目和卷子的最大编号都没变（没有别的写入插进来），并且守卫行存在
     statements = [guard_statement(
+        # scope-ok: 编号守卫，确认全表最大编号没被别的请求抢先用掉（编号全站唯一）
         '(SELECT COALESCE(MAX(id),0) FROM question)=? AND (SELECT COALESCE(MAX(id),0) FROM paper)=? AND '
         'EXISTS(SELECT 1 FROM write_guard WHERE id=1 AND deleted=0)', (max_question_id, max_paper_id))]
     statements.append((
@@ -412,6 +414,7 @@ def build_write_statements(checked, records, request_id, fingerprint, student_id
          paper['paper_date'], paper['grade'], paper['semester'], paper['score'], paper['full_score'],
          json.dumps(paper['images'], ensure_ascii=False), paper['notes'], stamp, stamp)))
     statements.append((
+        # scope-ok: QUESTION_FIELDS 里含 student_id，每条记录都带着当前学生
         'INSERT INTO question(' + ','.join(QUESTION_FIELDS) + ',review_count,correct_count,error_count,deleted,'
         'created_at,updated_at) SELECT ' + ','.join("json_extract(value,'$." + key + "')" for key in QUESTION_FIELDS)
         + ',0,0,0,0,?,? FROM json_each(?)',
@@ -442,6 +445,7 @@ async def write_submission(db, request, checked, request_id, fingerprint):
     student_id = current_student_id(request)
     stamp = stamp_now()
     for attempt in range(2):
+        # scope-ok: 新编号在全表里取最大值加一（编号全站唯一），不是读学生数据
         maximums = await db.first('SELECT (SELECT COALESCE(MAX(id),0) FROM question) AS question_id,'
                                   '(SELECT COALESCE(MAX(id),0) FROM paper) AS paper_id')
         records = build_question_records(checked, student_id)
@@ -487,19 +491,20 @@ async def submit_paper(request: Request):
     # 重放：同一个编号提交过，直接读出第一次的结果，不再检查也不写入
     fingerprint = payload_fingerprint(payload)
     previous = await find_replay_record(db, request_id)
+    student_id = current_student_id(request)
     if previous is not None:
-        conflict = await replay_conflict(db, previous[0], previous[1], fingerprint)
-        return conflict or JSONResponse(await load_result_body(db, previous[0], True), status_code=200)
+        conflict = await replay_conflict(db, previous[0], previous[1], fingerprint, student_id)
+        return conflict or JSONResponse(await load_result_body(db, previous[0], True, student_id), status_code=200)
     checked = await validate_submission(request, db, payload)
     if checked['errors']:
         return invalid_response(checked['errors'])
     paper_id, replayed, stored_fingerprint = await write_submission(db, request, checked, request_id, fingerprint)
     if replayed:
         # 撞车时别人先写入了：同样要核对内容和卷子状态
-        conflict = await replay_conflict(db, paper_id, stored_fingerprint, fingerprint)
+        conflict = await replay_conflict(db, paper_id, stored_fingerprint, fingerprint, student_id)
         if conflict:
             return conflict
-    body = await load_result_body(db, paper_id, replayed)
+    body = await load_result_body(db, paper_id, replayed, student_id)
     return JSONResponse(body, status_code=200) if replayed else body
 
 
@@ -507,7 +512,8 @@ async def submit_paper(request: Request):
 async def review_count(request: Request):
     """返回等待家长核对的题目数量。"""
     db = Database(request.scope['env'].DB)
-    row = await db.first("SELECT COUNT(*) AS total FROM question WHERE deleted=0 AND review_status='pending'")
+    row = await db.first("SELECT COUNT(*) AS total FROM question WHERE deleted=0 AND student_id=? AND review_status='pending'",
+                         (current_student_id(request),))
     return {'pending': row['total']}
 
 
@@ -517,7 +523,9 @@ async def review_question(question_id: int, request: Request):
     payload = await read_payload(request)
     action = payload.get('action')
     db = Database(request.scope['env'].DB)
-    row = await db.first('SELECT id,review_status FROM question WHERE id=? AND deleted=0', (question_id,))
+    student_id = current_student_id(request)
+    row = await db.first('SELECT id,review_status FROM question WHERE id=? AND student_id=? AND deleted=0',
+                         (question_id, student_id))
     if row is None:
         raise HTTPException(404, '错题不存在')
     if action not in ('approve', 'reject'):
@@ -533,9 +541,11 @@ async def review_question(question_id: int, request: Request):
     changes = "review_status='approved'" if action == 'approve' else "deleted=1,review_status='rejected'"
     done = await db.first(
         'UPDATE question SET ' + changes + ',reviewed_at=?,updated_at=? '
-        "WHERE id=? AND deleted=0 AND review_status='pending' RETURNING id", (stamp, stamp, question_id))
+        "WHERE id=? AND student_id=? AND deleted=0 AND review_status='pending' RETURNING id",
+        (stamp, stamp, question_id, student_id))
     if done is None:
         raise HTTPException(409, '这道题已经处理过了')
     if action == 'reject':
         return {'id': question_id, 'review_status': 'rejected'}
-    return await hydrate_question(db, await db.first('SELECT * FROM question WHERE id=?', (question_id,)))
+    return await hydrate_question(db, await db.first('SELECT * FROM question WHERE id=? AND student_id=?',
+                                                     (question_id, student_id)))

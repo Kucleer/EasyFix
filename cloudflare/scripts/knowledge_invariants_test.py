@@ -126,6 +126,11 @@ def build_database(check_same_thread=True):
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA)
     connection.executescript((ROOT / 'migrations' / '0009_knowledge_hierarchy.sql').read_text(encoding='utf-8'))
+    # 业务代码现在按学生读写（迁移 0011 加的列）；这份精简结构只补上用得到的 student_id 列
+    for table in ('question', 'tag', 'error_book', 'practice_set'):
+        exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+        if exists:
+            connection.execute('ALTER TABLE %s ADD COLUMN student_id INTEGER NOT NULL DEFAULT 1' % table)
     connection.execute("INSERT INTO runtime_config(name,value,deleted,updated_at) VALUES('data_revision','0',0,CURRENT_TIMESTAMP)")
     for subject_id, name in [(1, '数学'), (2, '英语')]:
         connection.execute('INSERT INTO subject(id,name,deleted) VALUES(?,?,0)', (subject_id, name))
@@ -517,55 +522,55 @@ def test_question_save_path():
         row = await save(db, {
             'subject_id': 1, 'parsed_question': '题干', 'difficulty': 3,
             'knowledge_point_ids': [11, 12], 'primary_knowledge_point_id': 11,
-        }, request=None)
+        }, request=None, student_id=1)
         question_id = row['id']
         assert row['knowledge_revision'] == 0
         assert row['knowledge_point'] == '乘方'
         assert sorted(point['id'] for point in row['knowledge_points']) == [11, 12]
         assert next(point for point in row['knowledge_points'] if point['is_primary'])['id'] == 11
         # 只改内容不传分类：不要求版本，保留全部关联
-        updated = await save(db, {'parsed_question': '新题干'}, question_id, request=None)
+        updated = await save(db, {'parsed_question': '新题干'}, question_id, request=None, student_id=1)
         assert updated['knowledge_revision'] == 0
         assert sorted(point['id'] for point in updated['knowledge_points']) == [11, 12]
         # 分类变化必须携带读取时的版本
         try:
             await save(db, {'knowledge_point_ids': [12], 'primary_knowledge_point_id': 12,
-                            'knowledge_revision': 9}, question_id, request=None)
+                            'knowledge_revision': 9}, question_id, request=None, student_id=1)
         except HTTPException as error:
             assert error.status_code == 409, error
         else:
             raise AssertionError('过期版本未被拒绝')
         changed = await save(db, {'knowledge_point_ids': [12], 'primary_knowledge_point_id': 12,
-                                  'knowledge_revision': 0}, question_id, request=None)
+                                  'knowledge_revision': 0}, question_id, request=None, student_id=1)
         assert changed['knowledge_revision'] == 1
         assert [point['id'] for point in changed['knowledge_points']] == [12]
         assert changed['knowledge_point'] == '混合运算'
         # 旧客户端回传当前主考点名：保留多考点
         multi = await save(db, {'knowledge_point_ids': [11, 12], 'primary_knowledge_point_id': 11,
-                                'knowledge_revision': 1}, question_id, request=None)
+                                'knowledge_revision': 1}, question_id, request=None, student_id=1)
         assert multi['knowledge_revision'] == 2
-        same = await save(db, {'knowledge_point': '乘方'}, question_id, request=None)
+        same = await save(db, {'knowledge_point': '乘方'}, question_id, request=None, student_id=1)
         assert same['knowledge_revision'] == 2
         assert sorted(point['id'] for point in same['knowledge_points']) == [11, 12]
         # 空数组明确清空
         cleared = await save(db, {'knowledge_point_ids': [], 'knowledge_revision': 2},
-                             question_id, request=None)
+                             question_id, request=None, student_id=1)
         assert cleared['knowledge_points'] == []
         assert cleared['knowledge_point'] is None
         assert cleared['knowledge_revision'] == 3
         # 改学科但未提交新关联被拒绝
         back = await save(db, {'knowledge_point_ids': [11], 'primary_knowledge_point_id': 11,
-                               'knowledge_revision': 3}, question_id, request=None)
+                               'knowledge_revision': 3}, question_id, request=None, student_id=1)
         assert back['knowledge_revision'] == 4
         try:
-            await save(db, {'subject_id': 2, 'knowledge_revision': 4}, question_id, request=None)
+            await save(db, {'subject_id': 2, 'knowledge_revision': 4}, question_id, request=None, student_id=1)
         except HTTPException as error:
             assert error.status_code == 422 and '改学科' in str(error.detail), error
         else:
             raise AssertionError('改学科未要求新关联')
         # 同批次先清旧关联再改学科
         moved = await save(db, {'subject_id': 2, 'knowledge_point_ids': [31], 'primary_knowledge_point_id': 31,
-                                'knowledge_revision': 4}, question_id, request=None)
+                                'knowledge_revision': 4}, question_id, request=None, student_id=1)
         assert moved['knowledge_revision'] == 5
         assert moved['knowledge_point'] == '可数名词'
         assert [point['id'] for point in moved['knowledge_points']] == [31]

@@ -23,6 +23,7 @@ from knowledge import (
 )
 from knowledge_model import map_error, normalize_name_key
 from knowledge_stats import knowledge_options, validate_filter_ids
+from question_scope import current_student_id
 
 router = APIRouter()
 FIELDS = {'error_book_id', 'subject_id', 'original_image', 'original_images', 'original_text',
@@ -58,11 +59,14 @@ def parse_review_reasons(text):
 async def attach_papers(db, rows):
     """给每道题补上 paper 和 review_reasons；所属卷子用一次查询取出，不逐题查询。"""
     paper_ids = sorted({row['paper_id'] for row in rows if row.get('paper_id') is not None})
+    # 卷子只取这些题所属学生的（题目本身已按学生过滤过，这里再确认一次）
+    student_ids = sorted({row['student_id'] for row in rows if row.get('student_id') is not None})
     papers = {}
     if paper_ids:
         for paper in await db.all(
-                'SELECT id,name,paper_type,exam_kind,paper_date FROM paper '
-                'WHERE deleted=0 AND id IN (SELECT value FROM json_each(?))', (json.dumps(paper_ids),)):
+                'SELECT id,name,paper_type,exam_kind,paper_date FROM paper WHERE deleted=0 '
+                'AND student_id IN (SELECT value FROM json_each(?)) AND id IN (SELECT value FROM json_each(?))',
+                (json.dumps(student_ids), json.dumps(paper_ids))):
             papers[paper['id']] = paper
     for row in rows:
         row['paper'] = papers.get(row.get('paper_id'))
@@ -74,7 +78,7 @@ async def hydrate(db, row):
     row['original_images'] = json.loads(row.get('original_images') or 'null')
     row['tags'] = await db.all(
         'SELECT t.* FROM tag t JOIN question_tag qt ON qt.tag_id=t.id '
-        'WHERE qt.question_id=? AND qt.deleted=0 AND t.deleted=0', (row['id'],))
+        'WHERE qt.question_id=? AND qt.deleted=0 AND t.deleted=0 AND t.student_id=?', (row['id'], row['student_id']))
     row['similar_questions'] = await db.all(
         'SELECT * FROM similar_question WHERE source_question_id=? AND deleted=0', (row['id'],))
     links = (await question_links(db, [row['id']])).get(row['id'], [])
@@ -82,8 +86,8 @@ async def hydrate(db, row):
     return decorate_question(row, links)
 
 
-async def validate_common(db, payload, data, old):
-    """校验字段范围、学科、错题本、标签与图片，返回学科行。"""
+async def validate_common(db, payload, data, old, student_id):
+    """校验字段范围、学科、错题本、标签与图片，返回学科行；错题本和标签必须是这个学生的。"""
     for key, low, high in [('grade', 1, 12), ('semester', 1, 2), ('difficulty', 1, 5)]:
         if data.get(key) is not None and (type(data[key]) is not int or not low <= data[key] <= high):
             raise HTTPException(422, key + ' 超出范围')
@@ -92,8 +96,8 @@ async def validate_common(db, payload, data, old):
     if not subject:
         raise HTTPException(400, '学科不存在')
     if data.get('error_book_id') and not await db.first(
-            'SELECT id FROM error_book WHERE id=? AND deleted=0 AND subject_id=?',
-            (data['error_book_id'], subject_id)):
+            'SELECT id FROM error_book WHERE id=? AND deleted=0 AND subject_id=? AND student_id=?',
+            (data['error_book_id'], subject_id, student_id)):
         raise HTTPException(400, '错题本不存在或学科不匹配')
     tags = payload.get('tag_ids')
     if tags is not None:
@@ -102,8 +106,8 @@ async def validate_common(db, payload, data, old):
         unique = sorted(set(tags))
         if unique:
             rows = await db.all(
-                "SELECT id FROM tag WHERE deleted=0 AND id IN (SELECT value FROM json_each(?))",
-                (json.dumps(unique),))
+                "SELECT id FROM tag WHERE deleted=0 AND student_id=? AND id IN (SELECT value FROM json_each(?))",
+                (student_id, json.dumps(unique)))
             if len(rows) != len(unique):
                 raise HTTPException(400, '标签不存在')
     if 'original_images' in data:
@@ -132,15 +136,21 @@ def ensure_stem(data, old):
         raise HTTPException(422, '题干不能为空')
 
 
-async def save(db, payload, question_id=None, request=None):
-    """校验后在单个 batch 内保存错题、标签与知识点，返回完整响应。"""
+async def save(db, payload, question_id=None, request=None, student_id=None):
+    """校验后在单个 batch 内保存错题、标签与知识点，返回完整响应。
+
+    student_id 不传时取当前登录学生；改题时只能改这个学生的题，别人的题按不存在处理（404）。
+    """
     if not isinstance(payload, dict):
         raise HTTPException(422, '请求必须是对象')
+    if student_id is None:
+        student_id = current_student_id(request)
     data = {key: value for key, value in payload.items() if key in FIELDS}
-    old = await db.first('SELECT * FROM question WHERE id=? AND deleted=0', (question_id,)) if question_id else None
+    old = await db.first('SELECT * FROM question WHERE id=? AND student_id=? AND deleted=0',
+                         (question_id, student_id)) if question_id else None
     if question_id and not old:
         raise HTTPException(404, '错题不存在')
-    subject = await validate_common(db, payload, data, old)
+    subject = await validate_common(db, payload, data, old, student_id)
     ensure_stem(data, old)
     subject_id = subject['id']
     if subject['name'] == '数学' and request is not None:
@@ -172,8 +182,8 @@ async def save(db, payload, question_id=None, request=None):
             await ensure_guard_rows(db)
             statements.append(guard_statement(
                 'EXISTS(SELECT 1 FROM write_guard WHERE id=1 AND deleted=0) AND '
-                'COALESCE((SELECT knowledge_revision FROM question WHERE id=? AND deleted=0),-1)=?',
-                (question_id, old.get('knowledge_revision') or 0)))
+                'COALESCE((SELECT knowledge_revision FROM question WHERE id=? AND student_id=? AND deleted=0),-1)=?',
+                (question_id, student_id, old.get('knowledge_revision') or 0)))
             if subject_changed:
                 statements.append((
                     'UPDATE question_knowledge_point SET deleted=1,is_primary=0,updated_at=? '
@@ -181,8 +191,8 @@ async def save(db, payload, question_id=None, request=None):
         data['updated_at'] = stamp
         statements.append((
             'UPDATE question SET ' + ','.join(key + '=?' for key in data)
-            + ',knowledge_revision=knowledge_revision+? WHERE id=? AND deleted=0',
-            [*data.values(), 1 if resolved['changed'] else 0, question_id]))
+            + ',knowledge_revision=knowledge_revision+? WHERE id=? AND student_id=? AND deleted=0',
+            [*data.values(), 1 if resolved['changed'] else 0, question_id, student_id]))
         if resolved['changed']:
             statements += link_statements(question_id, resolved['ids'], resolved['primary'],
                                           resolved['source'], stamp)
@@ -196,21 +206,24 @@ async def save(db, payload, question_id=None, request=None):
             await db.batch(statements)
         except Exception as error:
             batch_error(error)
-        row = await db.first('SELECT * FROM question WHERE id=? AND deleted=0', (question_id,))
+        row = await db.first('SELECT * FROM question WHERE id=? AND student_id=? AND deleted=0', (question_id, student_id))
         if row is None:
             raise HTTPException(409, '错题已被删除，请刷新后重试')
         return await hydrate(db, row)
     await ensure_guard_rows(db)
     data = {'difficulty': 3, **data, 'deleted': 0, 'review_count': 0, 'correct_count': 0,
-            'error_count': 0, 'knowledge_revision': 0, 'created_at': stamp}
+            'error_count': 0, 'knowledge_revision': 0, 'created_at': stamp, 'student_id': student_id}
     for attempt in range(2):
+        # scope-ok: 新题编号在全表里取最大值加一（编号全站唯一），不是读学生数据
         maximum = (await db.first('SELECT COALESCE(MAX(id),0) AS id FROM question'))['id']
         data['id'] = maximum + 1
         fields = list(data)
         statements = [
             guard_statement(
+                # scope-ok: 编号守卫同上，确认全表最大编号没被别的请求抢先用掉
                 '(SELECT COALESCE(MAX(id),0) FROM question)=? AND '
                 'EXISTS(SELECT 1 FROM write_guard WHERE id=1 AND deleted=0)', (maximum,)),
+            # scope-ok: 新题的 student_id 已经放在 data 里一起写入
             ('INSERT INTO question(' + ','.join(fields) + ') VALUES ('
              + ','.join('?' for _ in fields) + ')', list(data.values())),
         ]
@@ -228,7 +241,7 @@ async def save(db, payload, question_id=None, request=None):
             if mapped and mapped[0] == 409 and attempt == 0:
                 continue
             batch_error(error)
-    row = await db.first('SELECT * FROM question WHERE id=? AND deleted=0', (data['id'],))
+    row = await db.first('SELECT * FROM question WHERE id=? AND student_id=? AND deleted=0', (data['id'], student_id))
     return await hydrate(db, row)
 
 
@@ -251,6 +264,7 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
                   review_status: str | None = None, paper_id: int | None = Query(None, ge=1)):
     """读取错题分页；知识点筛选走结构化关联，不再依赖文本子串。"""
     db = Database(request.scope['env'].DB)
+    student_id = current_student_id(request)
     await validate_filter_ids(db, subject_id, knowledge_parent_id, knowledge_point_id)
     if unclassified and (knowledge_parent_id is not None or knowledge_point_id is not None or knowledge_point):
         raise HTTPException(422, '未分类筛选不能与具体知识点筛选项同时使用')
@@ -311,16 +325,19 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
         filters.append('(q.correct_count*1.0/NULLIF(q.correct_count+q.error_count,0)) BETWEEN ? AND ?')
         values.extend([low, high])
     where = ' AND '.join(filters)
-    total = await db.first('SELECT COUNT(*) AS total FROM question q WHERE ' + where, values)
-    rows = await db.all('SELECT q.* FROM question q WHERE ' + where
+    # 学生条件写在最前面，只数、只列当前学生的题
+    total = await db.first('SELECT COUNT(*) AS total FROM question q WHERE q.student_id=? AND ' + where,
+                           [student_id, *values])
+    rows = await db.all('SELECT q.* FROM question q WHERE q.student_id=? AND ' + where
                         + ' ORDER BY q.created_at DESC,q.id DESC LIMIT ? OFFSET ?',
-                        [*values, limit, skip])
+                        [student_id, *values, limit, skip])
     tag_map, similar_map = {}, {}
     if rows:
         ids = [row['id'] for row in rows]
         marks = ','.join('?' for _ in ids)
         for tag in await db.all('SELECT t.*,qt.question_id FROM tag t JOIN question_tag qt ON qt.tag_id=t.id '
-                                'WHERE qt.deleted=0 AND t.deleted=0 AND qt.question_id IN (' + marks + ')', ids):
+                                'WHERE qt.deleted=0 AND t.deleted=0 AND t.student_id=? AND qt.question_id IN ('
+                                + marks + ')', [student_id, *ids]):
             tag_map.setdefault(tag.pop('question_id'), []).append(tag)
         for similar in await db.all('SELECT * FROM similar_question WHERE deleted=0 AND source_question_id IN ('
                                     + marks + ')', ids):
@@ -339,7 +356,8 @@ async def listing(request: Request, skip: int = Query(0, ge=0), limit: int = Que
 async def detail(question_id: int, request: Request):
     """读取单题详情，返回知识点路径与版本。"""
     db = Database(request.scope['env'].DB)
-    row = await db.first('SELECT * FROM question WHERE id=? AND deleted=0', (question_id,))
+    row = await db.first('SELECT * FROM question WHERE id=? AND student_id=? AND deleted=0',
+                         (question_id, current_student_id(request)))
     if row is None:
         raise HTTPException(404, '错题不存在')
     return await hydrate(db, row)
@@ -355,7 +373,8 @@ async def update(question_id: int, request: Request):
 async def delete(question_id: int, request: Request):
     """软删除错题，保留关联与旧文本以便恢复。"""
     db = Database(request.scope['env'].DB)
-    if not await db.first('UPDATE question SET deleted=1 WHERE id=? AND deleted=0 RETURNING id', (question_id,)):
+    if not await db.first('UPDATE question SET deleted=1 WHERE id=? AND student_id=? AND deleted=0 RETURNING id',
+                          (question_id, current_student_id(request))):
         raise HTTPException(404, '错题不存在')
     return Response(status_code=204)
 
@@ -364,8 +383,8 @@ async def delete(question_id: int, request: Request):
 async def filters(subject_id: int, request: Request):
     """返回错误类型与目录筛选项，保留旧字段供过渡。"""
     db = Database(request.scope['env'].DB)
-    rows = await db.all('SELECT DISTINCT error_type,knowledge_point FROM question WHERE subject_id=? AND deleted=0',
-                        (subject_id,))
+    rows = await db.all('SELECT DISTINCT error_type,knowledge_point FROM question WHERE subject_id=? AND student_id=? '
+                        'AND deleted=0', (subject_id, current_student_id(request)))
     types = sorted({part.strip() for row in rows for part in (row['error_type'] or '').split(',') if part.strip()})
     options = await knowledge_options(db, subject_id)
     modules = []
@@ -386,13 +405,14 @@ async def filters(subject_id: int, request: Request):
 async def history(question_id: int, request: Request):
     """读取已批改练习历史。"""
     db = Database(request.scope['env'].DB)
-    if not await db.first('SELECT id FROM question WHERE id=? AND deleted=0', (question_id,)):
+    student_id = current_student_id(request)
+    if not await db.first('SELECT id FROM question WHERE id=? AND student_id=? AND deleted=0', (question_id, student_id)):
         raise HTTPException(404, '错题不存在')
     rows = await db.all(
         'SELECT p.id AS practice_set_id,p.name AS practice_set_name,p.created_at AS date,pq.is_correct '
         'FROM practice_set_question pq JOIN practice_set p ON p.id=pq.practice_set_id '
-        'WHERE pq.deleted=0 AND pq.question_id=? AND pq.is_correct IS NOT NULL AND p.deleted=0 '
-        'ORDER BY p.created_at DESC', (question_id,))
+        'WHERE pq.deleted=0 AND pq.question_id=? AND pq.is_correct IS NOT NULL AND p.deleted=0 AND p.student_id=? '
+        'ORDER BY p.created_at DESC', (question_id, student_id))
     for row in rows:
         row['is_correct'] = bool(row['is_correct'])
     return rows

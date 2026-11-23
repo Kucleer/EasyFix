@@ -901,11 +901,11 @@ def test_save_accepts_new_fields_and_old_page_keeps_them():
     import questions
     c = build_database(); db = adapter(c)
     question_id = add_question(c, status='pending')
-    run(questions.save(db, {'wrong_answer': '3/4', 'question_no': '二、5'}, question_id))
-    run(questions.save(db, {'answer': '2/3'}, question_id))
+    run(questions.save(db, {'wrong_answer': '3/4', 'question_no': '二、5'}, question_id, student_id=1))
+    run(questions.save(db, {'answer': '2/3'}, question_id, student_id=1))
     row = c.execute('SELECT wrong_answer,question_no,review_status,answer FROM question WHERE id=?', (question_id,)).fetchone()
     assert tuple(row) == ('3/4', '二、5', 'pending', '2/3')
-    run(questions.save(db, {'review_status': 'approved', 'paper_id': 999, 'wrong_evidence': 'x'}, question_id))
+    run(questions.save(db, {'review_status': 'approved', 'paper_id': 999, 'wrong_evidence': 'x'}, question_id, student_id=1))
     row = c.execute('SELECT review_status,paper_id,wrong_evidence FROM question WHERE id=?', (question_id,)).fetchone()
     assert tuple(row) == ('pending', None, 'x')
 

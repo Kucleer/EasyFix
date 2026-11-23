@@ -89,6 +89,7 @@ async def claim_step(db, page, status, now, rescan=False):
     """用一条条件更新认领这一步：页面还是读到时的状态、且没有别人正在做（或已卡住）才能认领成功。"""
     extra = ',rescan_used=1' if rescan else ''
     row = await db.first(
+        # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
         'UPDATE scan_page SET status=?,step_started_at=?,updated_at=?' + extra + ' '
         'WHERE id=? AND deleted=0 AND status=? AND (step_started_at IS NULL OR step_started_at<?) RETURNING id',
         (status, now, stamp_now(), page['id'], page['status'], now - STALE_SECONDS))
@@ -104,6 +105,7 @@ async def finish_step(db, page, claimed_status, started_at, fields, timings):
     data = dict(fields, step_started_at=None, updated_at=stamp_now(),
                 timings=json.dumps(timings, ensure_ascii=False))
     columns = ','.join(key + '=?' for key in data)
+    # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
     await db.run('UPDATE scan_page SET ' + columns + ' WHERE id=? AND deleted=0 AND status=? AND step_started_at=?',
                  [*data.values(), page['id'], claimed_status, started_at])
 
@@ -289,6 +291,7 @@ async def close_page(page_id: int, request: Request):
     db = Database(request.scope['env'].DB)
     student_id = current_student_id(request)
     await load_page(db, page_id, student_id)
+    # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
     await db.run("UPDATE scan_page SET status='closed',step_started_at=NULL,updated_at=? WHERE id=? AND deleted=0",
                  (stamp_now(), page_id))
     return page_view(await load_page(db, page_id, student_id))
@@ -324,6 +327,7 @@ async def write_item(db, page_id, seq, expected_state, item):
     返回是否写成功。没写成功说明页已结束，或这一项刚被别的请求改了状态。
     """
     row = await db.first(
+        # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
         "UPDATE scan_page SET items=json_set(items, ?, json(?)), updated_at=? "
         "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, ?)=? "
         'RETURNING id',
@@ -380,6 +384,7 @@ async def accept_one(request, db, page_id, student_id, seq):
     if await write_item(db, page_id, seq, 'open', accepted):
         return
     # 条件更新输了：刚写的这道不能留在题库里
+    # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
     await db.run('UPDATE question SET deleted=1 WHERE id=? AND deleted=0', (question['id'],))
     current = await load_page(db, page_id, student_id)
     if current['status'] != 'ready':
@@ -400,6 +405,7 @@ async def add_item(page_id: int, request: Request):
     seq = len(json.loads(page['items'] or '[]'))
     # 以草稿长度没变为条件，两个同时追加的请求不会得到相同的序号
     row = await db.first(
+        # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
         "UPDATE scan_page SET items=json_insert(items, '$[#]', json(?)), updated_at=? "
         "WHERE id=? AND deleted=0 AND status='ready' AND json_array_length(items)=? RETURNING id",
         (json.dumps(blank_item(seq), ensure_ascii=False), stamp_now(), page_id, seq))
@@ -472,6 +478,7 @@ async def promote_item(page_id: int, seq: int, request: Request):
 
 async def record_model_error_type(db, page_id, error_type):
     """把补成错题时模型失败的异常类型名记进这一页的 timings（只改这一个键，不影响草稿）。"""
+    # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
     await db.run("UPDATE scan_page SET timings=json_set(COALESCE(timings,'{}'), '$.model_error_type', ?) "
                  'WHERE id=? AND deleted=0', (error_type, page_id))
 
@@ -501,11 +508,13 @@ async def withdraw_item(page_id: int, seq: int, request: Request):
     question_id = item.get('question_id')
     reopened = dict(item, state='open', question_id=None)
     await db.batch([
+        # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
         ('UPDATE question SET deleted=1 WHERE id=? AND deleted=0 AND EXISTS('
          "SELECT 1 FROM scan_page WHERE id=? AND deleted=0 AND status='ready' "
          "AND json_extract(items, ?)='accepted' "
          "AND json_extract(items, ?)=?)",
          (question_id, page_id, item_path(seq, 'state'), item_path(seq, 'question_id'), question_id)),
+        # scope-ok: 这一页已经用 load_page(db, page_id, student_id) 确认属于当前学生（题目是这一页刚录入的）
         ("UPDATE scan_page SET items=json_set(items, ?, json(?)), updated_at=? "
          "WHERE id=? AND deleted=0 AND status='ready' AND json_extract(items, ?)='accepted' "
          # 还要指向读到的那道题：期间被别人撤回又重新录入（换了新题）时不能把新题的草稿改回 open

@@ -20,7 +20,7 @@ EDITABLE_FIELDS = ('name', 'paper_type', 'exam_kind', 'paper_date', 'grade', 'se
 COUNT_COLUMNS = ('s.name AS subject_name, COUNT(q.id) AS question_count, '
                  "COALESCE(SUM(CASE WHEN q.review_status='pending' THEN 1 ELSE 0 END),0) AS pending_count")
 COUNT_JOIN = ('FROM paper p JOIN subject s ON s.id=p.subject_id '
-              'LEFT JOIN question q ON q.paper_id=p.id AND q.deleted=0 ')
+              'LEFT JOIN question q ON q.paper_id=p.id AND q.deleted=0 AND q.student_id=p.student_id ')
 
 
 async def load_paper(db, request, paper_id):
@@ -43,16 +43,17 @@ async def listing(request: Request, skip: int = 0, limit: int = 20, subject_id: 
     if paper_type is not None and paper_type not in PAPER_TYPES:
         raise HTTPException(422, '卷子类型不对，只能是 %s' % '、'.join(PAPER_TYPES))
     db = Database(request.scope['env'].DB)
-    conditions = ['p.deleted=0', 'p.student_id=?']
-    parameters = [current_student_id(request)]
+    conditions = ['p.deleted=0']
+    parameters = [current_student_id(request)]   # 第一个参数是学生编号，对应下面 SQL 里的 p.student_id=?
     if subject_id is not None:
         conditions.append('p.subject_id=?')
         parameters.append(subject_id)
     if paper_type is not None:
         conditions.append('p.paper_type=?')
         parameters.append(paper_type)
-    where = 'WHERE ' + ' AND '.join(conditions)
-    total = (await db.first('SELECT COUNT(*) AS total FROM paper p ' + where, tuple(parameters)))['total']
+    where = 'WHERE p.student_id=? AND ' + ' AND '.join(conditions)
+    total = (await db.first('SELECT COUNT(*) AS total FROM paper p WHERE p.student_id=? AND '
+                            + ' AND '.join(conditions), tuple(parameters)))['total']
     rows = await db.all(
         'SELECT p.*, ' + COUNT_COLUMNS + ' ' + COUNT_JOIN + where +
         ' GROUP BY p.id ORDER BY p.paper_date DESC, p.id DESC LIMIT ? OFFSET ?',
@@ -77,8 +78,8 @@ async def detail(paper_id: int, request: Request, skip: int = 0, limit: int = 50
     if not row:
         raise HTTPException(404, '记录不存在')
     questions = await db.all(
-        'SELECT * FROM question WHERE paper_id=? AND deleted=0 ORDER BY paper_page IS NULL, paper_page, id '
-        'LIMIT ? OFFSET ?', (paper_id, limit, skip))
+        'SELECT * FROM question WHERE paper_id=? AND student_id=? AND deleted=0 '
+        'ORDER BY paper_page IS NULL, paper_page, id LIMIT ? OFFSET ?', (paper_id, row['student_id'], limit, skip))
     # 题目是原始行加上考点和卷子信息：original_images 没有解析成列表，也没有 tags，考点各用一次批量查询装配
     links = await question_links(db, [item['id'] for item in questions])
     await attach_papers(db, questions)
@@ -112,7 +113,7 @@ async def create(request: Request):
         (current_student_id(request), subject['id'], paper['name'], paper['paper_type'], paper['exam_kind'],
          paper['paper_date'], paper['grade'], paper['semester'], paper['score'], paper['full_score'],
          paper['notes'], stamp, stamp))
-    row = await db.first('SELECT * FROM paper WHERE id=?', (meta['last_row_id'],))
+    row = await db.first('SELECT * FROM paper WHERE id=? AND student_id=?', (meta['last_row_id'], current_student_id(request)))
     return hydrate_paper(row)
 
 
@@ -137,15 +138,15 @@ async def update(paper_id: int, request: Request):
         raise HTTPException(422, error.detail)
     statements = [(
         'UPDATE paper SET name=?,paper_type=?,exam_kind=?,paper_date=?,grade=?,semester=?,score=?,full_score=?,'
-        'notes=?,updated_at=? WHERE id=? AND deleted=0',
+        'notes=?,updated_at=? WHERE id=? AND student_id=? AND deleted=0',
         (paper['name'], paper['paper_type'], paper['exam_kind'], paper['paper_date'], paper['grade'],
-         paper['semester'], paper['score'], paper['full_score'], paper['notes'], stamp, paper_id))]
+         paper['semester'], paper['score'], paper['full_score'], paper['notes'], stamp, paper_id, old['student_id']))]
     if paper['grade'] != old['grade'] or paper['semester'] != old['semester']:
         # 题目的年级、学期跟着卷子走；已删除的题也一并改，恢复时才不会不一致
-        statements.append(('UPDATE question SET grade=?,semester=?,updated_at=? WHERE paper_id=?',
-                           (paper['grade'], paper['semester'], stamp, paper_id)))
+        statements.append(('UPDATE question SET grade=?,semester=?,updated_at=? WHERE paper_id=? AND student_id=?',
+                           (paper['grade'], paper['semester'], stamp, paper_id, old['student_id'])))
     await db.batch(statements)
-    return hydrate_paper(await db.first('SELECT * FROM paper WHERE id=?', (paper_id,)))
+    return hydrate_paper(await db.first('SELECT * FROM paper WHERE id=? AND student_id=?', (paper_id, old['student_id'])))
 
 
 @router.delete('/{paper_id}', status_code=204)
@@ -155,13 +156,14 @@ async def remove(paper_id: int, request: Request, with_questions: int = 0):
     old = await load_paper(db, request, paper_id)
     if old['source'] == 'history':
         raise HTTPException(409, '历史记录不能删除')
-    count = (await db.first('SELECT COUNT(*) AS total FROM question WHERE paper_id=? AND deleted=0',
-                            (paper_id,)))['total']
+    count = (await db.first('SELECT COUNT(*) AS total FROM question WHERE paper_id=? AND student_id=? AND deleted=0',
+                            (paper_id, old['student_id'])))['total']
     if count and with_questions != 1:
         raise HTTPException(409, '这份记录下还有 %d 道题' % count)
     stamp = stamp_now()
     # 卷子和题目在同一个批处理里删除，不会留下指向已删卷子的题
     await db.batch([
-        ('UPDATE question SET deleted=1,updated_at=? WHERE paper_id=? AND deleted=0', (stamp, paper_id)),
-        ('UPDATE paper SET deleted=1,updated_at=? WHERE id=?', (stamp, paper_id))])
+        ('UPDATE question SET deleted=1,updated_at=? WHERE paper_id=? AND student_id=? AND deleted=0',
+         (stamp, paper_id, old['student_id'])),
+        ('UPDATE paper SET deleted=1,updated_at=? WHERE id=? AND student_id=?', (stamp, paper_id, old['student_id']))])
     return Response(status_code=204)

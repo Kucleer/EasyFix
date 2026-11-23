@@ -7,6 +7,7 @@ from analytics import now
 from knowledge import question_links
 from settings import generate_json
 from prompts import PromptLibrary
+from question_scope import current_student_id
 
 router=APIRouter(prefix='/api/questions')
 
@@ -36,6 +37,7 @@ async def reusable_similar(db, question_id: int):
     这里不在批改时软删除相似题，是因为卷子的题目行还指着它：删了以后卷子详情会退回显示原题。
     """
     return await db.first(
+        # scope-ok: 相似题跟着原题走，调用方传进来的原题已按学生确认过；引用它的练习集也只会是同一个学生的
         'SELECT * FROM similar_question s WHERE s.source_question_id=? AND s.deleted=0 '
         "AND s.explanation IS NOT NULL AND s.explanation<>'' "
         'AND NOT EXISTS(SELECT 1 FROM practice_set_question pq JOIN practice_set p ON p.id=pq.practice_set_id '
@@ -49,7 +51,7 @@ async def reusable_similar(db, question_id: int):
 async def generate(question_id:int,request:Request):
     """根据原题和知识点生成结构化相似题。"""
     db=Database(request.scope['env'].DB)
-    original=await db.first('SELECT q.*,s.name AS subject_name FROM question q JOIN subject s ON s.id=q.subject_id AND s.deleted=0 WHERE q.id=? AND q.deleted=0',(question_id,))
+    original=await db.first('SELECT q.*,s.name AS subject_name FROM question q JOIN subject s ON s.id=q.subject_id AND s.deleted=0 WHERE q.id=? AND q.student_id=? AND q.deleted=0',(question_id,current_student_id(request)))
     if not original:raise HTTPException(404,'错题不存在')
     if original['review_status']!='approved':raise HTTPException(409,'这道题还在待核对，处理后才能生成相似题')
     text = original['parsed_question'] or original['original_text']
