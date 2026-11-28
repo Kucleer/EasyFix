@@ -14,8 +14,9 @@ SQL 条数固定、不随题目数增加：选题 4 条（题目、练习卷结�
 
 import json
 from datetime import date, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 import analytics
 from database import Database
@@ -48,7 +49,7 @@ def image_list(row):
 async def load_question_rows(db, student_id):
     """这个学生所有已核对、没删除的错题：编号、录入时间、主考点、有没有题干、原图（一条 SQL）。"""
     return await db.all(
-        'SELECT q.id, q.created_at AS entered, qk.knowledge_point_id AS point_id, '
+        'SELECT q.id, q.subject_id, q.created_at AS entered, qk.knowledge_point_id AS point_id, '
         '(' + stem_ready('q') + ') AS has_stem, q.original_image, q.original_images FROM question q '
         'LEFT JOIN question_knowledge_point qk ON qk.question_id=q.id AND qk.deleted=0 AND qk.is_primary=1 '
         'WHERE ' + counted('q') + ' AND q.student_id=? ORDER BY q.id', (student_id,))
@@ -94,8 +95,10 @@ async def load_states(db, student_id, cutoff):
 
 async def load_logs(db, student_id, today):
     """这个学生到 today 为止的全部翻牌记录，按题目分组（一条 SQL）。"""
-    rows = await db.all('SELECT question_id, result, flip_date, created_at FROM flip_log WHERE deleted=0 '
-                        'AND student_id=? AND flip_date<=? ORDER BY flip_date, created_at, id', (student_id, today))
+    rows = await db.all('SELECT f.question_id, f.result, f.flip_date, f.created_at, q.subject_id FROM flip_log f '
+                        'LEFT JOIN question q ON q.id=f.question_id AND q.student_id=f.student_id '
+                        'WHERE f.deleted=0 AND f.student_id=? AND f.flip_date<=? '
+                        'ORDER BY f.flip_date, f.created_at, f.id', (student_id, today))
     logs = {}
     for row in rows:
         logs.setdefault(row['question_id'], []).append(row)
@@ -118,7 +121,7 @@ async def load_pool(db, student_id, today):
             continue
         if not row['has_stem'] and not image_list(row):
             continue
-        candidates.append({'id': row['id'], 'entered': row['entered']})
+        candidates.append({'id': row['id'], 'entered': row['entered'], 'subject_id': row['subject_id']})
     return candidates, await load_logs(db, student_id, today)
 
 
@@ -147,10 +150,10 @@ async def load_cards(db, card_ids, student_id):
     return cards
 
 
-async def build_today(db, student_id, today):
+async def build_today(db, student_id, today, subject_id=None):
     """今天这一组还没翻的卡片和进度：{'total', 'done', 'cards'}（五条 SQL；没有卡片时四条）。"""
     candidates, logs = await load_pool(db, student_id, today)
-    picked = pick_today(candidates, logs, today)
+    picked = pick_today(candidates, logs, today, subject_id)
     cards = await load_cards(db, picked['cards'], student_id) if picked['cards'] else []
     return {'total': picked['done'] + len(picked['cards']), 'done': picked['done'], 'cards': cards}
 
@@ -162,13 +165,14 @@ async def today_progress(db, student_id, today) -> dict:
     return {'total': picked['done'] + len(picked['cards']), 'done': picked['done']}
 
 
-async def record_flip(db, student_id, question_id, result, today, stamp):
+async def record_flip(db, student_id, question_id, result, today, stamp, subject_id=None):
     """记一次翻牌结果，返回今天的进度 {'done', 'total'}（五条 SQL；今天已经记过这题时四条，不再写）。
 
     题目不在候选范围（不存在、没核对、已删除、已毕业、没有题干也没有原图）时 404。
     """
     candidates, logs = await load_pool(db, student_id, today)
-    if question_id not in {candidate['id'] for candidate in candidates}:
+    question = next((candidate for candidate in candidates if candidate['id'] == question_id), None)
+    if question is None or (subject_id is not None and question['subject_id'] != subject_id):
         raise HTTPException(404, NOT_FOUND_TEXT)
     today_logs = [row for row in logs.get(question_id, []) if str(row['flip_date'])[:10] == today]
     if not today_logs:
@@ -176,8 +180,9 @@ async def record_flip(db, student_id, question_id, result, today, stamp):
         await db.run('INSERT OR IGNORE INTO flip_log(student_id,question_id,result,flip_date,created_at,deleted) '
                      'VALUES(?,?,?,?,?,0)', (student_id, question_id, result, today, stamp))
         logs.setdefault(question_id, []).append({'question_id': question_id, 'result': result,
-                                                 'flip_date': today, 'created_at': stamp})
-    picked = pick_today(candidates, logs, today)
+                                                 'flip_date': today, 'created_at': stamp,
+                                                 'subject_id': question['subject_id']})
+    picked = pick_today(candidates, logs, today, subject_id)
     return {'done': picked['done'], 'total': picked['done'] + len(picked['cards'])}
 
 
@@ -223,18 +228,18 @@ async def read_result(request):
 
 
 @router.get('/today')
-async def flip_today(request: Request):
+async def flip_today(request: Request, subject_id: Annotated[int | None, Query(ge=1)] = None):
     """今天这一组还没翻的卡片，以及今天总共几张、已翻几张。"""
     db = Database(request.scope['env'].DB)
     today = analytics.now().strftime('%Y-%m-%d')
-    return await build_today(db, current_student_id(request), today)
+    return await build_today(db, current_student_id(request), today, subject_id)
 
 
 @router.post('/{question_id}')
-async def flip_one(question_id: int, request: Request):
+async def flip_one(question_id: int, request: Request, subject_id: Annotated[int | None, Query(ge=1)] = None):
     """记一次"我记得"或"我忘了"；同一题同一天重复提交只记第一次。返回今天的进度。"""
     result = await read_result(request)
     db = Database(request.scope['env'].DB)
     moment = analytics.now()
     return await record_flip(db, current_student_id(request), question_id, result,
-                             moment.strftime('%Y-%m-%d'), moment.isoformat(' '))
+                             moment.strftime('%Y-%m-%d'), moment.isoformat(' '), subject_id)

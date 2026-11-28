@@ -1,8 +1,25 @@
 <template>
   <!-- 翻一翻：每天一组旧错题卡片，看题 → 想 → 看答案 → 点"我记得 / 我忘了"。手机优先，电脑上居中一张卡 -->
   <div class="flip-page">
+    <div class="subject-picker">
+      <span id="flip-subject-label">复习学科</span>
+      <el-select
+        v-model="subject_id"
+        aria-labelledby="flip-subject-label"
+        placeholder="请选择学科"
+        :loading="subjects_loading"
+        :disabled="loading || submitting"
+        @change="load_today"
+      >
+        <el-option label="全部学科" :value="0" />
+        <el-option v-for="subject in subjects" :key="subject.id" :label="subject.name" :value="subject.id" />
+      </el-select>
+      <el-button v-if="subjects_failed" @click="load_subjects">重试加载学科</el-button>
+    </div>
+
     <!-- 读取中；手里的卡片翻完、服务器说还有没翻的时候也先显示这个，再重新取 -->
-    <div v-if="(loading && !today) || state === 'reload'" class="flip-loading" aria-busy="true" aria-label="正在读取">
+    <template v-if="subject_id === null" />
+    <div v-else-if="loading || state === 'reload'" class="flip-loading" aria-busy="true" aria-label="正在读取">
       <div class="bone top-bone"></div>
       <div class="bone card-bone"></div>
     </div>
@@ -17,14 +34,15 @@
     <div v-else-if="state === 'empty'" class="finish">
       <div class="medal calm"><LineIcon name="flip" :size="52" /></div>
       <h1>今天没有要翻的</h1>
-      <p>错题都还没到再看的时候，过几天再来。</p>
+      <p v-if="subject_id">该学科暂无可翻的卡片，可以切换学科查看。</p>
+      <p v-else>错题都还没到再看的时候，过几天再来。</p>
       <RouterLink class="btn primary small" to="/">回首页</RouterLink>
     </div>
 
     <!-- 今天翻完了：不能继续刷 -->
     <div v-else-if="state === 'finished'" class="finish">
       <div class="medal"><LineIcon name="check" :size="52" /></div>
-      <h1>今天翻完了</h1>
+      <h1>{{ subject_id ? '本学科翻完了' : '今天翻完了' }}</h1>
       <p>{{ finish_line }}</p>
       <RouterLink class="btn primary small" to="/">回首页</RouterLink>
     </div>
@@ -57,13 +75,31 @@ import { ElMessage } from 'element-plus'
 import FlipCard from '@/components/flip/FlipCard.vue'
 import LineIcon from '@/components/ui/LineIcon.vue'
 import { flipApi } from '@/api/flip'
+import { useCatalogStore } from '@/stores/catalog'
 import { after_record, card_view, finish_text, page_state, progress_dots, progress_text } from '@/components/flip/flipModel'
 
 const today = ref(null)        // /api/flip/today 的返回：{ total, done, cards }；没读到之前是 null
 const index = ref(0)           // 这次打开后翻到 cards 里的第几张
 const revealed = ref(false)    // 当前卡片是否已经看了答案
 const submitting = ref(false)  // 正在提交"我记得 / 我忘了"
-const loading = ref(true)     // 一打开就在读取，避免先闪一下"没有读到"
+const loading = ref(false)
+const subject_id = ref(null)
+const subjects = ref([])
+const subjects_loading = ref(false)
+const subjects_failed = ref(false)
+const catalog = useCatalogStore()
+
+async function load_subjects() {
+  subjects_loading.value = true
+  subjects_failed.value = false
+  try {
+    subjects.value = await catalog.loadSubjects()
+  } catch {
+    subjects_failed.value = true
+  } finally {
+    subjects_loading.value = false
+  }
+}
 
 // 页面状态：empty 没有要翻的、finished 翻完了、card 正在翻、reload 要重新取卡片
 const state = computed(() => (today.value ? page_state(today.value, index.value) : ''))
@@ -78,7 +114,7 @@ const finish_line = computed(() => finish_text(today.value.total))
 async function load_today() {
   loading.value = true
   try {
-    const { data } = await flipApi.today()
+    const { data } = await flipApi.today(subject_id.value || undefined)
     today.value = data
     index.value = 0
     revealed.value = false
@@ -99,7 +135,7 @@ async function answer(result) {
   submitting.value = true
   const question_id = card.value.id
   try {
-    const { data } = await flipApi.record(question_id, result)
+    const { data } = await flipApi.record(question_id, result, subject_id.value || undefined)
     // 用服务器算的进度（和首页、周报一致），换下一张
     const next = after_record(today.value, index.value, data)
     today.value = next.today
@@ -120,11 +156,13 @@ async function answer(result) {
   }
 }
 
-onMounted(load_today)
+onMounted(load_subjects)
 </script>
 
 <style scoped>
 .flip-page { max-width: 480px; margin: 0 auto; color: var(--ink); }
+.subject-picker { display: grid; gap: 8px; margin-bottom: 18px; }
+.subject-picker > span { font-weight: 700; }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 700; }
 
 /* 顶部：标题 + 分段进度条 + 第几张 / 共几张 */

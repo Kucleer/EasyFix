@@ -81,22 +81,25 @@ def due_rank(state: dict, today: str):
     return (3, due, state['id'])                    # 组 3：到期早的在前
 
 
-def pick_today(candidates: list, logs_by_question: dict, today: str) -> dict:
+def pick_today(candidates: list, logs_by_question: dict, today: str, subject_id=None) -> dict:
     """挑今天这一组：{'done': 今天已翻张数, 'cards': [题目编号, ...]}。
 
     candidates：候选题 [{'id', 'entered'}]（已核对、没删除、没毕业、有题干或原图）；
     logs_by_question：{题目编号: [翻牌记录]}，可以包含已经不在候选里的题——它们今天翻过也算进 done；
     cards 的张数 = DAILY_LIMIT - done 和可出的题数取小，不小于 0。
     """
-    done = sum(1 for logs in logs_by_question.values()
-               if any(str(row['flip_date'])[:10] == today for row in logs))
+    completed = [row for logs in logs_by_question.values()
+                 if (row := next((entry for entry in logs if str(entry['flip_date'])[:10] == today), None))]
     ranked = []
     for candidate in candidates:
+        if subject_id is not None and candidate['subject_id'] != subject_id:
+            continue
         state = {**history_state(logs_by_question.get(candidate['id'], [])),
                  'id': candidate['id'], 'entered': candidate['entered']}
         rank = due_rank(state, today)
         if rank is not None:
             ranked.append(rank)
     ranked.sort()
-    room = max(DAILY_LIMIT - done, 0)
+    room = max(DAILY_LIMIT - len(completed), 0)
+    done = sum(1 for row in completed if subject_id is None or row.get('subject_id') == subject_id)
     return {'done': done, 'cards': [rank[2] for rank in ranked[:room]]}

@@ -62,13 +62,13 @@ def adapter(c):
     return starmap_test.adapter(c)
 
 
-def today_body(c, today=TODAY):
+def today_body(c, today=TODAY, subject_id=None):
     """直接算某一天的 /api/flip/today 内容。"""
     import flip
-    return run(flip.build_today(adapter(c), 1, today))
+    return run(flip.build_today(adapter(c), 1, today, subject_id))
 
 
-def post(c, qid, payload, today=TODAY):
+def post(c, qid, payload, today=TODAY, subject_id=None):
     """直接调用 POST /api/flip/{question_id} 的处理函数（时间固定在 today 晚上）。"""
     import analytics
     import flip
@@ -77,7 +77,7 @@ def post(c, qid, payload, today=TODAY):
     from datetime import datetime
     analytics.now = lambda: datetime.strptime(today + ' 20:30:00', '%Y-%m-%d %H:%M:%S')
     try:
-        return run(flip.flip_one(qid, targeted_test.request_for(db, payload)))
+        return run(flip.flip_one(qid, targeted_test.request_for(db, payload), subject_id))
     finally:
         analytics.now = saved
 
@@ -221,6 +221,24 @@ def stable_fixture():
         add_question(c, qid, '2026-11-%02d 08:00:00.000000' % qid)
     c.commit()
     return c
+
+
+def test_subject_filter_shares_daily_limit():
+    """先按学科选题，提交返回本学科进度，切换学科后继续使用当天剩余额度。"""
+    c = stable_fixture()
+    add_question(c, 11, '2026-11-15 08:00:00', points=(), subject_id=2)
+    add_question(c, 12, '2026-11-01 07:00:00', points=(), subject_id=2)
+    c.commit()
+    assert ids(today_body(c, subject_id=2)) == [11, 12]
+    expect_status(404, lambda: post(c, 10, {'result': 'remember'}, subject_id=2))
+    assert post(c, 11, {'result': 'remember'}, subject_id=2) == {'done': 1, 'total': 2}
+    assert ids(today_body(c, subject_id=2)) == [12]
+    other = today_body(c, subject_id=1)
+    assert other['done'] == 0 and other['total'] == 7
+    for qid in ids(other):
+        post(c, qid, {'result': 'remember'}, subject_id=1)
+    assert today_body(c, subject_id=2) == {'total': 1, 'done': 1, 'cards': []}
+    assert today_body(c) == {'total': 8, 'done': 8, 'cards': []}
 
 
 def test_today_flipped_excluded_and_order_stable():
@@ -426,6 +444,7 @@ TESTS = [
     test_forgot_waits_2_days,
     test_remember_gaps_3_7_14,
     test_forget_resets_remember_streak,
+    test_subject_filter_shares_daily_limit,
     test_today_flipped_excluded_and_order_stable,
     test_card_fields,
     test_graduated_excluded,
