@@ -231,12 +231,12 @@ const planSummary = computed(() => summary(planData.value || { items: [] }))
 const canCreate = computed(() => !planLoading.value && !!planData.value?.items.length && !!subjectId.value)
 const preparePercent = computed(() => (prepareTotal.value ? Math.round(prepareDone.value / prepareTotal.value * 100) : 100))
 
-/** 顶部小字：上一份考点卷的出卷日期和状态，如"上一份考点卷：11月10日出，已批改 83%"。 */
+/** 顶部小字：上一份考点卷的出卷日期和状态，如"上一份考点卷：11月10日出，已批改，得分 83%"。 */
 const lastPaperText = computed(() => {
   const last = lastPaper.value
   if (!last) return ''
   let state = STATE_LABELS[last.state] || ''
-  if (last.state === 'graded' && last.accuracy !== null && last.accuracy !== undefined) state += ` ${Math.round(last.accuracy)}%`
+  if (last.state === 'graded' && last.accuracy !== null && last.accuracy !== undefined) state += `，得分 ${Math.round(last.accuracy)}%`
   return `上一份考点卷：${format_date(last.created_at)}出，${state}`
 })
 
