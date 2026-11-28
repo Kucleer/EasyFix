@@ -43,13 +43,13 @@ const flip_left = computed(() => Math.max(0, (props.flip?.total || 0) - (props.f
 </script>
 
 <style scoped>
-.kid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.kid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--home-gap, 18px); }
 .kid.single { grid-template-columns: 1fr; }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 700; }
 
 /* 大卡：整块可点，底边一道深色像按钮，按下去会往下沉 */
 .kid-card {
-  position: relative; overflow: hidden; min-height: 168px; padding: 22px 24px; border-radius: var(--r-lg);
+  position: relative; overflow: hidden; min-height: var(--home-entry-height, 168px); padding: 22px 24px; border-radius: var(--r-lg);
   color: #fff; text-decoration: none; display: flex; flex-direction: column;
   box-shadow: inset 0 -5px 0 rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.25), var(--shadow-2);
   transition: transform .16s ease-out, box-shadow .16s ease-out;
@@ -85,6 +85,14 @@ const flip_left = computed(() => Math.max(0, (props.flip?.total || 0) - (props.f
 .mini:nth-child(2) { right: 22px; top: 2px; transform: rotate(-2deg); background: rgba(255,255,255,.28); }
 .mini:nth-child(3) { right: 0; top: 6px; transform: rotate(9deg); background: rgba(255,255,255,.92); display: grid; place-items: center; color: var(--mint); }
 .mini :deep(.line-icon) { stroke-width: 2.6; }
+
+@media (min-width: 1200px) {
+  .kid-card { padding: 26px 28px; }
+  .title { font-size: 30px; }
+  .count .num { font-size: 48px; }
+  .deco { top: 22px; right: 26px; }
+  .start { right: 26px; bottom: 24px; }
+}
 
 @media (max-width: 768px) {
   .kid { grid-template-columns: 1fr; gap: 12px; }

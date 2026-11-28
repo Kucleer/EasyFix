@@ -48,6 +48,14 @@ p { margin: 2px 0 0; font-size: 13px; color: #b9bdd6; }
 .good { color: #9ff0c8; }
 .link { display: flex; align-items: center; gap: 4px; min-height: 44px; margin: 10px 0 -8px auto; padding: 0 4px; color: #d7d4ff; font-weight: 600; font-size: 14px; }
 
+@media (min-width: 1200px) {
+  .sky { padding: 22px 26px; }
+  b { font-size: 18px; }
+  .sky-nums > div { padding: 12px 8px; }
+  .num { font-size: 28px; }
+  .label { font-size: 14px; }
+}
+
 @media (max-width: 768px) {
   .sky { min-height: 0; padding: 16px; }
 }

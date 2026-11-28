@@ -43,6 +43,11 @@ h1::before {
   background: var(--surface); color: var(--sun); font-weight: 600; font-size: 13px; box-shadow: var(--shadow-1); white-space: nowrap;
 }
 
+@media (min-width: 1200px) {
+  .hello { margin-bottom: 24px; }
+  h1 { font-size: 32px; }
+}
+
 @media (max-width: 768px) {
   .hello { flex-direction: column; align-items: flex-start; gap: 10px; }
   h1 { font-size: 21px; padding-left: 16px; }

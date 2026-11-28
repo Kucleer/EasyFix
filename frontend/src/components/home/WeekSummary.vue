@@ -87,6 +87,15 @@ const numbers = computed(() => {
 .chip.down { background: var(--sun-soft); color: var(--sun); }
 .quiet { margin: 0; font-size: 13px; color: var(--muted); }
 
+@media (min-width: 1200px) {
+  .card { min-height: var(--home-week-height, 280px); padding: 22px 26px; }
+  .card-head b { font-size: 18px; }
+  .day i { height: 44px; }
+  .nums > div { padding: 12px 14px; }
+  .num { font-size: 26px; }
+  .label { font-size: 14px; }
+}
+
 @media (max-width: 768px) {
   .card { padding: 16px; }
   .days { gap: 5px; }

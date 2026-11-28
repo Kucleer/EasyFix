@@ -63,10 +63,10 @@ const targeted_text = computed(() => targeted_hint(props.targeted.last_created_a
 </script>
 
 <style scoped>
-.todo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.todo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--home-gap, 14px); }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 700; }
 .todo-item {
-  min-width: 0; min-height: 76px; display: flex; align-items: center; gap: 14px; padding: 14px 16px;
+  min-width: 0; min-height: var(--home-todo-height, 76px); display: flex; align-items: center; gap: 14px; padding: 14px 16px;
   border-radius: var(--r-md); background: var(--surface); color: var(--ink); text-decoration: none;
   box-shadow: var(--shadow-1); border: 1px solid transparent; transition: border-color .18s, box-shadow .18s;
 }

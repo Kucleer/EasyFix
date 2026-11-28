@@ -11,7 +11,10 @@
 
     <!-- 读取中：灰色占位块，和真正的版式一样大，读完不跳动 -->
     <div v-else-if="!home" class="home-skeleton" aria-busy="true" aria-label="正在读取">
-      <div class="bone kid-bone"></div>
+      <div class="entry-bones" :class="{ 'entry-bones-pair': FLIP_READY }">
+        <div class="bone kid-bone"></div>
+        <div v-if="FLIP_READY" class="bone kid-bone"></div>
+      </div>
       <div class="zone">家长待办</div>
       <div class="bone-row"><div class="bone todo-bone"></div><div class="bone todo-bone"></div><div class="bone todo-bone"></div></div>
       <div class="zone">这一周</div>
@@ -43,6 +46,7 @@ import SkyCard from '@/components/home/SkyCard.vue'
 import { homeApi } from '@/api/home'
 import { beijingDate } from '@/data/dailyLines'
 import { useReviewCountStore } from '@/stores/reviewCount'
+import { FLIP_READY } from '@/config/features'
 
 const reviewCountStore = useReviewCountStore()
 
@@ -75,14 +79,14 @@ onMounted(load_home)
 </script>
 
 <style scoped>
-.home-page { max-width: 1100px; }
+.home-page { max-width: 1520px; margin-inline: auto; }
 
 /* 分区小标题：文字后面拖一条细线 */
 .zone { display: flex; align-items: center; gap: 12px; margin: 30px 0 12px; font-size: 13px; color: var(--muted); letter-spacing: 1.5px; }
 .zone::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
 /* 这一周：左边周概况，右边星空卡 */
-.week { display: grid; grid-template-columns: 1.7fr 1fr; gap: 16px; }
+.week { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: var(--home-gap, 16px); }
 
 .home-error {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 20px 22px;
@@ -91,16 +95,30 @@ onMounted(load_home)
 
 /* 占位块：浅灰底，轻轻地一明一暗 */
 .bone { border-radius: var(--r-lg); background: #e9e8f4; animation: breathe 1.4s ease-in-out infinite; }
-.kid-bone { height: 168px; }
-.bone-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-.todo-bone { height: 76px; border-radius: var(--r-md); }
-.week-bone { height: 260px; }
+.entry-bones { display: grid; gap: var(--home-gap, 12px); }
+.entry-bones-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kid-bone { height: var(--home-entry-height, 168px); }
+.bone-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--home-gap, 14px); }
+.todo-bone { height: var(--home-todo-height, 76px); border-radius: var(--r-md); }
+.week-bone { height: var(--home-week-height, 260px); }
 @keyframes breathe { 50% { opacity: .55; } }
+
+@media (min-width: 1200px) {
+  .home-page {
+    --home-gap: clamp(18px, 1.25vw, 26px);
+    --home-entry-height: clamp(184px, 13vw, 216px);
+    --home-todo-height: 88px;
+    --home-week-height: 280px;
+    padding-top: 8px;
+  }
+  .zone { margin: 34px 0 14px; font-size: 14px; font-weight: 600; letter-spacing: .5px; }
+}
 
 @media (max-width: 768px) {
   .zone { margin: 22px 0 10px; }
   .week { grid-template-columns: 1fr; gap: 12px; }
   .kid-bone { height: 138px; }
+  .entry-bones-pair { grid-template-columns: 1fr; }
   .bone-row { grid-template-columns: 1fr; gap: 10px; }
   .week-bone { height: 220px; }
 }
