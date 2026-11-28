@@ -42,11 +42,7 @@
     </aside>
 
     <!-- 页面内容（不再有顶部栏） -->
-    <main class="app-main">
-      <RouterView v-slot="{ Component, route }">
-        <component :is="Component" :key="route.meta.separateView ? route.name : undefined" />
-      </RouterView>
-    </main>
+    <main class="app-main"><router-view /></main>
 
     <!-- 手机底部导航：固定 4 格 + "更多" -->
     <nav class="mobile-navigation" aria-label="手机导航">
@@ -122,7 +118,6 @@ const ITEMS = {
   home: { id: 'home', name: '首页', to: '/', match: (path) => path === '/' },
   words: { id: 'words', name: '单词', to: '/words', match: (path) => path === '/words' },
   flip: { id: 'flip', name: '翻一翻', to: '/flip', is_new: true, match: (path) => path === '/flip' },
-  englishFlip: { id: 'english-flip', name: '英语错题翻一翻', to: '/flip/english', match: (path) => path === '/flip/english' },
   reading: {
     id: 'reading', name: '阅读', to: '/reading',
     // 阅读练习页也算"阅读"
@@ -150,12 +145,12 @@ const ITEMS = {
 for (const item of Object.values(ITEMS)) item.icon = item.id
 
 // 隐藏还没做好的入口
-const ready = (item) => !['flip', 'english-flip'].includes(item.id) || FLIP_READY
+const ready = (item) => item.id !== 'flip' || FLIP_READY
 
 // 电脑侧栏的分组（照样稿 NAV）；没有标题的组只显示菜单项
 const nav_groups = [
   { key: 'top', label: '', items: [ITEMS.home] },
-  { key: 'student', label: '学生用', items: [ITEMS.words, ITEMS.flip, ITEMS.englishFlip, ITEMS.reading] },
+  { key: 'student', label: '学生用', items: [ITEMS.words, ITEMS.flip, ITEMS.reading] },
   { key: 'parent', label: '家长用', items: [ITEMS.questions, ITEMS.practice] },
   { key: 'result', label: '看成果', items: [ITEMS.weekly, ITEMS.insight] },
   { key: 'end', label: '', items: [ITEMS.settings] },

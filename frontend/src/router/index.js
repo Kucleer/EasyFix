@@ -120,10 +120,7 @@ const routes = [
   },
   {
     path: '/flip/english',
-    name: 'EnglishFlip',
-    component: () => import('@/views/Flip.vue'),
-    props: { english: true },
-    meta: { title: '英语错题翻一翻', separateView: true },
+    redirect: '/flip',
   },
   {
     // 周报：每周一期，打开时会自动补做还没生成好的那一期

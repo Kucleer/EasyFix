@@ -4,7 +4,8 @@
     <span class="qtag">{{ card.tag }}</span>
 
     <!-- 题目：有题干显示题干（公式用 MathText）；只有原图时直接显示原图 -->
-    <div v-if="card.stem" class="qstem"><MathText :text="card.stem" /></div>
+    <div v-if="word" class="qstem" lang="en">{{ card.stem }}</div>
+    <div v-else-if="card.stem" class="qstem"><MathText :text="card.stem" /></div>
     <div v-if="card.image_only || show_images" class="qimages">
       <el-image
         v-for="(src, i) in card.images"
@@ -31,8 +32,9 @@
 
     <!-- 正确答案和解析：看答案之后才出现 -->
     <div v-if="revealed" class="right">
-      <small>正确答案</small>
-      <b><MathText :text="card.answer || '没有记录答案'" /></b>
+      <small>{{ word ? '中文释义' : '正确答案' }}</small>
+      <b v-if="word">{{ card.answer || '没有记录释义' }}</b>
+      <b v-else><MathText :text="card.answer || '没有记录答案'" /></b>
       <p v-if="card.analysis"><MathText :text="card.analysis" /></p>
       <el-image
         v-if="card.analysis_image"
@@ -48,7 +50,8 @@
     <div class="grow"></div>
 
     <!-- 按钮：先"想好了，看答案"，看过之后换成"我忘了 / 我记得"；提交中两个按钮都不能点 -->
-    <div v-if="revealed" class="pair">
+    <button v-if="revealed && word" type="button" class="btn primary" @click="emit('next')">{{ last ? '完成' : '下一张' }}</button>
+    <div v-else-if="revealed" class="pair">
       <button type="button" class="btn no" :disabled="submitting" @click="emit('answer', 'forget')">
         <LineIcon name="again" />我忘了
       </button>
@@ -56,7 +59,7 @@
         <LineIcon name="check" />我记得
       </button>
     </div>
-    <button v-else type="button" class="btn primary" @click="emit('reveal')">想好了，看答案</button>
+    <button v-else type="button" class="btn primary" @click="emit('reveal')">{{ word ? '查看释义' : '想好了，看答案' }}</button>
   </article>
 </template>
 
@@ -72,8 +75,10 @@ defineProps({
   revealed: { type: Boolean, default: false },
   // 正在提交"我记得 / 我忘了"，按钮先禁用，防止连点翻过两张
   submitting: { type: Boolean, default: false },
+  word: Boolean,
+  last: Boolean,
 })
-const emit = defineEmits(['reveal', 'answer'])
+const emit = defineEmits(['reveal', 'answer', 'next'])
 
 // 有题干时原图默认收起；换卡片时父组件用 :key 重新创建本组件，这里自然回到收起
 const show_images = ref(false)

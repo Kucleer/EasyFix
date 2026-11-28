@@ -1,5 +1,5 @@
 <template>
-  <!-- 学生的复习入口 -->
+  <!-- 学生的两张大卡：背单词、翻一翻错题。翻一翻没上线时只有背单词一张，占满一行 -->
   <section class="kid" :class="{ single: !show_flip }" aria-label="学生的入口">
     <RouterLink class="kid-card words" to="/words">
       <span class="deco" aria-hidden="true"><span class="tile">a</span><span class="tile">b</span><span class="tile">c</span></span>
@@ -16,15 +16,9 @@
         <span class="mini"></span><span class="mini"></span><span class="mini"><LineIcon name="check" :size="28" /></span>
       </span>
       <span class="eyebrow">今天</span>
-      <span class="title">翻一翻错题</span>
-      <span v-if="flip_left > 0" class="count"><span class="num">{{ flip_left }}</span>张</span>
-      <span v-else class="count">{{ flip.total > 0 ? '今天翻完了' : '今天没有要翻的' }}</span>
+      <span class="title">翻一翻</span>
+      <span class="count">选学科开始复习</span>
       <span class="start">开始<LineIcon name="arrow" :size="18" /></span>
-    </RouterLink>
-    <RouterLink v-if="show_flip" class="english-entry" to="/flip/english">
-      <LineIcon name="flip" :size="20" />
-      <span>英语错题翻一翻</span>
-      <LineIcon name="arrow" :size="18" />
     </RouterLink>
   </section>
 </template>
@@ -43,20 +37,11 @@ const props = defineProps({
 
 // 开关打开、并且后端给了翻一翻的数据，才显示翻一翻卡
 const show_flip = computed(() => FLIP_READY && !!props.flip)
-// 今天这组还剩几张没翻
-const flip_left = computed(() => Math.max(0, (props.flip?.total || 0) - (props.flip?.done || 0)))
 </script>
 
 <style scoped>
 .kid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--home-gap, 18px); }
 .kid.single { grid-template-columns: 1fr; }
-.english-entry {
-  grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 14px 18px;
-  border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1);
-  color: var(--ink); text-decoration: none; font-weight: 700;
-}
-.english-entry span { flex: 1; }
-.english-entry:focus-visible { outline: 3px solid #a5a0f5; outline-offset: 2px; }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 700; }
 
 /* 大卡：整块可点，底边一道深色像按钮，按下去会往下沉 */
