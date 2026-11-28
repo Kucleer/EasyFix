@@ -1,7 +1,7 @@
 <template>
   <!-- 翻一翻：每天一组旧错题卡片，看题 → 想 → 看答案 → 点"我记得 / 我忘了"。手机优先，电脑上居中一张卡 -->
   <div class="flip-page">
-    <div class="subject-picker">
+    <div v-if="!english" class="subject-picker">
       <span id="flip-subject-label">复习学科</span>
       <el-select
         v-model="subject_id"
@@ -11,14 +11,14 @@
         :disabled="loading || submitting"
         @change="load_today"
       >
-        <el-option label="全部学科" :value="0" />
+        <el-option label="所有其他学科" :value="0" />
         <el-option v-for="subject in subjects" :key="subject.id" :label="subject.name" :value="subject.id" />
       </el-select>
       <el-button v-if="subjects_failed" @click="load_subjects">重试加载学科</el-button>
     </div>
 
     <!-- 读取中；手里的卡片翻完、服务器说还有没翻的时候也先显示这个，再重新取 -->
-    <template v-if="subject_id === null" />
+    <template v-if="!english && subject_id === null" />
     <div v-else-if="loading || state === 'reload'" class="flip-loading" aria-busy="true" aria-label="正在读取">
       <div class="bone top-bone"></div>
       <div class="bone card-bone"></div>
@@ -33,7 +33,7 @@
     <!-- 今天没有要翻的 -->
     <div v-else-if="state === 'empty'" class="finish">
       <div class="medal calm"><LineIcon name="flip" :size="52" /></div>
-      <h1>今天没有要翻的</h1>
+      <h1>{{ english ? '今天没有可翻的英语错题' : '今天没有要翻的' }}</h1>
       <p v-if="subject_id">该学科暂无可翻的卡片，可以切换学科查看。</p>
       <p v-else>错题都还没到再看的时候，过几天再来。</p>
       <RouterLink class="btn primary small" to="/">回首页</RouterLink>
@@ -42,7 +42,7 @@
     <!-- 今天翻完了：不能继续刷 -->
     <div v-else-if="state === 'finished'" class="finish">
       <div class="medal"><LineIcon name="check" :size="52" /></div>
-      <h1>{{ subject_id ? '本学科翻完了' : '今天翻完了' }}</h1>
+      <h1>{{ english ? '今天的英语错题翻完了' : subject_id ? '本学科翻完了' : '今天翻完了' }}</h1>
       <p>{{ finish_line }}</p>
       <RouterLink class="btn primary small" to="/">回首页</RouterLink>
     </div>
@@ -50,7 +50,7 @@
     <!-- 正在翻 -->
     <template v-else>
       <div class="flip-top">
-        <b>翻一翻</b>
+        <b>{{ english ? '英语错题翻一翻' : '翻一翻' }}</b>
         <div class="seg" aria-hidden="true"><i v-for="(dot, i) in dots" :key="i" :class="dot"></i></div>
         <span class="progress num">{{ progress }}</span>
       </div>
@@ -78,11 +78,13 @@ import { flipApi } from '@/api/flip'
 import { useCatalogStore } from '@/stores/catalog'
 import { after_record, card_view, finish_text, page_state, progress_dots, progress_text } from '@/components/flip/flipModel'
 
+const props = defineProps({ english: Boolean })
+const scope = computed(() => props.english ? 'english' : 'other')
 const today = ref(null)        // /api/flip/today 的返回：{ total, done, cards }；没读到之前是 null
 const index = ref(0)           // 这次打开后翻到 cards 里的第几张
 const revealed = ref(false)    // 当前卡片是否已经看了答案
 const submitting = ref(false)  // 正在提交"我记得 / 我忘了"
-const loading = ref(false)
+const loading = ref(props.english)
 const subject_id = ref(null)
 const subjects = ref([])
 const subjects_loading = ref(false)
@@ -93,7 +95,7 @@ async function load_subjects() {
   subjects_loading.value = true
   subjects_failed.value = false
   try {
-    subjects.value = await catalog.loadSubjects()
+    subjects.value = (await catalog.loadSubjects()).filter(subject => subject.name !== '英语')
   } catch {
     subjects_failed.value = true
   } finally {
@@ -114,7 +116,7 @@ const finish_line = computed(() => finish_text(today.value.total))
 async function load_today() {
   loading.value = true
   try {
-    const { data } = await flipApi.today(subject_id.value || undefined)
+    const { data } = await flipApi.today(subject_id.value || undefined, scope.value)
     today.value = data
     index.value = 0
     revealed.value = false
@@ -135,7 +137,7 @@ async function answer(result) {
   submitting.value = true
   const question_id = card.value.id
   try {
-    const { data } = await flipApi.record(question_id, result, subject_id.value || undefined)
+    const { data } = await flipApi.record(question_id, result, subject_id.value || undefined, scope.value)
     // 用服务器算的进度（和首页、周报一致），换下一张
     const next = after_record(today.value, index.value, data)
     today.value = next.today
@@ -156,7 +158,7 @@ async function answer(result) {
   }
 }
 
-onMounted(load_subjects)
+onMounted(props.english ? load_today : load_subjects)
 </script>
 
 <style scoped>

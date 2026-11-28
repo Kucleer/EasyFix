@@ -62,13 +62,13 @@ def adapter(c):
     return starmap_test.adapter(c)
 
 
-def today_body(c, today=TODAY, subject_id=None):
+def today_body(c, today=TODAY, subject_id=None, scope=None):
     """直接算某一天的 /api/flip/today 内容。"""
     import flip
-    return run(flip.build_today(adapter(c), 1, today, subject_id))
+    return run(flip.build_today(adapter(c), 1, today, subject_id, scope))
 
 
-def post(c, qid, payload, today=TODAY, subject_id=None):
+def post(c, qid, payload, today=TODAY, subject_id=None, scope=None):
     """直接调用 POST /api/flip/{question_id} 的处理函数（时间固定在 today 晚上）。"""
     import analytics
     import flip
@@ -77,7 +77,7 @@ def post(c, qid, payload, today=TODAY, subject_id=None):
     from datetime import datetime
     analytics.now = lambda: datetime.strptime(today + ' 20:30:00', '%Y-%m-%d %H:%M:%S')
     try:
-        return run(flip.flip_one(qid, targeted_test.request_for(db, payload), subject_id))
+        return run(flip.flip_one(qid, targeted_test.request_for(db, payload), subject_id, scope))
     finally:
         analytics.now = saved
 
@@ -239,6 +239,27 @@ def test_subject_filter_shares_daily_limit():
         post(c, qid, {'result': 'remember'}, subject_id=1)
     assert today_body(c, subject_id=2) == {'total': 1, 'done': 1, 'cards': []}
     assert today_body(c) == {'total': 8, 'done': 8, 'cards': []}
+
+
+def test_english_scope_prioritizes_low_pass_rate():
+    """英语专场按有效练习的通过率选到期题，两组错题各自记录进度。"""
+    c = stable_fixture()
+    for qid in range(11, 16):
+        add_question(c, qid, '2026-11-%02d 08:00:00' % qid, points=(), subject_id=2)
+    targeted_test.add_set(c, 1, '2026-11-16 08:00:00', '2026-11-16 20:00:00',
+                          [(11, False, 'original'), (12, False, 'original'), (13, True, 'original')])
+    targeted_test.add_set(c, 2, '2026-11-17 08:00:00', '2026-11-17 20:00:00',
+                          [(12, True, 'similar'), (15, False, 'original')])
+    add_log(c, 15, 'remember', '2026-11-19')
+    c.commit()
+    assert ids(today_body(c, scope='english')) == [11, 12, 13, 14]
+    other = today_body(c, scope='other')
+    assert ids(other) == [10, 9, 8, 7, 6, 5, 4, 3]
+    expect_status(404, lambda: post(c, 11, {'result': 'remember'}, scope='other'))
+    expect_status(404, lambda: post(c, 10, {'result': 'remember'}, scope='english'))
+    assert post(c, 11, {'result': 'remember'}, scope='english') == {'done': 1, 'total': 4}
+    assert today_body(c, scope='other') == other
+    assert ids(today_body(c, scope='english')) == [12, 13, 14]
 
 
 def test_today_flipped_excluded_and_order_stable():
@@ -445,6 +466,7 @@ TESTS = [
     test_remember_gaps_3_7_14,
     test_forget_resets_remember_streak,
     test_subject_filter_shares_daily_limit,
+    test_english_scope_prioritizes_low_pass_rate,
     test_today_flipped_excluded_and_order_stable,
     test_card_fields,
     test_graduated_excluded,

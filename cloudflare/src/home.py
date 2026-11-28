@@ -89,7 +89,7 @@ async def build_home(db, request, moment: datetime) -> dict:
         'grading': await targeted.pending_grading(db, student_id),
         'targeted': {'last_created_at': await last_targeted_at(db, student_id)},
         'words': {'due': await due_word_count(db, moment, student_id)},
-        'flip': await flip.today_progress(db, student_id, moment.strftime(DATE_FORMAT)),
+        'flip': await flip.today_progress(db, student_id, moment.strftime(DATE_FORMAT), scope='other'),
         'streak_days': streak_days(streak_dates, moment.strftime(DATE_FORMAT)),
         'week': {'monday': win['monday'], 'sunday': win['sunday'],
                  'days': week_days(win['monday'], dictated_dates | flipped_dates),
