@@ -17,9 +17,17 @@
       <el-button v-if="subjects_failed" @click="load_subjects">重试加载学科</el-button>
       <template v-if="english">
         <span id="flip-mode-label">复习内容</span>
-        <el-radio-group v-model="mode" aria-labelledby="flip-mode-label" :disabled="loading || submitting" @change="load_today">
-          <el-radio-button value="questions">错题</el-radio-button>
-          <el-radio-button value="words">单词</el-radio-button>
+        <el-radio-group v-model="mode" class="mode-tabs" aria-labelledby="flip-mode-label" :disabled="loading || submitting" @change="load_today">
+          <el-radio-button value="questions" class="mode-tab mode-tab--questions">
+            <span class="mode-heading"><span class="mode-icon"><LineIcon name="questions" :size="20" /></span><strong>错题</strong></span>
+            <span class="mode-description">重看做错的题</span>
+            <LineIcon v-if="mode === 'questions'" name="check" :size="18" class="mode-check" />
+          </el-radio-button>
+          <el-radio-button value="words" class="mode-tab mode-tab--words">
+            <span class="mode-heading"><span class="mode-icon"><LineIcon name="words" :size="20" /></span><strong>单词</strong></span>
+            <span class="mode-description">看英文猜释义</span>
+            <LineIcon v-if="mode === 'words'" name="check" :size="18" class="mode-check" />
+          </el-radio-button>
         </el-radio-group>
       </template>
     </div>
@@ -209,6 +217,48 @@ onMounted(load_subjects)
 .flip-page { max-width: 480px; margin: 0 auto; color: var(--ink); }
 .subject-picker { display: grid; gap: 8px; margin-bottom: 18px; }
 .subject-picker > span { font-weight: 700; }
+#flip-mode-label { margin-top: 6px; }
+.mode-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.mode-tab { --mode-color: var(--brand-deep); --mode-tint: var(--brand-soft); }
+.mode-tab--words { --mode-color: var(--mint-deep); --mode-tint: var(--mint-soft); }
+.mode-tabs .mode-tab :deep(.el-radio-button__inner) {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 98px;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  color: var(--ink);
+  white-space: normal;
+  transition: background-color .16s, border-color .16s;
+}
+.mode-tabs .mode-tab.is-active :deep(.el-radio-button__inner),
+.mode-tabs .mode-tab:not(.is-disabled):hover :deep(.el-radio-button__inner) {
+  border-color: var(--mode-color);
+  background: var(--mode-tint);
+}
+.mode-tabs .mode-tab :deep(input:focus-visible + .el-radio-button__inner) {
+  outline: 3px solid var(--mode-color);
+  outline-offset: 3px;
+}
+.mode-heading { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; }
+.mode-icon {
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border-radius: 10px; background: var(--mode-tint); color: var(--mode-color);
+}
+.mode-tab.is-active .mode-icon { background: var(--mode-color); color: #fff; }
+.mode-description { color: var(--muted); font-size: 13px; line-height: 1.4; text-align: left; }
+.mode-check { position: absolute; top: 9px; right: 9px; color: var(--mode-color); }
+@media (prefers-reduced-motion: reduce) {
+  .mode-tabs .mode-tab :deep(.el-radio-button__inner) { transition: none; }
+}
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 700; }
 
 /* 顶部：标题 + 分段进度条 + 第几张 / 共几张 */
